@@ -713,6 +713,9 @@ func _create_hand_tile(tile: Domino, index: int) -> Button:
 	bot.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	vbox.add_child(bot)
 
+	# All children must be transparent to mouse so the Button receives clicks
+	_ignore_mouse(vbox)
+
 	btn.pressed.connect(_on_tile_left_click.bind(index))
 	btn.gui_input.connect(func(ev: InputEvent) -> void:
 		if ev is InputEventMouseButton:
@@ -724,26 +727,27 @@ func _create_hand_tile(tile: Domino, index: int) -> Button:
 
 func _build_chain_tile(disp_left: int, disp_right: int) -> Control:
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(104, 68)
+	panel.custom_minimum_size = Vector2(76, 136)   # portrait, same height as hand tile
 	var style := StyleBoxFlat.new()
-	style.bg_color     = C_TILE_FACE
+	style.bg_color     = C_TILE_FACE.darkened(0.06)  # slightly dimmer than active hand tiles
 	style.border_color = C_TILE_BORDER
 	style.set_border_width_all(2)
 	style.set_corner_radius_all(6)
 	panel.add_theme_stylebox_override("panel", style)
 
-	var hbox := HBoxContainer.new()
-	hbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	hbox.add_theme_constant_override("separation", 0)
-	panel.add_child(hbox)
+	var vbox := VBoxContainer.new()
+	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	vbox.add_theme_constant_override("separation", 0)
+	vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(vbox)
 
-	var ll := _make_pip_display(disp_left,  12, C_PIP_DOT)
-	ll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	hbox.add_child(ll)
-	hbox.add_child(_make_tile_vsep())
-	var rl := _make_pip_display(disp_right, 12, C_PIP_DOT)
-	rl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	hbox.add_child(rl)
+	var top := _make_pip_display(disp_left,  12, C_PIP_DOT)
+	top.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(top)
+	vbox.add_child(_make_tile_hsep())
+	var bot := _make_pip_display(disp_right, 12, C_PIP_DOT)
+	bot.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(bot)
 	return panel
 
 ## Build a pip-dot display for one half of a domino.
@@ -791,6 +795,14 @@ func _make_pip_display(pip: int, dot_size: int, dot_color: Color) -> Control:
 	wrap.size_flags_vertical   = Control.SIZE_EXPAND_FILL
 	wrap.add_child(grid)
 	return wrap
+
+## Recursively set MOUSE_FILTER_IGNORE on a node and all its Control children,
+## so mouse events pass through to the parent Button unobstructed.
+func _ignore_mouse(node: Node) -> void:
+	if node is Control:
+		(node as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for child in node.get_children():
+		_ignore_mouse(child)
 
 func _make_tile_hsep() -> Control:
 	var sep := ColorRect.new()
@@ -934,11 +946,11 @@ func _build_table_area() -> Control:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(title)
 
-	# Chain tiles — centred, expands to take all vertical space
+	# Chain tiles — centred horizontally, shrinks vertically to tile height
 	_chain_container = HBoxContainer.new()
-	_chain_container.alignment           = BoxContainer.ALIGNMENT_CENTER
+	_chain_container.alignment             = BoxContainer.ALIGNMENT_CENTER
 	_chain_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_chain_container.size_flags_vertical   = Control.SIZE_EXPAND_FILL
+	_chain_container.size_flags_vertical   = Control.SIZE_SHRINK_CENTER
 	_chain_container.add_theme_constant_override("separation", 10)
 	vbox.add_child(_chain_container)
 
