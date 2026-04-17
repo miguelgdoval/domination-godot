@@ -2,14 +2,18 @@
 ## Autoloaded as "GameState".
 extends Node
 
-var round_index:    int = 0
-var monedas:        int = 0
-var difficulty:     int = Constants.Difficulty.NORMAL
-var chosen_core:    int = 0   # index into Constants.CORE_*
-var chosen_protocol: int = 0  # index into Constants.PROTOCOL_*
-var box:            Box
-var modules:        Array = []   # Array[Module] — equipped Calibration Modules
-var module_slots:   int = Constants.BASE_MODULE_SLOTS
+var round_index:     int = 0
+var monedas:         int = 0
+var difficulty:      int = Constants.Difficulty.NORMAL
+var chosen_core:     int = 0   # index into Constants.CORE_*
+var chosen_protocol: int = 0   # index into Constants.PROTOCOL_*
+var box:             Box
+var modules:         Array = []   # Array[Module] — equipped Calibration Modules
+var module_slots:    int = Constants.BASE_MODULE_SLOTS
+# Run stats (reset each run)
+var total_chronos:   int = 0   # cumulative Chronos across all rounds
+var best_hand:       int = 0   # highest single-hand Chronos this run
+var hands_played:    int = 0   # total hands played this run
 
 # ---------------------------------------------------------------------------
 # Run initialisation
@@ -24,6 +28,9 @@ func start_run(p_core: int = 0, p_protocol: int = 0,
 	box             = Box.create_for_core(p_core)
 	modules         = []
 	module_slots    = Constants.BASE_MODULE_SLOTS
+	total_chronos   = 0
+	best_hand       = 0
+	hands_played    = 0
 	# Protocol starting bonus
 	monedas += Constants.PROTOCOL_BONUS_MONEDAS[p_protocol]
 
@@ -112,6 +119,12 @@ func total_rounds() -> int:
 
 func is_run_complete() -> bool:
 	return round_index >= total_rounds()
+
+func record_hand(score: int) -> void:
+	total_chronos += score
+	hands_played  += 1
+	if score > best_hand:
+		best_hand = score
 
 func round_display() -> String:
 	return "Round %d / %d" % [round_index + 1, total_rounds()]

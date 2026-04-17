@@ -24,6 +24,22 @@ const C_TILE_DIVIDER    := Color(0.42, 0.36, 0.26)
 const C_TILE_PIP        := Color(0.10, 0.08, 0.06)
 const C_TITLE_GLOW      := Color(0.85, 0.70, 0.30)
 const C_SELECTED_BORDER := Color(0.85, 0.75, 0.30)
+const C_PIP_DOT         := Color(0.12, 0.10, 0.08)
+const C_PIP_DOT_TILE    := Color(0.92, 0.88, 0.80)  # pip on chain tile (dark bg not needed)
+
+# Pip positions in a 3×3 grid (index 0-8, left-to-right top-to-bottom)
+const PIP_POSITIONS: Array = [
+	[],                             # 0
+	[4],                            # 1
+	[2, 6],                         # 2
+	[2, 4, 6],                      # 3
+	[0, 2, 6, 8],                   # 4
+	[0, 2, 4, 6, 8],                # 5
+	[0, 2, 3, 5, 6, 8],             # 6
+	[0, 2, 3, 4, 5, 6, 8],          # 7
+	[0, 1, 2, 3, 5, 6, 7, 8],       # 8
+	[0, 1, 2, 3, 4, 5, 6, 7, 8],    # 9
+]
 
 # Rarity badge colours
 const C_RARITY := [
@@ -243,13 +259,8 @@ func _end_round(won: bool) -> void:
 			"ARTISAN'S WORKSHOP" if GameState.is_boss_round() else "BRASS EMPORIUM"
 		_btn_result_action.text = "VISIT " + shop_name
 	else:
-		_phase = Phase.GAME_OVER
-		_lbl_result.text = "SIMULATION FAILURE"
-		_lbl_result.add_theme_color_override("font_color", C_LOSE)
-		_lbl_result_sub.text = \
-			"Chronos: %d / %d\n\nREINITIALIZING PROTOCOL.\nOPERATOR REMAINS AVAILABLE." % \
-			[_rm.chronos, _rm.target]
-		_btn_result_action.text = "NEW TRIAL CYCLE"
+		_show_run_end(false)
+		return
 	_result_overlay.show()
 
 func _show_shop() -> void:
@@ -289,6 +300,7 @@ func _on_hand_changed() -> void:
 func _on_hand_scored(result: Dictionary) -> void:
 	_lbl_last_hand.text = "%d chips  ×  %d  =  %d Chronos" % [
 		result["chips"], result["mult"], result["total"]]
+	GameState.record_hand(result["total"])
 	# Check play-based directives
 	var dir_bonus: int = _dm.check_play(result)
 	if dir_bonus > 0:
@@ -403,16 +415,50 @@ func _on_confirm_removal_pressed() -> void:
 func _on_shop_continue_pressed() -> void:
 	GameState.advance_round()
 	if GameState.is_run_complete():
-		_phase = Phase.VICTORY
-		_lbl_result.text = "CHRONOMETER RECALIBRATED"
-		_lbl_result.add_theme_color_override("font_color", C_MONEDAS)
-		_lbl_result_sub.text = \
-			"The Perpetual Chronometer stabilizes.\nEntropy contained. For now.\n\nOPERATOR COMMENDED."
-		_btn_result_action.text = "NEW TRIAL CYCLE"
-		_shop_overlay.hide()
-		_result_overlay.show()
+		_show_run_end(true)
 		return
 	_start_round()
+
+func _show_run_end(victory: bool) -> void:
+	_phase = Phase.VICTORY if victory else Phase.GAME_OVER
+	_shop_overlay.hide()
+
+	if victory:
+		_lbl_result.text = "CHRONOMETER RECALIBRATED"
+		_lbl_result.add_theme_color_override("font_color", C_MONEDAS)
+	else:
+		_lbl_result.text = "SIMULATION FAILURE"
+		_lbl_result.add_theme_color_override("font_color", C_LOSE)
+
+	# Build run stats string
+	var rounds_done: int = GameState.round_index   # already advanced if victory
+	if not victory:
+		rounds_done = GameState.round_index
+	var total_rounds: int = GameState.total_rounds()
+
+	var stats: String = ""
+	if victory:
+		stats += "The Perpetual Chronometer stabilizes. Entropy contained.\n\n"
+	else:
+		stats += "REINITIALIZING PROTOCOL. OPERATOR REMAINS AVAILABLE.\n\n"
+
+	stats += "Rounds completed:   %d / %d\n" % [rounds_done, total_rounds]
+	stats += "Total Chronos:      %d\n"       % GameState.total_chronos
+	stats += "Best single Pulse:  %d\n"       % GameState.best_hand
+	stats += "Hands played:       %d\n"       % GameState.hands_played
+
+	if not GameState.modules.is_empty():
+		var mod_names: Array = GameState.modules.map(func(m): return m.display_name)
+		stats += "\nModules equipped:   %s" % ", ".join(mod_names)
+
+	stats += "\nCore: %s   ·   Protocol: %s" % [
+		Constants.CORE_NAMES[GameState.chosen_core],
+		Constants.PROTOCOL_NAMES[GameState.chosen_protocol],
+	]
+
+	_lbl_result_sub.text = stats
+	_btn_result_action.text = "NEW TRIAL CYCLE"
+	_result_overlay.show()
 
 # ===========================================================================
 # Shop population
@@ -637,22 +683,33 @@ func _refresh_tile_visuals() -> void:
 # ===========================================================================
 func _create_hand_tile(tile: Domino, index: int) -> Button:
 	var btn := Button.new()
-	btn.custom_minimum_size = Vector2(64, 108)
+	btn.custom_minimum_size = Vector2(68, 112)
 	btn.text = ""
 	btn.clip_contents = true
 	_apply_tile_style(btn, C_TILE_FACE, C_TILE_FACE_HOVER)
 
 	var vbox := VBoxContainer.new()
 	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
 	vbox.add_theme_constant_override("separation", 0)
 	btn.add_child(vbox)
 
-	var top := _make_pip_label(tile.left)
+	var top := _make_pip_display(tile.left, 11, C_PIP_DOT)
 	top.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	vbox.add_child(top)
+
+	# Name label for special tiles
+	if tile.custom_name != "":
+		var name_lbl := Label.new()
+		name_lbl.text = tile.custom_name
+		name_lbl.add_theme_font_size_override("font_size", 8)
+		name_lbl.add_theme_color_override("font_color", C_RARITY[tile.rarity])
+		name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		name_lbl.clip_contents = true
+		vbox.add_child(name_lbl)
+
 	vbox.add_child(_make_tile_hsep())
-	var bot := _make_pip_label(tile.right)
+
+	var bot := _make_pip_display(tile.right, 11, C_PIP_DOT)
 	bot.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	vbox.add_child(bot)
 
@@ -667,7 +724,7 @@ func _create_hand_tile(tile: Domino, index: int) -> Button:
 
 func _build_chain_tile(disp_left: int, disp_right: int) -> Control:
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(76, 48)
+	panel.custom_minimum_size = Vector2(80, 52)
 	var style := StyleBoxFlat.new()
 	style.bg_color     = C_TILE_FACE
 	style.border_color = C_TILE_BORDER
@@ -679,23 +736,58 @@ func _build_chain_tile(disp_left: int, disp_right: int) -> Control:
 	hbox.add_theme_constant_override("separation", 0)
 	panel.add_child(hbox)
 
-	var ll := _make_pip_label(disp_left)
-	ll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var ll := _make_pip_display(disp_left,  9, C_PIP_DOT)
 	hbox.add_child(ll)
 	hbox.add_child(_make_tile_vsep())
-	var rl := _make_pip_label(disp_right)
-	rl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var rl := _make_pip_display(disp_right, 9, C_PIP_DOT)
 	hbox.add_child(rl)
 	return panel
 
-func _make_pip_label(pip: int) -> Label:
-	var lbl := Label.new()
-	lbl.text = str(pip) if pip >= 0 else "★"
-	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	lbl.add_theme_font_size_override("font_size", 22)
-	lbl.add_theme_color_override("font_color", C_TILE_PIP)
-	return lbl
+## Build a pip-dot display for one half of a domino.
+## dot_size: diameter of each dot in pixels.
+## dot_color: fill color of the dots.
+func _make_pip_display(pip: int, dot_size: int, dot_color: Color) -> Control:
+	if pip < 0:
+		# Wild — show a star label
+		var lbl := Label.new()
+		lbl.text = "★"
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+		lbl.add_theme_font_size_override("font_size", dot_size + 8)
+		lbl.add_theme_color_override("font_color", dot_color)
+		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		lbl.size_flags_vertical   = Control.SIZE_EXPAND_FILL
+		return lbl
+
+	var grid := GridContainer.new()
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 2)
+	grid.add_theme_constant_override("v_separation", 2)
+	# Centre the grid within its parent
+	grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	grid.size_flags_vertical   = Control.SIZE_SHRINK_CENTER
+
+	var positions: Array = PIP_POSITIONS[clampi(pip, 0, 9)]
+	for cell in range(9):
+		var slot := Control.new()
+		slot.custom_minimum_size = Vector2(dot_size, dot_size)
+		if cell in positions:
+			var dot := PanelContainer.new()
+			dot.custom_minimum_size = Vector2(dot_size, dot_size)
+			var s := StyleBoxFlat.new()
+			s.bg_color = dot_color
+			s.set_corner_radius_all(dot_size / 2)
+			dot.add_theme_stylebox_override("panel", s)
+			slot.add_child(dot)
+			dot.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		grid.add_child(slot)
+
+	# Wrap in a container that expands to fill its parent and centres the grid
+	var wrap := CenterContainer.new()
+	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	wrap.size_flags_vertical   = Control.SIZE_EXPAND_FILL
+	wrap.add_child(grid)
+	return wrap
 
 func _make_tile_hsep() -> Control:
 	var sep := ColorRect.new()
@@ -895,11 +987,12 @@ func _build_result_overlay() -> Control:
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	overlay.add_child(center)
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(480, 260)
+	panel.custom_minimum_size = Vector2(560, 0)
 	var style := StyleBoxFlat.new()
 	style.bg_color     = Color(0.10, 0.09, 0.07, 0.98)
 	style.border_color = Color(0.5, 0.45, 0.35)
 	style.set_border_width_all(2)
+	style.set_corner_radius_all(8)
 	panel.add_theme_stylebox_override("panel", style)
 	center.add_child(panel)
 	var vbox := VBoxContainer.new()
@@ -909,11 +1002,13 @@ func _build_result_overlay() -> Control:
 	_lbl_result = _make_label("", C_WIN, 26)
 	_lbl_result.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(_lbl_result)
+	vbox.add_child(_make_hsep())
 	_lbl_result_sub = _make_label("", C_TEXT, 14)
-	_lbl_result_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_lbl_result_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_lbl_result_sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_lbl_result_sub.custom_minimum_size = Vector2(400, 0)
+	_lbl_result_sub.custom_minimum_size = Vector2(480, 0)
 	vbox.add_child(_lbl_result_sub)
+	vbox.add_child(_make_hsep())
 	var row := HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	vbox.add_child(row)
@@ -1327,20 +1422,29 @@ func _build_tile_offer_card(index: int, entry: Dictionary) -> Control:
 	panel.add_child(vbox)
 
 	# Pip display (horizontal mini domino)
-	var pip_row := HBoxContainer.new()
-	pip_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	pip_row.add_theme_constant_override("separation", 0)
-	vbox.add_child(pip_row)
+	var pip_panel := PanelContainer.new()
+	pip_panel.custom_minimum_size = Vector2(0, 52)
+	var pip_bg := StyleBoxFlat.new()
+	pip_bg.bg_color = C_TILE_FACE
+	pip_bg.set_corner_radius_all(4)
+	pip_panel.add_theme_stylebox_override("panel", pip_bg)
+	vbox.add_child(pip_panel)
 
-	var left_lbl := _make_label(str(t.left) if t.left >= 0 else "★", C_TILE_PIP, 28)
-	left_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	left_lbl.custom_minimum_size = Vector2(44, 0)
-	pip_row.add_child(left_lbl)
+	var pip_row := HBoxContainer.new()
+	pip_row.add_theme_constant_override("separation", 0)
+	pip_panel.add_child(pip_row)
+
+	var left_disp := _make_pip_display(t.left,  10, C_PIP_DOT)
+	left_disp.custom_minimum_size = Vector2(52, 0)
+	pip_row.add_child(left_disp)
 	pip_row.add_child(_make_tile_vsep())
-	var right_lbl := _make_label(str(t.right) if t.right >= 0 else "★", C_TILE_PIP, 28)
-	right_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	right_lbl.custom_minimum_size = Vector2(44, 0)
-	pip_row.add_child(right_lbl)
+	var right_disp := _make_pip_display(t.right, 10, C_PIP_DOT)
+	right_disp.custom_minimum_size = Vector2(52, 0)
+	pip_row.add_child(right_disp)
+
+	# Special tile name
+	if t.custom_name != "":
+		vbox.add_child(_make_label(t.custom_name, C_RARITY[t.rarity], 13))
 
 	# Tags
 	var tags := ""
@@ -1392,16 +1496,15 @@ func _build_removal_tile(index: int, tile: Domino) -> Control:
 	var pip_row := HBoxContainer.new()
 	pip_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	pip_row.add_theme_constant_override("separation", 0)
+	pip_row.custom_minimum_size = Vector2(0, 36)
 	vbox.add_child(pip_row)
 
-	var lc := _make_label(str(tile.left) if tile.left >= 0 else "★", C_TILE_PIP, 18)
-	lc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lc.custom_minimum_size = Vector2(26, 0)
+	var lc := _make_pip_display(tile.left,  7, C_PIP_DOT)
+	lc.custom_minimum_size = Vector2(28, 0)
 	pip_row.add_child(lc)
 	pip_row.add_child(_make_tile_vsep())
-	var rc := _make_label(str(tile.right) if tile.right >= 0 else "★", C_TILE_PIP, 18)
-	rc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	rc.custom_minimum_size = Vector2(26, 0)
+	var rc := _make_pip_display(tile.right, 7, C_PIP_DOT)
+	rc.custom_minimum_size = Vector2(28, 0)
 	pip_row.add_child(rc)
 
 	var mark_lbl := _make_label("✕" if selected else "○", C_LOSE if selected else C_DIM, 11)

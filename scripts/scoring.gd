@@ -27,11 +27,15 @@ static func calculate(chain: Chain, modules: Array = []) -> Dictionary:
 	# --- Chip accumulation ---
 	for tile in chain.tiles:
 		var pips: int = tile.total_pips()
-		if tile.is_double():
-			doubles += 1
+		# double_weight: -1 = auto (1 if double, 0 otherwise), else explicit
+		var dw: int = tile.double_weight if tile.double_weight >= 0 \
+			else (1 if tile.is_double() else 0)
+		if dw > 0:
+			doubles += dw
 			chips += pips * double_pip_mult
 		else:
 			chips += pips
+		chips += tile.bonus_chips
 
 	# --- Base multiplier bonuses ---
 	# Double resonance

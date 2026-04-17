@@ -23,9 +23,10 @@ const CORE_LORES: Array[String] = [
 	"\"Something has contaminated the array. The Wilds answer to nothing—and everything.\"",
 ]
 ## Score target scale (applied as target × scale / 100).
-## Resonant Core scores much higher → targets scale up.
-## Dense Array scores lower → targets scale down.
-const CORE_TARGET_SCALE: Array[int] = [100, 130, 70, 100]
+## Resonant Core: all-doubles → massive multipliers → harder targets.
+## Dense Array: max pip 6 → lower chips → easier targets.
+## Void Lattice: wilds help chaining but don't score → slight reduction.
+const CORE_TARGET_SCALE: Array[int] = [100, 160, 65, 90]
 
 # ---------------------------------------------------------------------------
 # Protocols  (operational modifiers chosen at run start)
@@ -101,13 +102,13 @@ const BOSS_MONEDAS_BONUS:      int = 2
 # ---------------------------------------------------------------------------
 const SCORE_TARGETS: Array[int] = [
 	# Etapa 1 — The Mahogany Trial (rounds 1-4 + boss)
-	150, 250, 400, 600, 900,
+	100, 200, 340, 520, 750,
 	# Etapa 2 — The Industrial Load (rounds 5-8 + boss)
-	1400, 2000, 3000, 4500, 6500,
+	1050, 1550, 2300, 3400, 5000,
 	# Etapa 3 — The Cold Singularity (rounds 9-12 + boss)
-	9000, 13000, 19000, 27000, 40000,
+	7200, 10500, 15000, 21000, 30000,
 	# Etapa 4 — The Archiver's Core — Hard mode only (rounds 13-16 + boss)
-	58000, 82000, 120000, 170000, 250000,
+	43000, 62000, 88000, 125000, 175000,
 ]
 
 # Boss rounds are index 4, 9, 14, 19 (every 5th, 0-indexed)

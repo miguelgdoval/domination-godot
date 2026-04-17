@@ -4,20 +4,21 @@ class_name TileShopManager
 extends RefCounted
 
 ## Generate `count` tile purchase offers. Each entry: {tile: Domino, cost: int}.
-## Biased towards higher-value tiles to make the offer feel meaningful.
+## Always includes one special tile; the rest are from the regular pool.
 static func generate_offers(count: int) -> Array[Dictionary]:
-	var pool: Array[Domino] = []
+	var result: Array[Dictionary] = []
 
-	# Full double-9 set as candidates
+	# One special tile (random from the pool)
+	var specials: Array[Domino] = SpecialTileDB.all()
+	specials.shuffle()
+	result.append({ "tile": specials[0], "cost": _special_cost(specials[0]) })
+
+	# Fill the rest with regular tiles
+	var pool: Array[Domino] = []
 	for i in range(Constants.MAX_PIP + 1):
 		for j in range(i, Constants.MAX_PIP + 1):
 			pool.append(Domino.new(i, j))
-
-	# Always include one Wild option
-	pool.append(Domino.new(Domino.WILD, Domino.WILD, 0, true))
-
 	pool.shuffle()
-	var result: Array[Dictionary] = []
 	for tile in pool:
 		result.append({ "tile": tile, "cost": _tile_cost(tile) })
 		if result.size() >= count:
@@ -39,7 +40,7 @@ static func generate_removal_candidates(box: Box, count: int) -> Array[Domino]:
 		candidates = tiles.slice(0, count)
 	return candidates
 
-## Cost formula for a single tile purchase.
+## Cost formula for a regular tile purchase.
 static func _tile_cost(tile: Domino) -> int:
 	if tile.is_wild:
 		return 8
@@ -48,3 +49,11 @@ static func _tile_cost(tile: Domino) -> int:
 	if tile.is_double():
 		base += 2                          # doubles cost extra
 	return clampi(base, 1, 9)
+
+## Cost formula for a special named tile.
+static func _special_cost(tile: Domino) -> int:
+	var base: int = Constants.RARITY_COSTS[tile.rarity]
+	base += tile.bonus_chips / 3
+	if tile.double_weight > 1:
+		base += 2
+	return clampi(base, 4, 12)

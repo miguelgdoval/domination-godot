@@ -8,9 +8,13 @@ const WILD: int = -1
 var left:  int  # pip value 0-9 (or WILD for a universal-connector tile)
 var right: int
 var rarity: int = 0        # Constants.Rarity value
-var is_wild: bool = false  # True only for special rare tiles (e.g. The Crown)
+var is_wild: bool = false  # True only for special rare tiles
 var custom_name: String = ""
 var lore_text: String = ""
+## Extra flat chips added to the score when this tile is in a chain.
+var bonus_chips: int = 0
+## How many "doubles" this tile counts as for multiplier purposes (normally 0 or 1).
+var double_weight: int = -1  # -1 means "use default" (1 if is_double(), else 0)
 
 func _init(p_left: int, p_right: int,
 		p_rarity: int = 0, p_wild: bool = false) -> void:
