@@ -57,6 +57,8 @@ static func calculate(chain: Chain, modules: Array = []) -> Dictionary:
 			Module.EffectType.LONG_CHAIN_BOOST:
 				if length >= m.effect_param:
 					mult += m.effect_value
+			Module.EffectType.CHIPS_PER_TILE:
+				chips += length * m.effect_value
 
 	return {
 		"chips":   chips,

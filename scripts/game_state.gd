@@ -141,6 +141,27 @@ func protocol_hands() -> int:
 func protocol_discards() -> int:
 	return Constants.PROTOCOL_DISCARDS[chosen_protocol]
 
+func module_hand_size_bonus() -> int:
+	var b := 0
+	for m in modules:
+		if m.effect_type == Module.EffectType.HAND_SIZE_BONUS:
+			b += m.effect_value
+	return b
+
+func module_hands_bonus() -> int:
+	var b := 0
+	for m in modules:
+		if m.effect_type == Module.EffectType.EXTRA_HAND:
+			b += m.effect_value
+	return b
+
+func module_discard_bonus() -> int:
+	var b := 0
+	for m in modules:
+		if m.effect_type == Module.EffectType.DISCARD_BONUS:
+			b += m.effect_value
+	return b
+
 # ---------------------------------------------------------------------------
 # Adjusted target (core scales difficulty)
 # ---------------------------------------------------------------------------

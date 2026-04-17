@@ -29,6 +29,40 @@ const CORE_LORES: Array[String] = [
 const CORE_TARGET_SCALE: Array[int] = [100, 160, 65, 90]
 
 # ---------------------------------------------------------------------------
+# Etapa visual themes  (index 0-3, one per etapa)
+# ---------------------------------------------------------------------------
+const ETAPA_BG: Array = [
+	Color(0.08, 0.07, 0.05),   # Mahogany — warm dark brown
+	Color(0.07, 0.08, 0.09),   # Industrial — cold steel
+	Color(0.04, 0.05, 0.10),   # Singularity — deep blue-black
+	Color(0.07, 0.04, 0.10),   # Archiver — deep purple
+]
+const ETAPA_TABLE: Array = [
+	Color(0.07, 0.09, 0.06),
+	Color(0.06, 0.07, 0.09),
+	Color(0.03, 0.05, 0.10),
+	Color(0.06, 0.03, 0.09),
+]
+const ETAPA_TABLE_BORDER: Array = [
+	Color(0.28, 0.24, 0.14),
+	Color(0.28, 0.30, 0.18),
+	Color(0.14, 0.22, 0.44),
+	Color(0.34, 0.14, 0.44),
+]
+const ETAPA_PANEL: Array = [
+	Color(0.13, 0.11, 0.08, 0.95),
+	Color(0.10, 0.11, 0.14, 0.95),
+	Color(0.07, 0.08, 0.15, 0.95),
+	Color(0.11, 0.07, 0.16, 0.95),
+]
+const ETAPA_ACCENT: Array = [
+	Color(0.85, 0.70, 0.30),   # amber gold
+	Color(0.95, 0.58, 0.20),   # industrial orange
+	Color(0.28, 0.88, 0.95),   # cold cyan
+	Color(0.88, 0.72, 0.95),   # archiver violet
+]
+
+# ---------------------------------------------------------------------------
 # Protocols  (operational modifiers chosen at run start)
 # ---------------------------------------------------------------------------
 const PROTOCOL_COUNT: int = 4

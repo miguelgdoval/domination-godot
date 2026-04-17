@@ -112,6 +112,13 @@ var _tile_removal_row:     HBoxContainer
 var _lbl_removals_left:    Label
 var _btn_confirm_removal:  Button
 
+## Etapa theme — stored style references for live colour updates
+var _bg_rect:          ColorRect
+var _table_style:      StyleBoxFlat
+var _hud_style:        StyleBoxFlat
+var _hand_panel_style: StyleBoxFlat
+var _lbl_table_title:  Label
+
 # UI references — directives panel
 var _directives_panel:   Control
 var _directive_labels:   Array = []   # Array[Label], one per active directive
@@ -212,7 +219,10 @@ func _begin_round_play() -> void:
 	_phase = Phase.PLAYING
 	_selected_discard.clear()
 
-	# Compute round params: protocol base + boss delta (clamped)
+	# Apply etapa colour theme (tweened)
+	_apply_etapa_theme(GameState.current_etapa())
+
+	# Compute round params: protocol base + boss delta + module bonuses
 	var hand_size: int  = GameState.protocol_hand_size()
 	var max_hands: int  = GameState.protocol_hands()
 	var max_disc: int   = GameState.protocol_discards()
@@ -222,6 +232,10 @@ func _begin_round_play() -> void:
 		hand_size  = maxi(1, hand_size  + Constants.BOSS_HAND_DELTA[e])
 		max_hands  = maxi(1, max_hands  + Constants.BOSS_HANDS_DELTA[e])
 		max_disc   = maxi(0, max_disc   + Constants.BOSS_DISCARD_DELTA[e])
+
+	hand_size = maxi(1, hand_size + GameState.module_hand_size_bonus())
+	max_hands = maxi(1, max_hands + GameState.module_hands_bonus())
+	max_disc  = maxi(0, max_disc  + GameState.module_discard_bonus())
 
 	_rm = RoundManager.new()
 	_rm.setup(GameState.box, GameState.round_index, hand_size, max_hands, max_disc)
@@ -796,6 +810,50 @@ func _make_pip_display(pip: int, dot_size: int, dot_color: Color) -> Control:
 	wrap.add_child(grid)
 	return wrap
 
+# ===========================================================================
+# Etapa visual theme
+# ===========================================================================
+func _apply_etapa_theme(etapa: int) -> void:
+	var e := clampi(etapa, 0, 3)
+	var tween := create_tween().set_parallel(true)
+	tween.tween_property(_bg_rect,    "color",    Constants.ETAPA_BG[e],    0.6)
+	tween.tween_method(func(c: Color): _table_style.bg_color     = c,
+		_table_style.bg_color,     Constants.ETAPA_TABLE[e],        0.6)
+	tween.tween_method(func(c: Color): _table_style.border_color = c,
+		_table_style.border_color, Constants.ETAPA_TABLE_BORDER[e], 0.6)
+	tween.tween_method(func(c: Color): _hud_style.bg_color       = c,
+		_hud_style.bg_color,       Constants.ETAPA_PANEL[e],        0.6)
+	tween.tween_method(func(c: Color): _hand_panel_style.bg_color = c,
+		_hand_panel_style.bg_color, Constants.ETAPA_PANEL[e],       0.6)
+	# Accent: etapa label + table title
+	var accent: Color = Constants.ETAPA_ACCENT[e]
+	_lbl_etapa.add_theme_color_override("font_color", accent)
+	_lbl_table_title.add_theme_color_override("font_color", accent)
+
+# ===========================================================================
+# Keyboard shortcuts
+# ===========================================================================
+func _unhandled_input(event: InputEvent) -> void:
+	if _phase != Phase.PLAYING:
+		return
+	if not (event is InputEventKey) or not (event as InputEventKey).pressed:
+		return
+	match (event as InputEventKey).keycode:
+		KEY_SPACE, KEY_ENTER:
+			if _rm.can_play():
+				_rm.play_chain()
+		KEY_U:
+			_rm.undo_last_chain_tile()
+		KEY_D:
+			if not _selected_discard.is_empty() and _rm.can_discard():
+				_rm.discard(_selected_discard)
+				_selected_discard.clear()
+		KEY_ESCAPE:
+			if not _selected_discard.is_empty():
+				_selected_discard.clear()
+				_refresh_tile_visuals()
+				_refresh_action_buttons()
+
 ## Recursively set MOUSE_FILTER_IGNORE on a node and all its Control children,
 ## so mouse events pass through to the parent Button unobstructed.
 func _ignore_mouse(node: Node) -> void:
@@ -837,10 +895,10 @@ func _apply_tile_style(btn: Button, face: Color, hover: Color) -> void:
 # UI construction
 # ===========================================================================
 func _build_ui() -> void:
-	var bg := ColorRect.new()
-	bg.color = C_BG
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(bg)
+	_bg_rect = ColorRect.new()
+	_bg_rect.color = C_BG
+	_bg_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(_bg_rect)
 
 	var ui := CanvasLayer.new()
 	add_child(ui)
@@ -905,9 +963,9 @@ func _build_ui() -> void:
 # ---- HUD ----
 func _build_hud() -> Control:
 	var panel := PanelContainer.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = C_PANEL
-	panel.add_theme_stylebox_override("panel", style)
+	_hud_style = StyleBoxFlat.new()
+	_hud_style.bg_color = C_PANEL
+	panel.add_theme_stylebox_override("panel", _hud_style)
 	var hbox := HBoxContainer.new()
 	panel.add_child(hbox)
 
@@ -930,11 +988,11 @@ func _build_hud() -> Control:
 func _build_table_area() -> Control:
 	var panel := PanelContainer.new()
 	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	var style := StyleBoxFlat.new()
-	style.bg_color     = Color(0.07, 0.09, 0.06)   # dark felt surface
-	style.border_color = Color(0.28, 0.24, 0.14)
-	style.set_border_width_all(1)
-	panel.add_theme_stylebox_override("panel", style)
+	_table_style = StyleBoxFlat.new()
+	_table_style.bg_color     = Color(0.07, 0.09, 0.06)
+	_table_style.border_color = Color(0.28, 0.24, 0.14)
+	_table_style.set_border_width_all(1)
+	panel.add_theme_stylebox_override("panel", _table_style)
 
 	var vbox := VBoxContainer.new()
 	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -942,9 +1000,9 @@ func _build_table_area() -> Control:
 	panel.add_child(vbox)
 
 	# Top label
-	var title := _make_label("COHESION PULSE", C_DIM, 11)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(title)
+	_lbl_table_title = _make_label("COHESION PULSE", C_DIM, 11)
+	_lbl_table_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(_lbl_table_title)
 
 	# Chain tiles — centred horizontally, shrinks vertically to tile height
 	_chain_container = HBoxContainer.new()
@@ -977,9 +1035,9 @@ func _build_hand_zone() -> Control:
 
 	# Hand panel
 	var hand_panel := PanelContainer.new()
-	var hstyle := StyleBoxFlat.new()
-	hstyle.bg_color = C_PANEL
-	hand_panel.add_theme_stylebox_override("panel", hstyle)
+	_hand_panel_style = StyleBoxFlat.new()
+	_hand_panel_style.bg_color = C_PANEL
+	hand_panel.add_theme_stylebox_override("panel", _hand_panel_style)
 	outer.add_child(hand_panel)
 
 	var inner := VBoxContainer.new()
@@ -999,7 +1057,7 @@ func _build_hand_zone() -> Control:
 	inner.add_child(_build_action_bar())
 
 	var hint := _make_label(
-		"Left-click → add to chain   |   Right-click → mark for discard",
+		"Click → chain   Right-click → discard   Space → play   U → undo   Esc → clear",
 		C_DIM, 11)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	inner.add_child(hint)

@@ -10,6 +10,10 @@ enum EffectType {
 	DOUBLE_PIP_BOOST,   # doubles score effect_value × their pip value (replaces ×1)
 	LONG_CHAIN_BOOST,   # chain >= effect_param tiles → +effect_value mult (additive)
 	EXTRA_SLOT,         # grants +effect_value module slots on equip (passive)
+	HAND_SIZE_BONUS,    # +effect_value to hand size each round
+	EXTRA_HAND,         # +effect_value to max plays each round
+	DISCARD_BONUS,      # +effect_value to max discards each round
+	CHIPS_PER_TILE,     # +effect_value chips for every tile in the chain
 }
 
 var id:           String
