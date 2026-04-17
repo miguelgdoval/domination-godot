@@ -67,6 +67,7 @@ func try_add_to_chain(hand_index: int) -> bool:
 	hand.remove_at(hand_index)
 	current_chain.add(domino)
 	chain_changed.emit()
+	hand_changed.emit()
 	return true
 
 ## Return the most recently placed tile from the chain back to the hand.
