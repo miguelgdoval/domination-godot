@@ -1,4 +1,4 @@
-## main.gd — Trial Cycle controller + procedural UI (Milestone 3)
+## main.gd — Trial Cycle controller + procedural UI (Milestone 4)
 extends Node
 
 # ---------------------------------------------------------------------------
@@ -36,10 +36,11 @@ const C_RARITY := [
 # ---------------------------------------------------------------------------
 # Game state
 # ---------------------------------------------------------------------------
-enum Phase { TITLE, CORE_SELECT, PROTOCOL_SELECT, PLAYING, ROUND_RESULT, SHOP, GAME_OVER, VICTORY }
+enum Phase { TITLE, CORE_SELECT, PROTOCOL_SELECT, BOSS_WARNING, PLAYING, ROUND_RESULT, SHOP, GAME_OVER, VICTORY }
 
 var _phase: Phase = Phase.TITLE
 var _rm: RoundManager
+var _dm: DirectiveManager
 var _selected_discard: Array = []
 var _tile_btns: Array = []
 var _shop_inventory: Array = []   # current shop entries [{item, cost}]
@@ -83,12 +84,19 @@ var _shop_items_row:     HBoxContainer
 var _shop_modules_row:   HBoxContainer
 var _lbl_slots:          Label
 
+# UI references — directives panel
+var _directives_panel:   Control
+var _directive_labels:   Array = []   # Array[Label], one per active directive
+
+# UI references — boss warning overlay
+var _boss_overlay:       Control
+var _lbl_boss_name:      Label
+var _lbl_boss_desc:      Label
+
 # UI references — title / selection overlays
 var _title_overlay:        Control
 var _core_select_overlay:  Control
 var _proto_select_overlay: Control
-var _lbl_core_confirm:     Label
-var _lbl_proto_confirm:    Label
 
 # ===========================================================================
 # Lifecycle
@@ -155,36 +163,70 @@ func _set_selection_border(panel: PanelContainer, selected: bool, rarity: int) -
 # Round lifecycle
 # ===========================================================================
 func _start_round() -> void:
+	# Boss rounds show a warning before play begins
+	if GameState.is_boss_round():
+		_show_boss_warning()
+		return
+	_begin_round_play()
+
+func _show_boss_warning() -> void:
+	_phase = Phase.BOSS_WARNING
+	var etapa: int = GameState.current_etapa()
+	_lbl_boss_name.text = Constants.BOSS_NAMES[etapa]
+	_lbl_boss_desc.text = Constants.BOSS_DESCS[etapa]
+	_boss_overlay.show()
+
+func _on_boss_begin_pressed() -> void:
+	_boss_overlay.hide()
+	_begin_round_play()
+
+func _begin_round_play() -> void:
 	_phase = Phase.PLAYING
 	_selected_discard.clear()
 
+	# Compute round params: protocol base + boss delta (clamped)
+	var hand_size: int  = GameState.protocol_hand_size()
+	var max_hands: int  = GameState.protocol_hands()
+	var max_disc: int   = GameState.protocol_discards()
+
+	if GameState.is_boss_round():
+		var e: int = GameState.current_etapa()
+		hand_size  = maxi(1, hand_size  + Constants.BOSS_HAND_DELTA[e])
+		max_hands  = maxi(1, max_hands  + Constants.BOSS_HANDS_DELTA[e])
+		max_disc   = maxi(0, max_disc   + Constants.BOSS_DISCARD_DELTA[e])
+
 	_rm = RoundManager.new()
-	_rm.setup(
-		GameState.box,
-		GameState.round_index,
-		GameState.protocol_hand_size(),
-		GameState.protocol_hands(),
-		GameState.protocol_discards()
-	)
+	_rm.setup(GameState.box, GameState.round_index, hand_size, max_hands, max_disc)
 	_rm.chain_changed.connect(_on_chain_changed)
 	_rm.hand_changed.connect(_on_hand_changed)
 	_rm.hand_scored.connect(_on_hand_scored)
 	_rm.round_ended.connect(_on_round_ended)
+
+	_dm = DirectiveManager.new()
+	_dm.setup(_rm, 2)
+	_dm.directive_completed.connect(_on_directive_completed)
 
 	_result_overlay.hide()
 	_shop_overlay.hide()
 	_refresh_hud()
 	_rebuild_hand()
 	_refresh_chain_display()
+	_refresh_directives()
 
 func _end_round(won: bool) -> void:
 	if won:
 		_phase = Phase.ROUND_RESULT
+		# Check round-end directives before awarding monedas
+		var dir_bonus: int = _dm.check_round_win()
+		GameState.monedas += dir_bonus
 		var earned: int = GameState.award_monedas(_rm.unused_hands())
 		_lbl_result.text = "RECALIBRATION SUCCESSFUL"
 		_lbl_result.add_theme_color_override("font_color", C_WIN)
-		_lbl_result_sub.text = "Chronos: %d / %d    +%d Monedas" % [
+		var detail: String = "Chronos: %d / %d    +%d Monedas" % [
 			_rm.chronos, _rm.target, earned]
+		if dir_bonus > 0:
+			detail += "\nDirectives: +%d Monedas" % dir_bonus
+		_lbl_result_sub.text = detail
 		var shop_name: String = \
 			"ARTISAN'S WORKSHOP" if GameState.is_boss_round() else "BRASS EMPORIUM"
 		_btn_result_action.text = "VISIT " + shop_name
@@ -229,7 +271,16 @@ func _on_hand_changed() -> void:
 func _on_hand_scored(result: Dictionary) -> void:
 	_lbl_last_hand.text = "%d chips  ×  %d  =  %d Chronos" % [
 		result["chips"], result["mult"], result["total"]]
+	# Check play-based directives
+	var dir_bonus: int = _dm.check_play(result)
+	if dir_bonus > 0:
+		GameState.monedas += dir_bonus
 	_refresh_hud()
+	_refresh_directives()
+
+func _on_directive_completed(directive: Directive, earned: int) -> void:
+	# Flash the last-hand label briefly to show directive reward
+	_lbl_last_hand.text += "   |   Directive: +%d Monedas" % earned
 
 func _on_round_ended(won: bool) -> void:
 	_end_round(won)
@@ -481,6 +532,21 @@ func _rebuild_hand() -> void:
 	_refresh_tile_visuals()
 	_refresh_action_buttons()
 
+func _refresh_directives() -> void:
+	if _dm == null:
+		return
+	for i in range(_directive_labels.size()):
+		if i >= _dm.active.size():
+			break
+		var d: Directive = _dm.active[i]
+		var lbl: Label = _directive_labels[i]
+		if d.completed:
+			lbl.text = "✓ %s  (+%d)" % [d.text, d.reward]
+			lbl.add_theme_color_override("font_color", C_WIN)
+		else:
+			lbl.text = "○ %s  (+%d)" % [d.text, d.reward]
+			lbl.add_theme_color_override("font_color", C_DIM)
+
 func _refresh_tile_visuals() -> void:
 	for i in range(_tile_btns.size()):
 		if i >= _rm.hand.size():
@@ -611,6 +677,9 @@ func _build_ui() -> void:
 	_lbl_last_hand.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	root.add_child(_lbl_last_hand)
 
+	_directives_panel = _build_directives_panel()
+	root.add_child(_directives_panel)
+
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root.add_child(spacer)
@@ -640,6 +709,10 @@ func _build_ui() -> void:
 	_shop_overlay = _build_shop_overlay()
 	ui.add_child(_shop_overlay)
 	_shop_overlay.hide()
+
+	_boss_overlay = _build_boss_overlay()
+	ui.add_child(_boss_overlay)
+	_boss_overlay.hide()
 
 	_title_overlay = _build_title_overlay()
 	ui.add_child(_title_overlay)
@@ -1032,6 +1105,80 @@ func _build_selection_card(
 	vbox.add_child(btn)
 
 	return panel
+
+# ---- Directives panel ----
+func _build_directives_panel() -> Control:
+	var panel := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.10, 0.09, 0.07, 0.80)
+	panel.add_theme_stylebox_override("panel", style)
+
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 24)
+	hbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	panel.add_child(hbox)
+
+	var title_lbl := _make_label("DIRECTIVES:", C_DIM, 12)
+	hbox.add_child(title_lbl)
+
+	_directive_labels.clear()
+	for i in range(2):
+		var lbl := _make_label("", C_DIM, 12)
+		hbox.add_child(lbl)
+		_directive_labels.append(lbl)
+
+	return panel
+
+# ---- Boss warning overlay ----
+func _build_boss_overlay() -> Control:
+	var overlay := ColorRect.new()
+	overlay.color = Color(0.05, 0.02, 0.02, 0.90)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(540, 0)
+	var style := StyleBoxFlat.new()
+	style.bg_color     = Color(0.12, 0.06, 0.06)
+	style.border_color = C_LOSE
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(8)
+	panel.add_theme_stylebox_override("panel", style)
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_theme_constant_override("separation", 14)
+	panel.add_child(vbox)
+
+	var warn_lbl := _make_label("⚠  CORRUPTION DETECTED", C_LOSE, 14)
+	warn_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(warn_lbl)
+
+	_lbl_boss_name = _make_label("", C_LOSE, 28)
+	_lbl_boss_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(_lbl_boss_name)
+
+	vbox.add_child(_make_hsep())
+
+	_lbl_boss_desc = _make_label("", C_TEXT, 15)
+	_lbl_boss_desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_lbl_boss_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_lbl_boss_desc.custom_minimum_size = Vector2(460, 0)
+	vbox.add_child(_lbl_boss_desc)
+
+	vbox.add_child(_make_hsep())
+
+	var btn_row := HBoxContainer.new()
+	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_child(btn_row)
+	btn_row.add_child(
+		_make_button("FACE THE CORRUPTION  →", _on_boss_begin_pressed, Vector2(260, 50)))
+
+	return overlay
 
 # ===========================================================================
 # Generic helpers

@@ -143,3 +143,25 @@ func score_target(round_index: int) -> int:
 	if round_index < SCORE_TARGETS.size():
 		return SCORE_TARGETS[round_index]
 	return SCORE_TARGETS[-1]
+
+# ---------------------------------------------------------------------------
+# Boss effects — one per etapa (index 0-3)
+# ---------------------------------------------------------------------------
+const BOSS_NAMES: Array[String] = [
+	"FREQUENCY DRAIN",
+	"SIGNAL DECAY",
+	"RESONANCE LOCK",
+	"TOTAL ENTROPY",
+]
+const BOSS_DESCS: Array[String] = [
+	"Your Isolation Chamber is compressed.\nHand size –1 for this round.",
+	"Discharge relays compromised.\nMaximum discards –2 for this round.",
+	"The signal stutters under load.\nMaximum plays –1 for this round.",
+	"All systems failing at once.\nHand size –1 and plays –1 for this round.",
+]
+## Delta applied to hand_size on boss rounds.
+const BOSS_HAND_DELTA:    Array[int] = [-1,  0,  0, -1]
+## Delta applied to max_discards on boss rounds (clamped to min 0).
+const BOSS_DISCARD_DELTA: Array[int] = [ 0, -2,  0,  0]
+## Delta applied to max_hands on boss rounds (clamped to min 1).
+const BOSS_HANDS_DELTA:   Array[int] = [ 0,  0, -1, -1]
