@@ -457,17 +457,12 @@ func _build_chain_area() -> Control:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(title)
 
-	# Scrollable container so long chains don't overflow
-	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(0, 58)
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
-	scroll.vertical_scroll_mode   = ScrollContainer.SCROLL_MODE_DISABLED
-	vbox.add_child(scroll)
-
 	_chain_container = HBoxContainer.new()
 	_chain_container.alignment = BoxContainer.ALIGNMENT_CENTER
+	_chain_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_chain_container.add_theme_constant_override("separation", 6)
-	scroll.add_child(_chain_container)
+	_chain_container.custom_minimum_size = Vector2(0, 58)
+	vbox.add_child(_chain_container)
 
 	_lbl_preview = _make_label("", C_PREVIEW, 14)
 	_lbl_preview.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
