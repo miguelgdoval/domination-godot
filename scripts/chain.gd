@@ -1,14 +1,17 @@
 ## chain.gd — A Cohesion Pulse: the active chain being built this hand.
-## Tracks tile order and the two open endpoints.
+## Tracks tile order, open endpoints, and full undo history.
 class_name Chain
 extends RefCounted
 
 const EMPTY: int = -2  # sentinel — chain has no tiles yet
 const WILD:  int = Domino.WILD  # = -1
 
-var tiles: Array[Domino] = []
+var tiles:     Array[Domino] = []
 var left_end:  int = EMPTY
 var right_end: int = EMPTY
+
+# Each entry: {tile, side ("first"|"right"|"left"), prev_left, prev_right}
+var _history: Array[Dictionary] = []
 
 # ---------------------------------------------------------------------------
 # Queries
@@ -25,7 +28,6 @@ func can_add(domino: Domino) -> bool:
 		return true
 	if domino.is_wild:
 		return true
-	# A WILD end accepts any pip value
 	if left_end == WILD or right_end == WILD:
 		return true
 	return (domino.left  == left_end  or domino.right == left_end or
@@ -41,26 +43,57 @@ func add(domino: Domino) -> bool:
 	if not can_add(domino):
 		return false
 
+	# Save state BEFORE this operation so undo can restore it exactly.
+	var snap := {
+		"tile": domino,
+		"prev_left":  left_end,
+		"prev_right": right_end,
+		"side": ""
+	}
+
 	if is_empty():
+		snap["side"] = "first"
+		_history.append(snap)
 		tiles.append(domino)
 		left_end  = WILD if domino.is_wild else domino.left
 		right_end = WILD if domino.is_wild else domino.right
 		return true
 
-	var fits_right: bool = _fits_right(domino)
-	var fits_left:  bool = _fits_left(domino)
-
-	if fits_right:
+	if _fits_right(domino):
+		snap["side"] = "right"
+		_history.append(snap)
 		_append_right(domino)
-	elif fits_left:
+	elif _fits_left(domino):
+		snap["side"] = "left"
+		_history.append(snap)
 		_prepend_left(domino)
 	else:
-		return false  # should never reach here given can_add check
+		return false  # should not reach here — can_add already checked
 
 	return true
 
+## Remove the most recently added tile, restoring the previous chain state.
+## Returns the tile so the caller can put it back in the hand.
+## Returns null if the chain is empty.
+func undo() -> Domino:
+	if _history.is_empty():
+		return null
+
+	var snap: Dictionary = _history.pop_back()
+	left_end  = snap["prev_left"]
+	right_end = snap["prev_right"]
+
+	match snap["side"]:
+		"first", "right":
+			tiles.pop_back()
+		"left":
+			tiles.remove_at(0)
+
+	return snap["tile"]
+
 func clear() -> void:
 	tiles.clear()
+	_history.clear()
 	left_end  = EMPTY
 	right_end = EMPTY
 
@@ -94,7 +127,6 @@ func _append_right(domino: Domino) -> void:
 		right_end = WILD
 		return
 	if right_end == WILD:
-		# Wild end accepts either orientation; expose the tile's right side
 		right_end = domino.right
 	elif domino.left == right_end:
 		right_end = domino.right

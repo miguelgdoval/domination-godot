@@ -69,15 +69,11 @@ func try_add_to_chain(hand_index: int) -> bool:
 	chain_changed.emit()
 	return true
 
-## Return a tile from the chain back to the hand (undo last placement).
-## Only the most recently added tile can be undone (simple undo).
+## Return the most recently placed tile from the chain back to the hand.
 func undo_last_chain_tile() -> bool:
-	if current_chain.is_empty():
+	var tile: Domino = current_chain.undo()
+	if tile == null:
 		return false
-	var tile: Domino = current_chain.tiles[-1]
-	current_chain.tiles.remove_at(current_chain.tiles.size() - 1)
-	# Recalculate ends after removal
-	_recalculate_chain_ends()
 	hand.append(tile)
 	chain_changed.emit()
 	hand_changed.emit()
@@ -156,16 +152,3 @@ func _draw_to_full() -> void:
 func _is_over() -> bool:
 	return hands_remaining <= 0 or chronos >= target
 
-## Recompute left_end / right_end after a tile has been removed from the chain.
-func _recalculate_chain_ends() -> void:
-	if current_chain.tiles.is_empty():
-		current_chain.left_end  = Chain.EMPTY
-		current_chain.right_end = Chain.EMPTY
-		return
-
-	# Replay all tiles to recompute ends
-	var temp := Chain.new()
-	for t in current_chain.tiles:
-		temp.add(t)
-	current_chain.left_end  = temp.left_end
-	current_chain.right_end = temp.right_end

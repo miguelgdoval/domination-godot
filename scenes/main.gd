@@ -364,7 +364,7 @@ func _build_chain_area() -> Control:
 	var panel := PanelContainer.new()
 	var style := StyleBoxFlat.new()
 	style.bg_color = C_PANEL
-	panel.add_child(panel)  # avoid empty panel warning
+	panel.add_theme_stylebox_override("panel", style)
 
 	var vbox := VBoxContainer.new()
 	panel.add_child(vbox)
