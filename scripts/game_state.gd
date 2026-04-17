@@ -1,20 +1,16 @@
 ## game_state.gd — Global run state for a Trial Cycle.
-## Autoloaded as "GameState". Persists across rounds within a single run.
+## Autoloaded as "GameState".
 extends Node
 
-# ---------------------------------------------------------------------------
-# Run state
-# ---------------------------------------------------------------------------
-var round_index:    int = 0   # 0-based current round
-var monedas:        int = 0
-var difficulty:     int = Constants.Difficulty.NORMAL
-var box:            Box       # the Operator's tile supply
-var modules:        Array     # equipped Calibration Modules (Artifacts)
-var directives:     Array     # active Contracts
-var module_slots:   int = Constants.BASE_MODULE_SLOTS
+var round_index:  int = 0
+var monedas:      int = 0
+var difficulty:   int = Constants.Difficulty.NORMAL
+var box:          Box
+var modules:      Array = []   # Array[Module] — equipped Calibration Modules
+var module_slots: int = Constants.BASE_MODULE_SLOTS
 
 # ---------------------------------------------------------------------------
-# Initialise / reset
+# Run initialisation
 # ---------------------------------------------------------------------------
 func start_run(p_difficulty: int = Constants.Difficulty.NORMAL) -> void:
 	round_index  = 0
@@ -22,7 +18,6 @@ func start_run(p_difficulty: int = Constants.Difficulty.NORMAL) -> void:
 	difficulty   = p_difficulty
 	box          = Box.create_standard()
 	modules      = []
-	directives   = []
 	module_slots = Constants.BASE_MODULE_SLOTS
 
 # ---------------------------------------------------------------------------
@@ -31,8 +26,6 @@ func start_run(p_difficulty: int = Constants.Difficulty.NORMAL) -> void:
 func advance_round() -> void:
 	round_index += 1
 
-## Award Monedas after a successful round.
-## Returns the amount awarded.
 func award_monedas(unused_hands: int) -> int:
 	var earned: int = Constants.MONEDAS_PER_ROUND
 	earned += unused_hands * Constants.MONEDAS_PER_UNUSED_HAND
@@ -40,6 +33,57 @@ func award_monedas(unused_hands: int) -> int:
 		earned += Constants.BOSS_MONEDAS_BONUS
 	monedas += earned
 	return earned
+
+# ---------------------------------------------------------------------------
+# Economy
+# ---------------------------------------------------------------------------
+func spend_monedas(amount: int) -> bool:
+	if monedas < amount:
+		return false
+	monedas -= amount
+	return true
+
+# ---------------------------------------------------------------------------
+# Module (Artifact) management
+# ---------------------------------------------------------------------------
+
+## Returns true if there is a free module slot.
+func has_free_slot() -> bool:
+	return modules.size() < module_slots
+
+## Returns true if the player already owns a module with this id.
+func owns_module(id: String) -> bool:
+	for m in modules:
+		if m.id == id:
+			return true
+	return false
+
+## Equip a module. Returns false if no slot is available.
+func add_module(m: Module) -> bool:
+	if not has_free_slot():
+		return false
+	modules.append(m)
+	if m.extra_slots > 0:
+		module_slots += m.extra_slots
+	return true
+
+## Sell (remove) a module. Returns false if it would leave more modules than slots.
+func remove_module(m: Module) -> bool:
+	if not modules.has(m):
+		return false
+	# Selling a slot-giver would reduce capacity — ensure no overflow
+	var new_slots: int = module_slots - m.extra_slots
+	if new_slots < modules.size() - 1:
+		return false   # would overflow; player must sell something else first
+	modules.erase(m)
+	module_slots -= m.extra_slots
+	return true
+
+func sell_module(m: Module) -> bool:
+	if not remove_module(m):
+		return false
+	monedas += Constants.RARITY_SELL[m.rarity]
+	return true
 
 # ---------------------------------------------------------------------------
 # Queries

@@ -1,0 +1,23 @@
+## module.gd — A Calibration Module (Artifact).
+## Passive items equipped by the Operator that modify scoring and gameplay.
+class_name Module
+extends RefCounted
+
+enum EffectType {
+	FLAT_MULT,          # +effect_value mult every hand
+	FLAT_CHIPS,         # +effect_value chips every hand
+	DOUBLE_MULT_BOOST,  # each double gives +effect_value mult (replaces the base +1)
+	DOUBLE_PIP_BOOST,   # doubles score effect_value × their pip value (replaces ×1)
+	LONG_CHAIN_BOOST,   # chain >= effect_param tiles → +effect_value mult (additive)
+	EXTRA_SLOT,         # grants +effect_value module slots on equip (passive)
+}
+
+var id:           String
+var display_name: String
+var rarity:       int          # Constants.Rarity value
+var effect_type:  EffectType
+var effect_value: int
+var effect_param: int = 0      # secondary parameter (e.g. chain length threshold)
+var extra_slots:  int = 0      # additional module slots granted on equip
+var description:  String
+var lore_text:    String = ""

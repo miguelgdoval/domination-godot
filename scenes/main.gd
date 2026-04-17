@@ -1,9 +1,8 @@
-## main.gd — Trial Cycle controller + procedural UI
-## Milestone 1: core engine + playable round (no shop)
+## main.gd — Trial Cycle controller + procedural UI (Milestone 2)
 extends Node
 
 # ---------------------------------------------------------------------------
-# Palette — Perpetual Chronometer
+# Palette
 # ---------------------------------------------------------------------------
 const C_BG          := Color(0.08, 0.07, 0.05)
 const C_PANEL       := Color(0.13, 0.11, 0.08, 0.95)
@@ -16,28 +15,36 @@ const C_PREVIEW     := Color(0.70, 1.00, 0.70)
 const C_LAST_HAND   := Color(1.00, 0.86, 0.30)
 const C_WIN         := Color(0.40, 1.00, 0.40)
 const C_LOSE        := Color(1.00, 0.30, 0.30)
-
-# Domino tile colours
-const C_TILE_FACE       := Color(0.94, 0.91, 0.83)   # ivory/bone
+const C_TILE_FACE       := Color(0.94, 0.91, 0.83)
 const C_TILE_FACE_HOVER := Color(1.00, 0.97, 0.89)
-const C_TILE_FACE_DIM   := Color(0.55, 0.52, 0.46)   # greyed — can't connect
-const C_TILE_FACE_SEL   := Color(0.72, 0.22, 0.18)   # red — selected for discard
+const C_TILE_FACE_DIM   := Color(0.55, 0.52, 0.46)
+const C_TILE_FACE_SEL   := Color(0.72, 0.22, 0.18)
 const C_TILE_BORDER     := Color(0.42, 0.36, 0.26)
 const C_TILE_DIVIDER    := Color(0.42, 0.36, 0.26)
-const C_TILE_PIP        := Color(0.10, 0.08, 0.06)   # dark ink
+const C_TILE_PIP        := Color(0.10, 0.08, 0.06)
+
+# Rarity badge colours
+const C_RARITY := [
+	Color(0.75, 0.72, 0.65),  # Bone
+	Color(0.55, 0.75, 0.55),  # Carved
+	Color(0.90, 0.80, 0.40),  # Ivory
+	Color(0.55, 0.35, 0.85),  # Obsidian
+]
 
 # ---------------------------------------------------------------------------
 # Game state
 # ---------------------------------------------------------------------------
-enum Phase { PLAYING, ROUND_RESULT, GAME_OVER, VICTORY }
+enum Phase { PLAYING, ROUND_RESULT, SHOP, GAME_OVER, VICTORY }
 
 var _phase: Phase = Phase.PLAYING
 var _rm: RoundManager
 var _selected_discard: Array = []
-var _tile_btns: Array = []            # Button nodes in hand
+var _tile_btns: Array = []
+var _shop_inventory: Array = []   # current shop entries [{item, cost}]
+var _shop_bought: Array = []      # ids bought this visit (greyed out)
 
 # ---------------------------------------------------------------------------
-# UI node references
+# UI references — gameplay
 # ---------------------------------------------------------------------------
 var _lbl_round:       Label
 var _lbl_chronos:     Label
@@ -46,20 +53,30 @@ var _lbl_hands:       Label
 var _lbl_discards:    Label
 var _lbl_monedas:     Label
 var _lbl_etapa:       Label
-var _chain_container: HBoxContainer   # visual domino tiles in chain
+var _chain_container: HBoxContainer
 var _lbl_preview:     Label
 var _lbl_last_hand:   Label
 var _hand_container:  HBoxContainer
 var _btn_play:        Button
 var _btn_discard:     Button
 var _btn_undo:        Button
-var _overlay:         Control
-var _lbl_result:      Label
-var _lbl_result_sub:  Label
-var _btn_continue:    Button
+
+# UI references — result overlay
+var _result_overlay:    Control
+var _lbl_result:        Label
+var _lbl_result_sub:    Label
+var _btn_result_action: Button
+
+# UI references — shop overlay
+var _shop_overlay:       Control
+var _lbl_shop_title:     Label
+var _lbl_shop_monedas:   Label
+var _shop_items_row:     HBoxContainer
+var _shop_modules_row:   HBoxContainer
+var _lbl_slots:          Label
 
 # ===========================================================================
-# Godot lifecycle
+# Lifecycle
 # ===========================================================================
 func _ready() -> void:
 	_build_ui()
@@ -80,7 +97,8 @@ func _start_round() -> void:
 	_rm.hand_scored.connect(_on_hand_scored)
 	_rm.round_ended.connect(_on_round_ended)
 
-	_overlay.hide()
+	_result_overlay.hide()
+	_shop_overlay.hide()
 	_refresh_hud()
 	_rebuild_hand()
 	_refresh_chain_display()
@@ -91,21 +109,40 @@ func _end_round(won: bool) -> void:
 		var earned: int = GameState.award_monedas(_rm.unused_hands())
 		_lbl_result.text = "RECALIBRATION SUCCESSFUL"
 		_lbl_result.add_theme_color_override("font_color", C_WIN)
-		_lbl_result_sub.text = "Chronos: %d / %d\n+%d Monedas earned" % [
+		_lbl_result_sub.text = "Chronos: %d / %d    +%d Monedas" % [
 			_rm.chronos, _rm.target, earned]
-		_btn_continue.text = "NEXT ROUND"
+		var shop_name: String = \
+			"ARTISAN'S WORKSHOP" if GameState.is_boss_round() else "BRASS EMPORIUM"
+		_btn_result_action.text = "VISIT " + shop_name
 	else:
 		_phase = Phase.GAME_OVER
 		_lbl_result.text = "SIMULATION FAILURE"
 		_lbl_result.add_theme_color_override("font_color", C_LOSE)
-		_lbl_result_sub.text = (
-			"Chronos: %d / %d\n\n" % [_rm.chronos, _rm.target] +
-			"REINITIALIZING PROTOCOL.\nOPERATOR REMAINS AVAILABLE.")
-		_btn_continue.text = "NEW TRIAL CYCLE"
-	_overlay.show()
+		_lbl_result_sub.text = \
+			"Chronos: %d / %d\n\nREINITIALIZING PROTOCOL.\nOPERATOR REMAINS AVAILABLE." % \
+			[_rm.chronos, _rm.target]
+		_btn_result_action.text = "NEW TRIAL CYCLE"
+	_result_overlay.show()
+
+func _show_shop() -> void:
+	_phase = Phase.SHOP
+	_result_overlay.hide()
+
+	# Generate inventory
+	var owned_ids: Array = GameState.modules.map(func(m): return m.id)
+	if GameState.is_boss_round():
+		_lbl_shop_title.text = "THE ARTISAN'S WORKSHOP"
+		_shop_inventory = ShopManager.generate_artisan(owned_ids)
+	else:
+		_lbl_shop_title.text = "THE BRASS EMPORIUM"
+		_shop_inventory = ShopManager.generate_emporium(3, owned_ids)
+
+	_shop_bought.clear()
+	_populate_shop()
+	_shop_overlay.show()
 
 # ===========================================================================
-# Signal handlers
+# Signal handlers — gameplay
 # ===========================================================================
 func _on_chain_changed() -> void:
 	_refresh_chain_display()
@@ -141,41 +178,205 @@ func _on_tile_right_click(index: int) -> void:
 	_refresh_action_buttons()
 
 func _on_play_pressed() -> void:
-	if _phase != Phase.PLAYING or not _rm.can_play():
-		return
-	_rm.play_chain()
+	if _phase == Phase.PLAYING and _rm.can_play():
+		_rm.play_chain()
 
 func _on_discard_pressed() -> void:
-	if _phase != Phase.PLAYING or _selected_discard.is_empty() or not _rm.can_discard():
-		return
-	_rm.discard(_selected_discard)
-	_selected_discard.clear()
+	if _phase == Phase.PLAYING and not _selected_discard.is_empty() and _rm.can_discard():
+		_rm.discard(_selected_discard)
+		_selected_discard.clear()
 
 func _on_undo_pressed() -> void:
-	if _phase != Phase.PLAYING:
-		return
-	_rm.undo_last_chain_tile()
+	if _phase == Phase.PLAYING:
+		_rm.undo_last_chain_tile()
 
-func _on_continue_pressed() -> void:
+# ===========================================================================
+# Signal handlers — result overlay
+# ===========================================================================
+func _on_result_action_pressed() -> void:
 	match _phase:
 		Phase.ROUND_RESULT:
-			GameState.advance_round()
-			if GameState.is_run_complete():
-				_phase = Phase.VICTORY
-				_lbl_result.text = "CHRONOMETER RECALIBRATED"
-				_lbl_result.add_theme_color_override("font_color", C_MONEDAS)
-				_lbl_result_sub.text = (
-					"The Perpetual Chronometer stabilizes.\n" +
-					"Entropy contained. For now.\n\nOPERATOR COMMENDED.")
-				_btn_continue.text = "NEW TRIAL CYCLE"
-				return
-			_start_round()
+			_show_shop()
 		Phase.GAME_OVER, Phase.VICTORY:
 			GameState.start_run()
 			_start_round()
 
 # ===========================================================================
-# UI refresh
+# Signal handlers — shop
+# ===========================================================================
+func _on_buy_pressed(entry: Dictionary) -> void:
+	var m: Module = entry["item"]
+	var cost: int = entry["cost"]
+
+	if not GameState.has_free_slot():
+		return
+	if GameState.owns_module(m.id):
+		return
+	if not GameState.spend_monedas(cost):
+		return
+
+	GameState.add_module(m)
+	_shop_bought.append(m.id)
+	_populate_shop()   # rebuild to reflect new state
+
+func _on_sell_pressed(m: Module) -> void:
+	if GameState.sell_module(m):
+		_populate_shop()
+
+func _on_shop_continue_pressed() -> void:
+	GameState.advance_round()
+	if GameState.is_run_complete():
+		_phase = Phase.VICTORY
+		_lbl_result.text = "CHRONOMETER RECALIBRATED"
+		_lbl_result.add_theme_color_override("font_color", C_MONEDAS)
+		_lbl_result_sub.text = \
+			"The Perpetual Chronometer stabilizes.\nEntropy contained. For now.\n\nOPERATOR COMMENDED."
+		_btn_result_action.text = "NEW TRIAL CYCLE"
+		_shop_overlay.hide()
+		_result_overlay.show()
+		return
+	_start_round()
+
+# ===========================================================================
+# Shop population
+# ===========================================================================
+func _populate_shop() -> void:
+	# Update monedas
+	_lbl_shop_monedas.text = "Monedas: %d" % GameState.monedas
+	_lbl_slots.text = "Modules: %d / %d" % [
+		GameState.modules.size(), GameState.module_slots]
+
+	# --- Item cards ---
+	for child in _shop_items_row.get_children():
+		child.queue_free()
+
+	for entry in _shop_inventory:
+		_shop_items_row.add_child(_build_shop_item_card(entry))
+
+	# --- Equipped modules ---
+	for child in _shop_modules_row.get_children():
+		child.queue_free()
+
+	if GameState.modules.is_empty():
+		var none_lbl := _make_label("(no modules equipped)", C_DIM, 13)
+		none_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		_shop_modules_row.add_child(none_lbl)
+	else:
+		for m in GameState.modules:
+			_shop_modules_row.add_child(_build_equipped_module_card(m))
+
+func _build_shop_item_card(entry: Dictionary) -> Control:
+	var m: Module  = entry["item"]
+	var cost: int  = entry["cost"]
+	var bought: bool = m.id in _shop_bought or GameState.owns_module(m.id)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(260, 0)
+
+	var style := StyleBoxFlat.new()
+	style.bg_color     = Color(0.11, 0.10, 0.07)
+	style.border_color = C_RARITY[m.rarity]
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(6)
+	panel.add_theme_stylebox_override("panel", style)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 6)
+	panel.add_child(vbox)
+
+	# Rarity badge
+	var rarity_lbl := _make_label(
+		Constants.RARITY_NAMES[m.rarity].to_upper(),
+		C_RARITY[m.rarity], 11)
+	vbox.add_child(rarity_lbl)
+
+	# Name
+	var name_lbl := _make_label(m.display_name, C_TEXT, 18)
+	vbox.add_child(name_lbl)
+
+	# Description
+	var desc_lbl := _make_label(m.description, C_PREVIEW, 13)
+	desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc_lbl.custom_minimum_size = Vector2(240, 0)
+	vbox.add_child(desc_lbl)
+
+	# Lore text
+	if m.lore_text != "":
+		var lore_lbl := _make_label(m.lore_text, C_DIM, 11)
+		lore_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		lore_lbl.custom_minimum_size = Vector2(240, 0)
+		vbox.add_child(lore_lbl)
+
+	# Spacer
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(spacer)
+
+	# Price + buy button
+	var bottom_row := HBoxContainer.new()
+	vbox.add_child(bottom_row)
+
+	var cost_lbl := _make_label("%d Monedas" % cost, C_MONEDAS, 14)
+	cost_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bottom_row.add_child(cost_lbl)
+
+	if bought:
+		var owned_lbl := _make_label("OWNED", C_WIN, 13)
+		bottom_row.add_child(owned_lbl)
+	else:
+		var can_buy: bool = (GameState.monedas >= cost) and \
+							GameState.has_free_slot() and \
+							not GameState.owns_module(m.id)
+		var buy_btn := Button.new()
+		buy_btn.text = "BUY"
+		buy_btn.disabled = not can_buy
+		buy_btn.pressed.connect(_on_buy_pressed.bind(entry))
+		bottom_row.add_child(buy_btn)
+
+	return panel
+
+func _build_equipped_module_card(m: Module) -> Control:
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(0, 0)
+
+	var style := StyleBoxFlat.new()
+	style.bg_color     = Color(0.12, 0.11, 0.08)
+	style.border_color = C_RARITY[m.rarity]
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(4)
+	panel.add_theme_stylebox_override("panel", style)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 3)
+	panel.add_child(vbox)
+
+	var name_row := HBoxContainer.new()
+	vbox.add_child(name_row)
+
+	var rarity_dot := _make_label("●", C_RARITY[m.rarity], 12)
+	name_row.add_child(rarity_dot)
+
+	var name_lbl := _make_label(" " + m.display_name, C_TEXT, 14)
+	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_row.add_child(name_lbl)
+
+	var desc_lbl := _make_label(m.description, C_DIM, 11)
+	desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc_lbl.custom_minimum_size = Vector2(160, 0)
+	vbox.add_child(desc_lbl)
+
+	var sell_btn := Button.new()
+	sell_btn.text = "SELL  +%d" % Constants.RARITY_SELL[m.rarity]
+	# Block selling if it would overflow slots
+	var new_slots: int = GameState.module_slots - m.extra_slots
+	sell_btn.disabled = new_slots < GameState.modules.size() - 1
+	sell_btn.pressed.connect(_on_sell_pressed.bind(m))
+	vbox.add_child(sell_btn)
+
+	return panel
+
+# ===========================================================================
+# Gameplay UI refresh
 # ===========================================================================
 func _refresh_hud() -> void:
 	_lbl_round.text    = GameState.round_display()
@@ -188,7 +389,6 @@ func _refresh_hud() -> void:
 	var over: bool = _rm.chronos >= _rm.target
 	_lbl_chronos.add_theme_color_override("font_color", C_WIN if over else C_CHRONOS)
 
-## Rebuild the visual chain from current chain.tile_displays.
 func _refresh_chain_display() -> void:
 	for child in _chain_container.get_children():
 		child.queue_free()
@@ -198,19 +398,16 @@ func _refresh_chain_display() -> void:
 		lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		_chain_container.add_child(lbl)
 	else:
-		var displays := _rm.current_chain.tile_displays
-		for i in range(displays.size()):
-			# Connector arrow between tiles
+		for i in range(_rm.current_chain.tile_displays.size()):
 			if i > 0:
-				var arrow := _make_label("→", C_DIM, 14)
-				arrow.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-				_chain_container.add_child(arrow)
-			var disp: Vector2i = displays[i]
-			_chain_container.add_child(_build_chain_tile(disp.x, disp.y))
+				var arr := _make_label("→", C_DIM, 14)
+				arr.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+				_chain_container.add_child(arr)
+			var d: Vector2i = _rm.current_chain.tile_displays[i]
+			_chain_container.add_child(_build_chain_tile(d.x, d.y))
 
-	# Score preview
 	if not _rm.current_chain.is_empty():
-		var r: Dictionary = Scoring.calculate(_rm.current_chain)
+		var r: Dictionary = Scoring.calculate(_rm.current_chain, GameState.modules)
 		_lbl_preview.text = "%d chips  ×  %d  =  %d Chronos" % [
 			r["chips"], r["mult"], r["total"]]
 	else:
@@ -218,7 +415,7 @@ func _refresh_chain_display() -> void:
 
 func _refresh_action_buttons() -> void:
 	_btn_play.disabled    = not _rm.can_play()
-	_btn_discard.disabled = (not _rm.can_discard()) or _selected_discard.is_empty()
+	_btn_discard.disabled = not _rm.can_discard() or _selected_discard.is_empty()
 	_btn_undo.disabled    = _rm.current_chain.is_empty()
 	_btn_discard.text     = "Discard (%d)" % _selected_discard.size()
 
@@ -227,12 +424,10 @@ func _rebuild_hand() -> void:
 	for child in _hand_container.get_children():
 		child.queue_free()
 	_tile_btns.clear()
-
 	for i in range(_rm.hand.size()):
-		var btn: Button = _create_hand_tile(_rm.hand[i], i)
+		var btn := _create_hand_tile(_rm.hand[i], i)
 		_hand_container.add_child(btn)
 		_tile_btns.append(btn)
-
 	_refresh_tile_visuals()
 	_refresh_action_buttons()
 
@@ -251,15 +446,11 @@ func _refresh_tile_visuals() -> void:
 # ===========================================================================
 # Domino tile widgets
 # ===========================================================================
-
-## Hand tile — vertical domino, top pip / divider / bottom pip.
-## Clickable: left click = add to chain, right click = select for discard.
 func _create_hand_tile(tile: Domino, index: int) -> Button:
 	var btn := Button.new()
 	btn.custom_minimum_size = Vector2(64, 108)
 	btn.text = ""
 	btn.clip_contents = true
-
 	_apply_tile_style(btn, C_TILE_FACE, C_TILE_FACE_HOVER)
 
 	var vbox := VBoxContainer.new()
@@ -271,9 +462,7 @@ func _create_hand_tile(tile: Domino, index: int) -> Button:
 	var top := _make_pip_label(tile.left)
 	top.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	vbox.add_child(top)
-
 	vbox.add_child(_make_tile_hsep())
-
 	var bot := _make_pip_label(tile.right)
 	bot.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	vbox.add_child(bot)
@@ -287,14 +476,11 @@ func _create_hand_tile(tile: Domino, index: int) -> Button:
 	)
 	return btn
 
-## Chain tile — horizontal domino, left pip | divider | right pip.
-## Not interactive — display only.
 func _build_chain_tile(disp_left: int, disp_right: int) -> Control:
 	var panel := PanelContainer.new()
 	panel.custom_minimum_size = Vector2(76, 48)
-
 	var style := StyleBoxFlat.new()
-	style.bg_color = C_TILE_FACE
+	style.bg_color     = C_TILE_FACE
 	style.border_color = C_TILE_BORDER
 	style.set_border_width_all(2)
 	style.set_corner_radius_all(4)
@@ -304,21 +490,15 @@ func _build_chain_tile(disp_left: int, disp_right: int) -> Control:
 	hbox.add_theme_constant_override("separation", 0)
 	panel.add_child(hbox)
 
-	var left_lbl := _make_pip_label(disp_left)
-	left_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	hbox.add_child(left_lbl)
-
+	var ll := _make_pip_label(disp_left)
+	ll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hbox.add_child(ll)
 	hbox.add_child(_make_tile_vsep())
-
-	var right_lbl := _make_pip_label(disp_right)
-	right_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	hbox.add_child(right_lbl)
-
+	var rl := _make_pip_label(disp_right)
+	rl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hbox.add_child(rl)
 	return panel
 
-# ---------------------------------------------------------------------------
-# Tile sub-element helpers
-# ---------------------------------------------------------------------------
 func _make_pip_label(pip: int) -> Label:
 	var lbl := Label.new()
 	lbl.text = str(pip) if pip >= 0 else "★"
@@ -331,39 +511,30 @@ func _make_pip_label(pip: int) -> Label:
 func _make_tile_hsep() -> Control:
 	var sep := ColorRect.new()
 	sep.color = C_TILE_DIVIDER
-	sep.custom_minimum_size = Vector2(0, 2)
+	sep.custom_minimum_size   = Vector2(0, 2)
 	sep.size_flags_horizontal = Control.SIZE_FILL
 	return sep
 
 func _make_tile_vsep() -> Control:
 	var sep := ColorRect.new()
 	sep.color = C_TILE_DIVIDER
-	sep.custom_minimum_size = Vector2(2, 0)
-	sep.size_flags_vertical = Control.SIZE_FILL
+	sep.custom_minimum_size  = Vector2(2, 0)
+	sep.size_flags_vertical  = Control.SIZE_FILL
 	return sep
 
-## Apply normal + hover StyleBoxFlat to a Button with tile visual style.
 func _apply_tile_style(btn: Button, face: Color, hover: Color) -> void:
-	for override_name in ["normal", "focus"]:
+	for n in ["normal", "focus"]:
 		var s := StyleBoxFlat.new()
-		s.bg_color     = face
-		s.border_color = C_TILE_BORDER
-		s.set_border_width_all(2)
-		s.set_corner_radius_all(5)
-		btn.add_theme_stylebox_override(override_name, s)
-
+		s.bg_color = face; s.border_color = C_TILE_BORDER
+		s.set_border_width_all(2); s.set_corner_radius_all(5)
+		btn.add_theme_stylebox_override(n, s)
 	var sh := StyleBoxFlat.new()
-	sh.bg_color     = hover
-	sh.border_color = C_TILE_BORDER
-	sh.set_border_width_all(2)
-	sh.set_corner_radius_all(5)
+	sh.bg_color = hover; sh.border_color = C_TILE_BORDER
+	sh.set_border_width_all(2); sh.set_corner_radius_all(5)
 	btn.add_theme_stylebox_override("hover", sh)
-
 	var sp := StyleBoxFlat.new()
-	sp.bg_color     = face.darkened(0.12)
-	sp.border_color = C_TILE_BORDER
-	sp.set_border_width_all(2)
-	sp.set_corner_radius_all(5)
+	sp.bg_color = face.darkened(0.12); sp.border_color = C_TILE_BORDER
+	sp.set_border_width_all(2); sp.set_corner_radius_all(5)
 	btn.add_theme_stylebox_override("pressed", sp)
 
 # ===========================================================================
@@ -412,9 +583,13 @@ func _build_ui() -> void:
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	root.add_child(hint)
 
-	_overlay = _build_overlay()
-	ui.add_child(_overlay)
-	_overlay.hide()
+	_result_overlay = _build_result_overlay()
+	ui.add_child(_result_overlay)
+	_result_overlay.hide()
+
+	_shop_overlay = _build_shop_overlay()
+	ui.add_child(_shop_overlay)
+	_shop_overlay.hide()
 
 # ---- HUD ----
 func _build_hud() -> Control:
@@ -422,7 +597,6 @@ func _build_hud() -> Control:
 	var style := StyleBoxFlat.new()
 	style.bg_color = C_PANEL
 	panel.add_theme_stylebox_override("panel", style)
-
 	var hbox := HBoxContainer.new()
 	panel.add_child(hbox)
 
@@ -439,7 +613,6 @@ func _build_hud() -> Control:
 		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		lbl.horizontal_alignment  = HORIZONTAL_ALIGNMENT_CENTER
 		hbox.add_child(lbl)
-
 	return panel
 
 # ---- Chain area ----
@@ -448,7 +621,6 @@ func _build_chain_area() -> Control:
 	var style := StyleBoxFlat.new()
 	style.bg_color = C_PANEL
 	panel.add_theme_stylebox_override("panel", style)
-
 	var vbox := VBoxContainer.new()
 	vbox.add_theme_constant_override("separation", 6)
 	panel.add_child(vbox)
@@ -467,7 +639,6 @@ func _build_chain_area() -> Control:
 	_lbl_preview = _make_label("", C_PREVIEW, 14)
 	_lbl_preview.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(_lbl_preview)
-
 	return panel
 
 # ---- Action bar ----
@@ -476,62 +647,134 @@ func _build_action_bar() -> Control:
 	hbox.alignment = BoxContainer.ALIGNMENT_CENTER
 	hbox.add_theme_constant_override("separation", 16)
 	hbox.custom_minimum_size = Vector2(0, 58)
-
-	_btn_undo    = _make_button("↩ Undo",          _on_undo_pressed,    Vector2(120, 50))
-	_btn_discard = _make_button("Discard (0)",      _on_discard_pressed, Vector2(160, 50))
-	_btn_play    = _make_button("▶  Play Pulse",    _on_play_pressed,    Vector2(180, 50))
-
+	_btn_undo    = _make_button("↩ Undo",       _on_undo_pressed,    Vector2(120, 50))
+	_btn_discard = _make_button("Discard (0)",   _on_discard_pressed, Vector2(160, 50))
+	_btn_play    = _make_button("▶  Play Pulse", _on_play_pressed,    Vector2(180, 50))
 	hbox.add_child(_btn_undo)
 	hbox.add_child(_btn_discard)
 	hbox.add_child(_btn_play)
 	return hbox
 
 # ---- Result overlay ----
-func _build_overlay() -> Control:
+func _build_result_overlay() -> Control:
 	var overlay := ColorRect.new()
 	overlay.color = Color(0, 0, 0, 0.72)
 	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-
 	var center := CenterContainer.new()
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	overlay.add_child(center)
-
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(480, 280)
+	panel.custom_minimum_size = Vector2(480, 260)
 	var style := StyleBoxFlat.new()
 	style.bg_color     = Color(0.10, 0.09, 0.07, 0.98)
 	style.border_color = Color(0.5, 0.45, 0.35)
 	style.set_border_width_all(2)
 	panel.add_theme_stylebox_override("panel", style)
 	center.add_child(panel)
-
 	var vbox := VBoxContainer.new()
 	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
 	vbox.add_theme_constant_override("separation", 14)
 	panel.add_child(vbox)
-
 	_lbl_result = _make_label("", C_WIN, 26)
 	_lbl_result.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(_lbl_result)
-
 	_lbl_result_sub = _make_label("", C_TEXT, 14)
 	_lbl_result_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_lbl_result_sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_lbl_result_sub.custom_minimum_size = Vector2(400, 0)
 	vbox.add_child(_lbl_result_sub)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_child(row)
+	_btn_result_action = _make_button("VISIT EMPORIUM", _on_result_action_pressed,
+		Vector2(220, 48))
+	row.add_child(_btn_result_action)
+	return overlay
 
+# ---- Shop overlay ----
+func _build_shop_overlay() -> Control:
+	var overlay := ColorRect.new()
+	overlay.color = Color(0, 0, 0, 0.85)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+	var scroll := ScrollContainer.new()
+	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(scroll)
+
+	var center := CenterContainer.new()
+	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	center.size_flags_vertical   = Control.SIZE_EXPAND_FILL
+	scroll.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(1100, 0)
+	var style := StyleBoxFlat.new()
+	style.bg_color     = Color(0.10, 0.09, 0.07)
+	style.border_color = Color(0.50, 0.45, 0.35)
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(8)
+	panel.add_theme_stylebox_override("panel", style)
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 14)
+	panel.add_child(vbox)
+
+	# --- Header ---
+	var header := HBoxContainer.new()
+	vbox.add_child(header)
+
+	_lbl_shop_title = _make_label("THE BRASS EMPORIUM", C_TEXT, 22)
+	_lbl_shop_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(_lbl_shop_title)
+
+	var right_col := VBoxContainer.new()
+	right_col.alignment = BoxContainer.ALIGNMENT_END
+	header.add_child(right_col)
+
+	_lbl_shop_monedas = _make_label("Monedas: 0", C_MONEDAS, 16)
+	_lbl_shop_monedas.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	right_col.add_child(_lbl_shop_monedas)
+
+	_lbl_slots = _make_label("Modules: 0/4", C_DIM, 13)
+	_lbl_slots.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	right_col.add_child(_lbl_slots)
+
+	vbox.add_child(_make_hsep())
+
+	# --- Shop items ---
+	_shop_items_row = HBoxContainer.new()
+	_shop_items_row.add_theme_constant_override("separation", 16)
+	_shop_items_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_child(_shop_items_row)
+
+	vbox.add_child(_make_hsep())
+
+	# --- Equipped modules ---
+	var modules_title := _make_label("EQUIPPED MODULES", C_DIM, 12)
+	vbox.add_child(modules_title)
+
+	_shop_modules_row = HBoxContainer.new()
+	_shop_modules_row.add_theme_constant_override("separation", 12)
+	vbox.add_child(_shop_modules_row)
+
+	vbox.add_child(_make_hsep())
+
+	# --- Continue button ---
 	var btn_row := HBoxContainer.new()
-	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	btn_row.alignment = BoxContainer.ALIGNMENT_END
 	vbox.add_child(btn_row)
 
-	_btn_continue = _make_button("NEXT ROUND", _on_continue_pressed, Vector2(180, 48))
-	btn_row.add_child(_btn_continue)
+	btn_row.add_child(
+		_make_button("CONTINUE TO NEXT ROUND  →", _on_shop_continue_pressed,
+			Vector2(260, 50))
+	)
 
 	return overlay
 
-# ---------------------------------------------------------------------------
+# ===========================================================================
 # Generic helpers
-# ---------------------------------------------------------------------------
+# ===========================================================================
 func _make_hud_label(text: String, color: Color) -> Label:
 	var lbl := Label.new()
 	lbl.text = text
@@ -553,3 +796,10 @@ func _make_button(label: String, callback: Callable,
 	btn.custom_minimum_size = min_size
 	btn.pressed.connect(callback)
 	return btn
+
+func _make_hsep() -> Control:
+	var sep := HSeparator.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.3, 0.28, 0.22)
+	sep.add_theme_stylebox_override("separator", style)
+	return sep

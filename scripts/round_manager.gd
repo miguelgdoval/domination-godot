@@ -86,7 +86,7 @@ func play_chain() -> Dictionary:
 	if current_chain.is_empty() or hands_remaining <= 0:
 		return {}
 
-	var result: Dictionary = Scoring.calculate(current_chain)
+	var result: Dictionary = Scoring.calculate(current_chain, GameState.modules)
 	chronos += result["total"]
 	hands_remaining -= 1
 

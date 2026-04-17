@@ -116,8 +116,8 @@ Start Trial Cycle → Choose Calibration Core → (Choose Protocol)
        ├─ Hit Chronos target → survive, earn Monedas, visit Emporium
        ├─ Miss target → Simulation Failure (Game Over)
        └─ Every 4 rounds: Entropy Failure (Boss)
-            └─ After boss: Artisan's Workshop (replaces Emporium)
-                  └─ (Optional) Event Terminal — The Archiver appears
+			└─ After boss: Artisan's Workshop (replaces Emporium)
+				  └─ (Optional) Event Terminal — The Archiver appears
 ```
 
 ---
