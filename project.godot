@@ -1,0 +1,27 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the format may change between versions.
+
+config_version=5
+
+[application]
+
+config/name="Domination"
+config/description="A domino roguelike — Recalibrate the Perpetual Chronometer"
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.3", "GL Compatibility")
+
+[autoload]
+
+Constants="*res://scripts/constants.gd"
+GameState="*res://scripts/game_state.gd"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
