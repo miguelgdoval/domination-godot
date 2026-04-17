@@ -21,6 +21,46 @@ static func create_standard() -> Box:
 	box.replenish()
 	return box
 
+## Creates the correct box for a Calibration Core index (see Constants.CORE_*).
+static func create_for_core(core_index: int) -> Box:
+	match core_index:
+		1: return _create_resonant()
+		2: return _create_dense()
+		3: return _create_void()
+		_: return create_standard()
+
+## Resonant Core: only double tiles (0-0 through 9-9), 5 copies each = 50 tiles.
+static func _create_resonant() -> Box:
+	var box := Box.new()
+	for i in range(Constants.MAX_PIP + 1):
+		for _k in range(5):
+			box._all_tiles.append(Domino.new(i, i))
+	box.replenish()
+	return box
+
+## Dense Array: double-6 set (28 unique tiles), 3 copies each = 84 tiles.
+static func _create_dense() -> Box:
+	var box := Box.new()
+	const MAX_DENSE: int = 6
+	for i in range(MAX_DENSE + 1):
+		for j in range(i, MAX_DENSE + 1):
+			for _k in range(3):
+				box._all_tiles.append(Domino.new(i, j))
+	box.replenish()
+	return box
+
+## Void Lattice: standard double-9 set ×2 + 10 Wild tiles = 120 tiles.
+static func _create_void() -> Box:
+	var box := Box.new()
+	for i in range(Constants.MAX_PIP + 1):
+		for j in range(i, Constants.MAX_PIP + 1):
+			box._all_tiles.append(Domino.new(i, j))
+			box._all_tiles.append(Domino.new(i, j))
+	for _k in range(10):
+		box._all_tiles.append(Domino.new(Domino.WILD, Domino.WILD, 0, true))
+	box.replenish()
+	return box
+
 # ---------------------------------------------------------------------------
 # Operations
 # ---------------------------------------------------------------------------

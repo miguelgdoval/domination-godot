@@ -3,6 +3,59 @@
 extends Node
 
 # ---------------------------------------------------------------------------
+# Calibration Cores  (box variants chosen at run start)
+# ---------------------------------------------------------------------------
+const CORE_COUNT: int = 4
+const CORE_NAMES: Array[String] = [
+	"Standard Core", "Resonant Core", "Dense Array", "Void Lattice",
+]
+const CORE_RARITIES: Array[int] = [0, 1, 1, 2]  # Bone, Carved, Carved, Ivory
+const CORE_DESCS: Array[String] = [
+	"Full double-9 set — 110 tiles.\nBalanced and well-understood.",
+	"Doubles only (0-0 through 9-9) — 50 tiles.\nEvery tile resonates. Multipliers run wild.",
+	"Double-6 set — 84 tiles.\nLower pip ceiling, but chains form freely.",
+	"Standard set + 10 Wild tiles — 120 tiles.\nUnstable flux. The Wilds connect to anything.",
+]
+const CORE_LORES: Array[String] = [
+	"\"Standard field array. Recommended for initial calibration.\"",
+	"\"All harmonics collapsed to pure resonance. The signal sings itself.\"",
+	"\"A tighter grid. The Chronometer breathes easier at reduced amplitude.\"",
+	"\"Something has contaminated the array. The Wilds answer to nothing—and everything.\"",
+]
+## Score target scale (applied as target × scale / 100).
+## Resonant Core scores much higher → targets scale up.
+## Dense Array scores lower → targets scale down.
+const CORE_TARGET_SCALE: Array[int] = [100, 130, 70, 100]
+
+# ---------------------------------------------------------------------------
+# Protocols  (operational modifiers chosen at run start)
+# ---------------------------------------------------------------------------
+const PROTOCOL_COUNT: int = 4
+const PROTOCOL_NAMES: Array[String] = [
+	"Equilibrium Protocol",
+	"Compression Protocol",
+	"Overload Protocol",
+	"Cascade Protocol",
+]
+const PROTOCOL_RARITIES: Array[int] = [0, 1, 1, 2]
+const PROTOCOL_DESCS: Array[String] = [
+	"Hand 5 | Plays 4 | Discards 2\nThe balanced operational parameter set.",
+	"Hand 4 | Plays 4 | Discards 4\nSmaller hand, far more flexibility.",
+	"Hand 6 | Plays 5 | Discards 1\nMaximum throughput. Minimal fallback.",
+	"Hand 5 | Plays 6 | Discards 0\n+5 starting Monedas. No safety net.",
+]
+const PROTOCOL_LORES: Array[String] = [
+	"\"Operational parameters nominal. Proceed as calibrated.\"",
+	"\"Compress the intake. Route excess energy to the discharge relay.\"",
+	"\"Maximum throughput engaged. Hesitation is entropy.\"",
+	"\"All discharge ports sealed. Find the flow—or fail the Chronometer.\"",
+]
+const PROTOCOL_HAND_SIZES:    Array[int] = [5, 4, 6, 5]
+const PROTOCOL_HANDS:         Array[int] = [4, 4, 5, 6]
+const PROTOCOL_DISCARDS:      Array[int] = [2, 4, 1, 0]
+const PROTOCOL_BONUS_MONEDAS: Array[int] = [0, 0, 0, 5]
+
+# ---------------------------------------------------------------------------
 # Rarity
 # ---------------------------------------------------------------------------
 enum Rarity { BONE = 0, CARVED = 1, IVORY = 2, OBSIDIAN = 3 }

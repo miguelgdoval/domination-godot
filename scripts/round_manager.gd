@@ -37,7 +37,7 @@ func setup(p_box: Box, p_round_index: int,
 
 	box            = p_box
 	round_index    = p_round_index
-	target         = Constants.score_target(p_round_index)
+	target         = GameState.adjusted_target(p_round_index)
 	hand_size      = p_hand_size
 	max_hands      = p_max_hands
 	max_discards   = p_max_discards

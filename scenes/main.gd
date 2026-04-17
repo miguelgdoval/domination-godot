@@ -1,4 +1,4 @@
-## main.gd — Trial Cycle controller + procedural UI (Milestone 2)
+## main.gd — Trial Cycle controller + procedural UI (Milestone 3)
 extends Node
 
 # ---------------------------------------------------------------------------
@@ -22,6 +22,8 @@ const C_TILE_FACE_SEL   := Color(0.72, 0.22, 0.18)
 const C_TILE_BORDER     := Color(0.42, 0.36, 0.26)
 const C_TILE_DIVIDER    := Color(0.42, 0.36, 0.26)
 const C_TILE_PIP        := Color(0.10, 0.08, 0.06)
+const C_TITLE_GLOW      := Color(0.85, 0.70, 0.30)
+const C_SELECTED_BORDER := Color(0.85, 0.75, 0.30)
 
 # Rarity badge colours
 const C_RARITY := [
@@ -34,14 +36,20 @@ const C_RARITY := [
 # ---------------------------------------------------------------------------
 # Game state
 # ---------------------------------------------------------------------------
-enum Phase { PLAYING, ROUND_RESULT, SHOP, GAME_OVER, VICTORY }
+enum Phase { TITLE, CORE_SELECT, PROTOCOL_SELECT, PLAYING, ROUND_RESULT, SHOP, GAME_OVER, VICTORY }
 
-var _phase: Phase = Phase.PLAYING
+var _phase: Phase = Phase.TITLE
 var _rm: RoundManager
 var _selected_discard: Array = []
 var _tile_btns: Array = []
 var _shop_inventory: Array = []   # current shop entries [{item, cost}]
-var _shop_bought: Array = []      # ids bought this visit (greyed out)
+var _shop_bought: Array = []      # ids bought this visit
+
+# Selection state for run setup
+var _pending_core:     int = 0
+var _pending_protocol: int = 0
+var _core_cards:    Array = []
+var _protocol_cards: Array = []
 
 # ---------------------------------------------------------------------------
 # UI references — gameplay
@@ -75,13 +83,73 @@ var _shop_items_row:     HBoxContainer
 var _shop_modules_row:   HBoxContainer
 var _lbl_slots:          Label
 
+# UI references — title / selection overlays
+var _title_overlay:        Control
+var _core_select_overlay:  Control
+var _proto_select_overlay: Control
+var _lbl_core_confirm:     Label
+var _lbl_proto_confirm:    Label
+
 # ===========================================================================
 # Lifecycle
 # ===========================================================================
 func _ready() -> void:
 	_build_ui()
-	GameState.start_run()
+	_show_title()
+
+# ===========================================================================
+# Title / selection flow
+# ===========================================================================
+func _show_title() -> void:
+	_phase = Phase.TITLE
+	_title_overlay.show()
+	_core_select_overlay.hide()
+	_proto_select_overlay.hide()
+	_result_overlay.hide()
+	_shop_overlay.hide()
+
+func _on_title_start_pressed() -> void:
+	_pending_core     = 0
+	_pending_protocol = 0
+	_title_overlay.hide()
+	_refresh_core_cards()
+	_core_select_overlay.show()
+
+func _on_core_card_pressed(index: int) -> void:
+	_pending_core = index
+	_refresh_core_cards()
+
+func _on_core_confirm_pressed() -> void:
+	_core_select_overlay.hide()
+	_refresh_protocol_cards()
+	_proto_select_overlay.show()
+
+func _on_protocol_card_pressed(index: int) -> void:
+	_pending_protocol = index
+	_refresh_protocol_cards()
+
+func _on_protocol_confirm_pressed() -> void:
+	_proto_select_overlay.hide()
+	GameState.start_run(_pending_core, _pending_protocol)
 	_start_round()
+
+func _refresh_core_cards() -> void:
+	for i in range(_core_cards.size()):
+		var panel: PanelContainer = _core_cards[i]
+		_set_selection_border(panel, i == _pending_core, Constants.CORE_RARITIES[i])
+
+func _refresh_protocol_cards() -> void:
+	for i in range(_protocol_cards.size()):
+		var panel: PanelContainer = _protocol_cards[i]
+		_set_selection_border(panel, i == _pending_protocol, Constants.PROTOCOL_RARITIES[i])
+
+func _set_selection_border(panel: PanelContainer, selected: bool, rarity: int) -> void:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.11, 0.10, 0.07) if not selected else Color(0.16, 0.14, 0.09)
+	style.border_color = C_SELECTED_BORDER if selected else C_RARITY[rarity]
+	style.set_border_width_all(3 if selected else 2)
+	style.set_corner_radius_all(8)
+	panel.add_theme_stylebox_override("panel", style)
 
 # ===========================================================================
 # Round lifecycle
@@ -91,7 +159,13 @@ func _start_round() -> void:
 	_selected_discard.clear()
 
 	_rm = RoundManager.new()
-	_rm.setup(GameState.box, GameState.round_index)
+	_rm.setup(
+		GameState.box,
+		GameState.round_index,
+		GameState.protocol_hand_size(),
+		GameState.protocol_hands(),
+		GameState.protocol_discards()
+	)
 	_rm.chain_changed.connect(_on_chain_changed)
 	_rm.hand_changed.connect(_on_hand_changed)
 	_rm.hand_scored.connect(_on_hand_scored)
@@ -128,7 +202,6 @@ func _show_shop() -> void:
 	_phase = Phase.SHOP
 	_result_overlay.hide()
 
-	# Generate inventory
 	var owned_ids: Array = GameState.modules.map(func(m): return m.id)
 	if GameState.is_boss_round():
 		_lbl_shop_title.text = "THE ARTISAN'S WORKSHOP"
@@ -197,9 +270,10 @@ func _on_result_action_pressed() -> void:
 	match _phase:
 		Phase.ROUND_RESULT:
 			_show_shop()
-		Phase.GAME_OVER, Phase.VICTORY:
-			GameState.start_run()
-			_start_round()
+		Phase.GAME_OVER:
+			_show_title()
+		Phase.VICTORY:
+			_show_title()
 
 # ===========================================================================
 # Signal handlers — shop
@@ -217,7 +291,7 @@ func _on_buy_pressed(entry: Dictionary) -> void:
 
 	GameState.add_module(m)
 	_shop_bought.append(m.id)
-	_populate_shop()   # rebuild to reflect new state
+	_populate_shop()
 
 func _on_sell_pressed(m: Module) -> void:
 	if GameState.sell_module(m):
@@ -241,22 +315,17 @@ func _on_shop_continue_pressed() -> void:
 # Shop population
 # ===========================================================================
 func _populate_shop() -> void:
-	# Update monedas
 	_lbl_shop_monedas.text = "Monedas: %d" % GameState.monedas
 	_lbl_slots.text = "Modules: %d / %d" % [
 		GameState.modules.size(), GameState.module_slots]
 
-	# --- Item cards ---
 	for child in _shop_items_row.get_children():
 		child.queue_free()
-
 	for entry in _shop_inventory:
 		_shop_items_row.add_child(_build_shop_item_card(entry))
 
-	# --- Equipped modules ---
 	for child in _shop_modules_row.get_children():
 		child.queue_free()
-
 	if GameState.modules.is_empty():
 		var none_lbl := _make_label("(no modules equipped)", C_DIM, 13)
 		none_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -272,7 +341,6 @@ func _build_shop_item_card(entry: Dictionary) -> Control:
 
 	var panel := PanelContainer.new()
 	panel.custom_minimum_size = Vector2(260, 0)
-
 	var style := StyleBoxFlat.new()
 	style.bg_color     = Color(0.11, 0.10, 0.07)
 	style.border_color = C_RARITY[m.rarity]
@@ -284,35 +352,24 @@ func _build_shop_item_card(entry: Dictionary) -> Control:
 	vbox.add_theme_constant_override("separation", 6)
 	panel.add_child(vbox)
 
-	# Rarity badge
-	var rarity_lbl := _make_label(
-		Constants.RARITY_NAMES[m.rarity].to_upper(),
-		C_RARITY[m.rarity], 11)
-	vbox.add_child(rarity_lbl)
+	vbox.add_child(_make_label(Constants.RARITY_NAMES[m.rarity].to_upper(), C_RARITY[m.rarity], 11))
+	vbox.add_child(_make_label(m.display_name, C_TEXT, 18))
 
-	# Name
-	var name_lbl := _make_label(m.display_name, C_TEXT, 18)
-	vbox.add_child(name_lbl)
-
-	# Description
 	var desc_lbl := _make_label(m.description, C_PREVIEW, 13)
 	desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	desc_lbl.custom_minimum_size = Vector2(240, 0)
 	vbox.add_child(desc_lbl)
 
-	# Lore text
 	if m.lore_text != "":
 		var lore_lbl := _make_label(m.lore_text, C_DIM, 11)
 		lore_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		lore_lbl.custom_minimum_size = Vector2(240, 0)
 		vbox.add_child(lore_lbl)
 
-	# Spacer
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	vbox.add_child(spacer)
 
-	# Price + buy button
 	var bottom_row := HBoxContainer.new()
 	vbox.add_child(bottom_row)
 
@@ -321,8 +378,7 @@ func _build_shop_item_card(entry: Dictionary) -> Control:
 	bottom_row.add_child(cost_lbl)
 
 	if bought:
-		var owned_lbl := _make_label("OWNED", C_WIN, 13)
-		bottom_row.add_child(owned_lbl)
+		bottom_row.add_child(_make_label("OWNED", C_WIN, 13))
 	else:
 		var can_buy: bool = (GameState.monedas >= cost) and \
 							GameState.has_free_slot() and \
@@ -337,8 +393,6 @@ func _build_shop_item_card(entry: Dictionary) -> Control:
 
 func _build_equipped_module_card(m: Module) -> Control:
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(0, 0)
-
 	var style := StyleBoxFlat.new()
 	style.bg_color     = Color(0.12, 0.11, 0.08)
 	style.border_color = C_RARITY[m.rarity]
@@ -352,10 +406,7 @@ func _build_equipped_module_card(m: Module) -> Control:
 
 	var name_row := HBoxContainer.new()
 	vbox.add_child(name_row)
-
-	var rarity_dot := _make_label("●", C_RARITY[m.rarity], 12)
-	name_row.add_child(rarity_dot)
-
+	name_row.add_child(_make_label("●", C_RARITY[m.rarity], 12))
 	var name_lbl := _make_label(" " + m.display_name, C_TEXT, 14)
 	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	name_row.add_child(name_lbl)
@@ -367,7 +418,6 @@ func _build_equipped_module_card(m: Module) -> Control:
 
 	var sell_btn := Button.new()
 	sell_btn.text = "SELL  +%d" % Constants.RARITY_SELL[m.rarity]
-	# Block selling if it would overflow slots
 	var new_slots: int = GameState.module_slots - m.extra_slots
 	sell_btn.disabled = new_slots < GameState.modules.size() - 1
 	sell_btn.pressed.connect(_on_sell_pressed.bind(m))
@@ -591,6 +641,41 @@ func _build_ui() -> void:
 	ui.add_child(_shop_overlay)
 	_shop_overlay.hide()
 
+	_title_overlay = _build_title_overlay()
+	ui.add_child(_title_overlay)
+
+	_core_select_overlay = _build_selection_overlay(
+		"CALIBRATION CORE",
+		"Choose your starting tile configuration.",
+		Constants.CORE_COUNT,
+		Constants.CORE_NAMES,
+		Constants.CORE_RARITIES,
+		Constants.CORE_DESCS,
+		Constants.CORE_LORES,
+		_on_core_card_pressed,
+		_on_core_confirm_pressed,
+		"LOCK IN CORE  →",
+		_core_cards
+	)
+	ui.add_child(_core_select_overlay)
+	_core_select_overlay.hide()
+
+	_proto_select_overlay = _build_selection_overlay(
+		"OPERATIONAL PROTOCOL",
+		"Choose your run parameters.",
+		Constants.PROTOCOL_COUNT,
+		Constants.PROTOCOL_NAMES,
+		Constants.PROTOCOL_RARITIES,
+		Constants.PROTOCOL_DESCS,
+		Constants.PROTOCOL_LORES,
+		_on_protocol_card_pressed,
+		_on_protocol_confirm_pressed,
+		"BEGIN TRIAL CYCLE  →",
+		_protocol_cards
+	)
+	ui.add_child(_proto_select_overlay)
+	_proto_select_overlay.hide()
+
 # ---- HUD ----
 func _build_hud() -> Control:
 	var panel := PanelContainer.new()
@@ -720,7 +805,6 @@ func _build_shop_overlay() -> Control:
 	vbox.add_theme_constant_override("separation", 14)
 	panel.add_child(vbox)
 
-	# --- Header ---
 	var header := HBoxContainer.new()
 	vbox.add_child(header)
 
@@ -742,7 +826,6 @@ func _build_shop_overlay() -> Control:
 
 	vbox.add_child(_make_hsep())
 
-	# --- Shop items ---
 	_shop_items_row = HBoxContainer.new()
 	_shop_items_row.add_theme_constant_override("separation", 16)
 	_shop_items_row.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -750,9 +833,7 @@ func _build_shop_overlay() -> Control:
 
 	vbox.add_child(_make_hsep())
 
-	# --- Equipped modules ---
-	var modules_title := _make_label("EQUIPPED MODULES", C_DIM, 12)
-	vbox.add_child(modules_title)
+	vbox.add_child(_make_label("EQUIPPED MODULES", C_DIM, 12))
 
 	_shop_modules_row = HBoxContainer.new()
 	_shop_modules_row.add_theme_constant_override("separation", 12)
@@ -760,17 +841,197 @@ func _build_shop_overlay() -> Control:
 
 	vbox.add_child(_make_hsep())
 
-	# --- Continue button ---
 	var btn_row := HBoxContainer.new()
 	btn_row.alignment = BoxContainer.ALIGNMENT_END
 	vbox.add_child(btn_row)
-
 	btn_row.add_child(
 		_make_button("CONTINUE TO NEXT ROUND  →", _on_shop_continue_pressed,
 			Vector2(260, 50))
 	)
 
 	return overlay
+
+# ---- Title overlay ----
+func _build_title_overlay() -> Control:
+	var overlay := ColorRect.new()
+	overlay.color = Color(0.06, 0.05, 0.04)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+
+	var vbox := VBoxContainer.new()
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_theme_constant_override("separation", 20)
+	vbox.custom_minimum_size = Vector2(600, 0)
+	center.add_child(vbox)
+
+	# Decorative glyph
+	var glyph := _make_label("⬡", C_TITLE_GLOW, 48)
+	glyph.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(glyph)
+
+	# Title
+	var title_lbl := _make_label("DOMINATION", C_TITLE_GLOW, 54)
+	title_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(title_lbl)
+
+	# Subtitle
+	var sub_lbl := _make_label("Trials of the Perpetual Chronometer", C_DIM, 16)
+	sub_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(sub_lbl)
+
+	vbox.add_child(_make_hsep())
+
+	# Lore blurb
+	var lore_lbl := _make_label(
+		"The Chronometer falters.\nYou are the Operator.\nCalibrate the signal before entropy claims the age.",
+		C_TEXT, 15)
+	lore_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lore_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	lore_lbl.custom_minimum_size = Vector2(480, 0)
+	vbox.add_child(lore_lbl)
+
+	vbox.add_child(_make_hsep())
+
+	var btn_row := HBoxContainer.new()
+	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	btn_row.add_theme_constant_override("separation", 16)
+	vbox.add_child(btn_row)
+
+	btn_row.add_child(_make_button(
+		"INITIATE TRIAL CYCLE  →", _on_title_start_pressed, Vector2(280, 54)))
+
+	return overlay
+
+# ---- Generic selection overlay (used for both Core and Protocol) ----
+func _build_selection_overlay(
+		title_text: String,
+		sub_text: String,
+		count: int,
+		names: Array,
+		rarities: Array,
+		descs: Array,
+		lores: Array,
+		card_callback: Callable,
+		confirm_callback: Callable,
+		confirm_label: String,
+		out_cards: Array) -> Control:
+
+	var overlay := ColorRect.new()
+	overlay.color = Color(0, 0, 0, 0.90)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+	var scroll := ScrollContainer.new()
+	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(scroll)
+
+	var center := CenterContainer.new()
+	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	center.size_flags_vertical   = Control.SIZE_EXPAND_FILL
+	scroll.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(1140, 0)
+	var pstyle := StyleBoxFlat.new()
+	pstyle.bg_color     = Color(0.10, 0.09, 0.07)
+	pstyle.border_color = Color(0.50, 0.45, 0.35)
+	pstyle.set_border_width_all(2)
+	pstyle.set_corner_radius_all(8)
+	panel.add_theme_stylebox_override("panel", pstyle)
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 18)
+	panel.add_child(vbox)
+
+	# Header
+	var hdr := _make_label(title_text, C_TITLE_GLOW, 26)
+	hdr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(hdr)
+
+	var sub := _make_label(sub_text, C_DIM, 14)
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(sub)
+
+	vbox.add_child(_make_hsep())
+
+	# Cards row
+	var cards_row := HBoxContainer.new()
+	cards_row.add_theme_constant_override("separation", 16)
+	cards_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_child(cards_row)
+
+	out_cards.clear()
+	for i in range(count):
+		var card := _build_selection_card(
+			i, names[i], rarities[i], descs[i], lores[i], card_callback)
+		cards_row.add_child(card)
+		out_cards.append(card)
+
+	vbox.add_child(_make_hsep())
+
+	# Confirm button
+	var btn_row := HBoxContainer.new()
+	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_child(btn_row)
+	btn_row.add_child(_make_button(confirm_label, confirm_callback, Vector2(280, 52)))
+
+	return overlay
+
+func _build_selection_card(
+		index: int,
+		card_name: String,
+		rarity: int,
+		desc: String,
+		lore: String,
+		callback: Callable) -> PanelContainer:
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(256, 200)
+
+	# Initial style (unselected)
+	var style := StyleBoxFlat.new()
+	style.bg_color     = Color(0.11, 0.10, 0.07)
+	style.border_color = C_RARITY[rarity]
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(8)
+	panel.add_theme_stylebox_override("panel", style)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 8)
+	panel.add_child(vbox)
+
+	# Rarity badge
+	vbox.add_child(_make_label(Constants.RARITY_NAMES[rarity].to_upper(), C_RARITY[rarity], 11))
+
+	# Name
+	vbox.add_child(_make_label(card_name, C_TEXT, 20))
+
+	# Description (may be multiline)
+	var desc_lbl := _make_label(desc, C_PREVIEW, 13)
+	desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc_lbl.custom_minimum_size = Vector2(236, 0)
+	vbox.add_child(desc_lbl)
+
+	# Lore
+	var lore_lbl := _make_label(lore, C_DIM, 11)
+	lore_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	lore_lbl.custom_minimum_size = Vector2(236, 0)
+	vbox.add_child(lore_lbl)
+
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(spacer)
+
+	# SELECT button
+	var btn := Button.new()
+	btn.text = "SELECT"
+	btn.pressed.connect(callback.bind(index))
+	vbox.add_child(btn)
+
+	return panel
 
 # ===========================================================================
 # Generic helpers

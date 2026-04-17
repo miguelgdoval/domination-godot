@@ -2,23 +2,30 @@
 ## Autoloaded as "GameState".
 extends Node
 
-var round_index:  int = 0
-var monedas:      int = 0
-var difficulty:   int = Constants.Difficulty.NORMAL
-var box:          Box
-var modules:      Array = []   # Array[Module] — equipped Calibration Modules
-var module_slots: int = Constants.BASE_MODULE_SLOTS
+var round_index:    int = 0
+var monedas:        int = 0
+var difficulty:     int = Constants.Difficulty.NORMAL
+var chosen_core:    int = 0   # index into Constants.CORE_*
+var chosen_protocol: int = 0  # index into Constants.PROTOCOL_*
+var box:            Box
+var modules:        Array = []   # Array[Module] — equipped Calibration Modules
+var module_slots:   int = Constants.BASE_MODULE_SLOTS
 
 # ---------------------------------------------------------------------------
 # Run initialisation
 # ---------------------------------------------------------------------------
-func start_run(p_difficulty: int = Constants.Difficulty.NORMAL) -> void:
-	round_index  = 0
-	monedas      = 0
-	difficulty   = p_difficulty
-	box          = Box.create_standard()
-	modules      = []
-	module_slots = Constants.BASE_MODULE_SLOTS
+func start_run(p_core: int = 0, p_protocol: int = 0,
+		p_difficulty: int = Constants.Difficulty.NORMAL) -> void:
+	round_index     = 0
+	monedas         = 0
+	difficulty      = p_difficulty
+	chosen_core     = p_core
+	chosen_protocol = p_protocol
+	box             = Box.create_for_core(p_core)
+	modules         = []
+	module_slots    = Constants.BASE_MODULE_SLOTS
+	# Protocol starting bonus
+	monedas += Constants.PROTOCOL_BONUS_MONEDAS[p_protocol]
 
 # ---------------------------------------------------------------------------
 # Round progression
@@ -108,3 +115,22 @@ func is_run_complete() -> bool:
 
 func round_display() -> String:
 	return "Round %d / %d" % [round_index + 1, total_rounds()]
+
+# ---------------------------------------------------------------------------
+# Protocol helpers
+# ---------------------------------------------------------------------------
+func protocol_hand_size() -> int:
+	return Constants.PROTOCOL_HAND_SIZES[chosen_protocol]
+
+func protocol_hands() -> int:
+	return Constants.PROTOCOL_HANDS[chosen_protocol]
+
+func protocol_discards() -> int:
+	return Constants.PROTOCOL_DISCARDS[chosen_protocol]
+
+# ---------------------------------------------------------------------------
+# Adjusted target (core scales difficulty)
+# ---------------------------------------------------------------------------
+func adjusted_target(p_round_index: int) -> int:
+	var base: int = Constants.score_target(p_round_index)
+	return int(base * Constants.CORE_TARGET_SCALE[chosen_core] / 100.0)
