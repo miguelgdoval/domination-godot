@@ -43,8 +43,14 @@ var _rm: RoundManager
 var _dm: DirectiveManager
 var _selected_discard: Array = []
 var _tile_btns: Array = []
-var _shop_inventory: Array = []   # current shop entries [{item, cost}]
-var _shop_bought: Array = []      # ids bought this visit
+var _shop_inventory: Array = []          # module entries [{item, cost}]
+var _shop_bought: Array = []             # module ids bought this visit
+# Artisan's Workshop tile state
+var _tile_offers: Array = []             # [{tile, cost}] — tiles for sale
+var _tile_offers_bought: Array = []      # indices already bought
+var _removal_candidates: Array = []      # Array[Domino] shown for thinning
+var _removal_selected: Array = []        # indices selected for removal
+const MAX_FREE_REMOVALS: int = 2
 
 # Selection state for run setup
 var _pending_core:     int = 0
@@ -77,12 +83,18 @@ var _lbl_result_sub:    Label
 var _btn_result_action: Button
 
 # UI references — shop overlay
-var _shop_overlay:       Control
-var _lbl_shop_title:     Label
-var _lbl_shop_monedas:   Label
-var _shop_items_row:     HBoxContainer
-var _shop_modules_row:   HBoxContainer
-var _lbl_slots:          Label
+var _shop_overlay:         Control
+var _lbl_shop_title:       Label
+var _lbl_shop_monedas:     Label
+var _shop_items_row:       HBoxContainer
+var _shop_modules_row:     HBoxContainer
+var _lbl_slots:            Label
+# Artisan-only UI
+var _artisan_section:      Control
+var _tile_offers_row:      HBoxContainer
+var _tile_removal_row:     HBoxContainer
+var _lbl_removals_left:    Label
+var _btn_confirm_removal:  Button
 
 # UI references — directives panel
 var _directives_panel:   Control
@@ -248,9 +260,15 @@ func _show_shop() -> void:
 	if GameState.is_boss_round():
 		_lbl_shop_title.text = "THE ARTISAN'S WORKSHOP"
 		_shop_inventory = ShopManager.generate_artisan(owned_ids)
+		_tile_offers = TileShopManager.generate_offers(3)
+		_tile_offers_bought.clear()
+		_removal_candidates = TileShopManager.generate_removal_candidates(GameState.box, 8)
+		_removal_selected.clear()
+		_artisan_section.show()
 	else:
 		_lbl_shop_title.text = "THE BRASS EMPORIUM"
 		_shop_inventory = ShopManager.generate_emporium(3, owned_ids)
+		_artisan_section.hide()
 
 	_shop_bought.clear()
 	_populate_shop()
@@ -348,6 +366,40 @@ func _on_sell_pressed(m: Module) -> void:
 	if GameState.sell_module(m):
 		_populate_shop()
 
+func _on_buy_tile_pressed(index: int) -> void:
+	if index in _tile_offers_bought:
+		return
+	var entry: Dictionary = _tile_offers[index]
+	if not GameState.spend_monedas(entry["cost"]):
+		return
+	# Create a fresh Domino instance (RefCounted has no duplicate())
+	var t: Domino = entry["tile"]
+	GameState.box.add_tile(Domino.new(t.left, t.right, t.rarity, t.is_wild))
+	_tile_offers_bought.append(index)
+	_populate_shop()
+
+func _on_toggle_removal(index: int) -> void:
+	if index in _removal_selected:
+		_removal_selected.erase(index)
+	elif _removal_selected.size() < MAX_FREE_REMOVALS:
+		_removal_selected.append(index)
+	_populate_artisan_tiles()
+
+func _on_confirm_removal_pressed() -> void:
+	if _removal_selected.is_empty():
+		return
+	# Remove in descending index order to avoid shifting issues
+	var sorted: Array = _removal_selected.duplicate()
+	sorted.sort()
+	sorted.reverse()
+	for i in sorted:
+		if i < _removal_candidates.size():
+			GameState.box.remove_tile(_removal_candidates[i])
+	_removal_selected.clear()
+	# Refresh candidates from the now-smaller box
+	_removal_candidates = TileShopManager.generate_removal_candidates(GameState.box, 8)
+	_populate_artisan_tiles()
+
 func _on_shop_continue_pressed() -> void:
 	GameState.advance_round()
 	if GameState.is_run_complete():
@@ -384,6 +436,27 @@ func _populate_shop() -> void:
 	else:
 		for m in GameState.modules:
 			_shop_modules_row.add_child(_build_equipped_module_card(m))
+
+	if GameState.is_boss_round():
+		_populate_artisan_tiles()
+
+func _populate_artisan_tiles() -> void:
+	# --- Tile offers ---
+	for child in _tile_offers_row.get_children():
+		child.queue_free()
+	for i in range(_tile_offers.size()):
+		_tile_offers_row.add_child(_build_tile_offer_card(i, _tile_offers[i]))
+
+	# --- Removal candidates ---
+	for child in _tile_removal_row.get_children():
+		child.queue_free()
+	for i in range(_removal_candidates.size()):
+		_tile_removal_row.add_child(_build_removal_tile(i, _removal_candidates[i]))
+
+	var left: int = MAX_FREE_REMOVALS - _removal_selected.size()
+	_lbl_removals_left.text = "%d removal%s remaining (free)" % [
+		left, "" if left == 1 else "s"]
+	_btn_confirm_removal.disabled = _removal_selected.is_empty()
 
 func _build_shop_item_card(entry: Dictionary) -> Control:
 	var m: Module  = entry["item"]
@@ -912,6 +985,11 @@ func _build_shop_overlay() -> Control:
 	_shop_modules_row.add_theme_constant_override("separation", 12)
 	vbox.add_child(_shop_modules_row)
 
+	# --- Artisan-only section ---
+	_artisan_section = _build_artisan_section()
+	vbox.add_child(_artisan_section)
+	_artisan_section.hide()
+
 	vbox.add_child(_make_hsep())
 
 	var btn_row := HBoxContainer.new()
@@ -923,6 +1001,55 @@ func _build_shop_overlay() -> Control:
 	)
 
 	return overlay
+
+func _build_artisan_section() -> Control:
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 12)
+
+	vbox.add_child(_make_hsep())
+
+	# --- Tile acquisition ---
+	var acq_title := _make_label("TILE ACQUISITION", C_TITLE_GLOW, 14)
+	vbox.add_child(acq_title)
+
+	var acq_sub := _make_label(
+		"Purchase tiles permanently added to your box.", C_DIM, 12)
+	vbox.add_child(acq_sub)
+
+	_tile_offers_row = HBoxContainer.new()
+	_tile_offers_row.add_theme_constant_override("separation", 14)
+	_tile_offers_row.alignment = BoxContainer.ALIGNMENT_BEGIN
+	vbox.add_child(_tile_offers_row)
+
+	vbox.add_child(_make_hsep())
+
+	# --- Tile removal ---
+	var rem_title := _make_label("TILE REMOVAL", C_TITLE_GLOW, 14)
+	vbox.add_child(rem_title)
+
+	var rem_sub := _make_label(
+		"Permanently remove tiles from your box to sharpen your draw pool.", C_DIM, 12)
+	vbox.add_child(rem_sub)
+
+	_tile_removal_row = HBoxContainer.new()
+	_tile_removal_row.add_theme_constant_override("separation", 8)
+	_tile_removal_row.alignment = BoxContainer.ALIGNMENT_BEGIN
+	vbox.add_child(_tile_removal_row)
+
+	var rem_footer := HBoxContainer.new()
+	rem_footer.add_theme_constant_override("separation", 16)
+	vbox.add_child(rem_footer)
+
+	_lbl_removals_left = _make_label("2 removals remaining (free)", C_MONEDAS, 13)
+	_lbl_removals_left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rem_footer.add_child(_lbl_removals_left)
+
+	_btn_confirm_removal = _make_button(
+		"REMOVE SELECTED", _on_confirm_removal_pressed, Vector2(190, 42))
+	_btn_confirm_removal.disabled = true
+	rem_footer.add_child(_btn_confirm_removal)
+
+	return vbox
 
 # ---- Title overlay ----
 func _build_title_overlay() -> Control:
@@ -1179,6 +1306,121 @@ func _build_boss_overlay() -> Control:
 		_make_button("FACE THE CORRUPTION  →", _on_boss_begin_pressed, Vector2(260, 50)))
 
 	return overlay
+
+# ---- Artisan tile offer card ----
+func _build_tile_offer_card(index: int, entry: Dictionary) -> Control:
+	var t: Domino   = entry["tile"]
+	var cost: int   = entry["cost"]
+	var bought: bool = index in _tile_offers_bought
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(140, 0)
+	var style := StyleBoxFlat.new()
+	style.bg_color     = Color(0.11, 0.10, 0.07)
+	style.border_color = C_MONEDAS if not bought else C_DIM
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(6)
+	panel.add_theme_stylebox_override("panel", style)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 6)
+	panel.add_child(vbox)
+
+	# Pip display (horizontal mini domino)
+	var pip_row := HBoxContainer.new()
+	pip_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	pip_row.add_theme_constant_override("separation", 0)
+	vbox.add_child(pip_row)
+
+	var left_lbl := _make_label(str(t.left) if t.left >= 0 else "★", C_TILE_PIP, 28)
+	left_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	left_lbl.custom_minimum_size = Vector2(44, 0)
+	pip_row.add_child(left_lbl)
+	pip_row.add_child(_make_tile_vsep())
+	var right_lbl := _make_label(str(t.right) if t.right >= 0 else "★", C_TILE_PIP, 28)
+	right_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	right_lbl.custom_minimum_size = Vector2(44, 0)
+	pip_row.add_child(right_lbl)
+
+	# Tags
+	var tags := ""
+	if t.is_wild:
+		tags = "Wild"
+	elif t.is_double():
+		tags = "Double  ·  %d pips" % t.total_pips()
+	else:
+		tags = "%d pips" % t.total_pips()
+	vbox.add_child(_make_label(tags, C_DIM, 11))
+
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(spacer)
+
+	if bought:
+		vbox.add_child(_make_label("ADDED", C_WIN, 13))
+	else:
+		var can_buy: bool = GameState.monedas >= cost
+		var cost_lbl := _make_label("%d Monedas" % cost, C_MONEDAS, 13)
+		vbox.add_child(cost_lbl)
+		var buy_btn := Button.new()
+		buy_btn.text = "BUY"
+		buy_btn.disabled = not can_buy
+		buy_btn.pressed.connect(_on_buy_tile_pressed.bind(index))
+		vbox.add_child(buy_btn)
+
+	return panel
+
+# ---- Artisan tile removal button ----
+func _build_removal_tile(index: int, tile: Domino) -> Control:
+	var selected: bool = index in _removal_selected
+	var at_cap: bool   = _removal_selected.size() >= MAX_FREE_REMOVALS
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(80, 60)
+	var style := StyleBoxFlat.new()
+	style.bg_color     = Color(0.20, 0.08, 0.08) if selected else Color(0.11, 0.10, 0.07)
+	style.border_color = C_LOSE if selected else (C_DIM if at_cap else C_TILE_BORDER)
+	style.set_border_width_all(2 if selected else 1)
+	style.set_corner_radius_all(4)
+	panel.add_theme_stylebox_override("panel", style)
+
+	var vbox := VBoxContainer.new()
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_theme_constant_override("separation", 2)
+	panel.add_child(vbox)
+
+	var pip_row := HBoxContainer.new()
+	pip_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	pip_row.add_theme_constant_override("separation", 0)
+	vbox.add_child(pip_row)
+
+	var lc := _make_label(str(tile.left) if tile.left >= 0 else "★", C_TILE_PIP, 18)
+	lc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lc.custom_minimum_size = Vector2(26, 0)
+	pip_row.add_child(lc)
+	pip_row.add_child(_make_tile_vsep())
+	var rc := _make_label(str(tile.right) if tile.right >= 0 else "★", C_TILE_PIP, 18)
+	rc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	rc.custom_minimum_size = Vector2(26, 0)
+	pip_row.add_child(rc)
+
+	var mark_lbl := _make_label("✕" if selected else "○", C_LOSE if selected else C_DIM, 11)
+	mark_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(mark_lbl)
+
+	# Click handler via a transparent Button overlay
+	var btn := Button.new()
+	btn.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	# Make the button transparent/invisible
+	for s_name in ["normal", "hover", "pressed", "focus"]:
+		var s := StyleBoxEmpty.new()
+		btn.add_theme_stylebox_override(s_name, s)
+	btn.text = ""
+	btn.disabled = at_cap and not selected
+	btn.pressed.connect(_on_toggle_removal.bind(index))
+	panel.add_child(btn)
+
+	return panel
 
 # ===========================================================================
 # Generic helpers

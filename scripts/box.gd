@@ -109,3 +109,9 @@ func total_tiles() -> int:
 
 func is_empty() -> bool:
 	return _draw_pile.is_empty()
+
+## Returns a shallow copy of all tiles in the box (for display / shop use).
+func all_tiles() -> Array[Domino]:
+	var copy: Array[Domino] = []
+	copy.append_array(_all_tiles)
+	return copy
