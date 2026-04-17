@@ -614,13 +614,13 @@ func _refresh_chain_display() -> void:
 		child.queue_free()
 
 	if _rm.current_chain.is_empty():
-		var lbl := _make_label("(empty)", C_DIM, 15)
+		var lbl := _make_label("Play a tile to start the chain", C_DIM, 14)
 		lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		_chain_container.add_child(lbl)
 	else:
 		for i in range(_rm.current_chain.tile_displays.size()):
 			if i > 0:
-				var arr := _make_label("→", C_DIM, 14)
+				var arr := _make_label("→", C_DIM, 18)
 				arr.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 				_chain_container.add_child(arr)
 			var d: Vector2i = _rm.current_chain.tile_displays[i]
@@ -683,7 +683,7 @@ func _refresh_tile_visuals() -> void:
 # ===========================================================================
 func _create_hand_tile(tile: Domino, index: int) -> Button:
 	var btn := Button.new()
-	btn.custom_minimum_size = Vector2(68, 112)
+	btn.custom_minimum_size = Vector2(84, 140)
 	btn.text = ""
 	btn.clip_contents = true
 	_apply_tile_style(btn, C_TILE_FACE, C_TILE_FACE_HOVER)
@@ -693,7 +693,7 @@ func _create_hand_tile(tile: Domino, index: int) -> Button:
 	vbox.add_theme_constant_override("separation", 0)
 	btn.add_child(vbox)
 
-	var top := _make_pip_display(tile.left, 11, C_PIP_DOT)
+	var top := _make_pip_display(tile.left, 14, C_PIP_DOT)
 	top.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	vbox.add_child(top)
 
@@ -701,7 +701,7 @@ func _create_hand_tile(tile: Domino, index: int) -> Button:
 	if tile.custom_name != "":
 		var name_lbl := Label.new()
 		name_lbl.text = tile.custom_name
-		name_lbl.add_theme_font_size_override("font_size", 8)
+		name_lbl.add_theme_font_size_override("font_size", 9)
 		name_lbl.add_theme_color_override("font_color", C_RARITY[tile.rarity])
 		name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		name_lbl.clip_contents = true
@@ -709,7 +709,7 @@ func _create_hand_tile(tile: Domino, index: int) -> Button:
 
 	vbox.add_child(_make_tile_hsep())
 
-	var bot := _make_pip_display(tile.right, 11, C_PIP_DOT)
+	var bot := _make_pip_display(tile.right, 14, C_PIP_DOT)
 	bot.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	vbox.add_child(bot)
 
@@ -724,22 +724,25 @@ func _create_hand_tile(tile: Domino, index: int) -> Button:
 
 func _build_chain_tile(disp_left: int, disp_right: int) -> Control:
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(80, 52)
+	panel.custom_minimum_size = Vector2(104, 68)
 	var style := StyleBoxFlat.new()
 	style.bg_color     = C_TILE_FACE
 	style.border_color = C_TILE_BORDER
 	style.set_border_width_all(2)
-	style.set_corner_radius_all(4)
+	style.set_corner_radius_all(6)
 	panel.add_theme_stylebox_override("panel", style)
 
 	var hbox := HBoxContainer.new()
+	hbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	hbox.add_theme_constant_override("separation", 0)
 	panel.add_child(hbox)
 
-	var ll := _make_pip_display(disp_left,  9, C_PIP_DOT)
+	var ll := _make_pip_display(disp_left,  12, C_PIP_DOT)
+	ll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hbox.add_child(ll)
 	hbox.add_child(_make_tile_vsep())
-	var rl := _make_pip_display(disp_right, 9, C_PIP_DOT)
+	var rl := _make_pip_display(disp_right, 12, C_PIP_DOT)
+	rl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hbox.add_child(rl)
 	return panel
 
@@ -835,37 +838,10 @@ func _build_ui() -> void:
 	root.add_theme_constant_override("separation", 8)
 	ui.add_child(root)
 
+	root.add_theme_constant_override("separation", 0)
 	root.add_child(_build_hud())
-	root.add_child(_build_chain_area())
-
-	_lbl_last_hand = _make_label("", C_LAST_HAND, 15)
-	_lbl_last_hand.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	root.add_child(_lbl_last_hand)
-
-	_directives_panel = _build_directives_panel()
-	root.add_child(_directives_panel)
-
-	var spacer := Control.new()
-	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	root.add_child(spacer)
-
-	var hand_title := _make_label("ISOLATION CHAMBER", C_DIM, 11)
-	hand_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	root.add_child(hand_title)
-
-	_hand_container = HBoxContainer.new()
-	_hand_container.alignment = BoxContainer.ALIGNMENT_CENTER
-	_hand_container.add_theme_constant_override("separation", 10)
-	_hand_container.custom_minimum_size = Vector2(0, 118)
-	root.add_child(_hand_container)
-
-	root.add_child(_build_action_bar())
-
-	var hint := _make_label(
-		"Left-click → add to chain   |   Right-click → select for discard",
-		C_DIM, 11)
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	root.add_child(hint)
+	root.add_child(_build_table_area())
+	root.add_child(_build_hand_zone())
 
 	_result_overlay = _build_result_overlay()
 	ui.add_child(_result_overlay)
@@ -938,31 +914,85 @@ func _build_hud() -> Control:
 		hbox.add_child(lbl)
 	return panel
 
-# ---- Chain area ----
-func _build_chain_area() -> Control:
+# ---- Table area (dominant game surface — expands to fill) ----
+func _build_table_area() -> Control:
 	var panel := PanelContainer.new()
+	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var style := StyleBoxFlat.new()
-	style.bg_color = C_PANEL
+	style.bg_color     = Color(0.07, 0.09, 0.06)   # dark felt surface
+	style.border_color = Color(0.28, 0.24, 0.14)
+	style.set_border_width_all(1)
 	panel.add_theme_stylebox_override("panel", style)
+
 	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 6)
+	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	vbox.add_theme_constant_override("separation", 8)
 	panel.add_child(vbox)
 
+	# Top label
 	var title := _make_label("COHESION PULSE", C_DIM, 11)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(title)
 
+	# Chain tiles — centred, expands to take all vertical space
 	_chain_container = HBoxContainer.new()
-	_chain_container.alignment = BoxContainer.ALIGNMENT_CENTER
+	_chain_container.alignment           = BoxContainer.ALIGNMENT_CENTER
 	_chain_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_chain_container.add_theme_constant_override("separation", 6)
-	_chain_container.custom_minimum_size = Vector2(0, 58)
+	_chain_container.size_flags_vertical   = Control.SIZE_EXPAND_FILL
+	_chain_container.add_theme_constant_override("separation", 10)
 	vbox.add_child(_chain_container)
 
-	_lbl_preview = _make_label("", C_PREVIEW, 14)
+	# Score preview
+	_lbl_preview = _make_label("", C_PREVIEW, 16)
 	_lbl_preview.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(_lbl_preview)
+
+	# Last-hand result
+	_lbl_last_hand = _make_label("", C_LAST_HAND, 14)
+	_lbl_last_hand.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(_lbl_last_hand)
+
 	return panel
+
+# ---- Hand zone (fixed at bottom, contains directives + tiles + controls) ----
+func _build_hand_zone() -> Control:
+	var outer := VBoxContainer.new()
+	outer.add_theme_constant_override("separation", 0)
+
+	# Directives bar sits at top of this zone
+	_directives_panel = _build_directives_panel()
+	outer.add_child(_directives_panel)
+
+	# Hand panel
+	var hand_panel := PanelContainer.new()
+	var hstyle := StyleBoxFlat.new()
+	hstyle.bg_color = C_PANEL
+	hand_panel.add_theme_stylebox_override("panel", hstyle)
+	outer.add_child(hand_panel)
+
+	var inner := VBoxContainer.new()
+	inner.add_theme_constant_override("separation", 4)
+	hand_panel.add_child(inner)
+
+	var hand_title := _make_label("ISOLATION CHAMBER", C_DIM, 11)
+	hand_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	inner.add_child(hand_title)
+
+	_hand_container = HBoxContainer.new()
+	_hand_container.alignment = BoxContainer.ALIGNMENT_CENTER
+	_hand_container.add_theme_constant_override("separation", 10)
+	_hand_container.custom_minimum_size = Vector2(0, 152)
+	inner.add_child(_hand_container)
+
+	inner.add_child(_build_action_bar())
+
+	var hint := _make_label(
+		"Left-click → add to chain   |   Right-click → mark for discard",
+		C_DIM, 11)
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	inner.add_child(hint)
+
+	return outer
 
 # ---- Action bar ----
 func _build_action_bar() -> Control:
