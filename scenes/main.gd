@@ -90,7 +90,8 @@ enum Phase { TITLE, CORE_SELECT, PROTOCOL_SELECT, TILE_REMOVAL, BOSS_WARNING, PL
 var _phase: Phase = Phase.TITLE
 var _rm: RoundManager
 var _dm: DirectiveManager
-var _selected_discard: Array = []
+var _selected_tiles: Array = []
+var _building_chain: bool  = false   # suppresses intermediate UI refreshes during batch-add
 var _tile_btns: Array = []
 var _tile_conn_lbls: Array = []   # connection-arrow labels, parallel to _tile_btns
 var _scoring_active: bool = false # input locked while scoring animation plays
@@ -384,7 +385,7 @@ func _on_boss_begin_pressed() -> void:
 func _begin_round_play() -> void:
 	_phase = Phase.PLAYING
 	_scoring_active = false
-	_selected_discard.clear()
+	_selected_tiles.clear()
 
 	# Apply etapa colour theme (tweened)
 	_apply_etapa_theme(GameState.current_etapa())
@@ -483,11 +484,15 @@ func _show_shop() -> void:
 # Signal handlers — gameplay
 # ===========================================================================
 func _on_chain_changed() -> void:
+	if _building_chain:
+		return
 	_refresh_chain_display()
 	_refresh_action_buttons()
 	_refresh_tile_visuals()
 
 func _on_hand_changed() -> void:
+	if _building_chain:
+		return
 	_rebuild_hand()
 	_refresh_hud()
 
@@ -592,39 +597,63 @@ func _on_round_ended(won: bool) -> void:
 func _on_tile_left_click(index: int) -> void:
 	if _phase != Phase.PLAYING or _scoring_active:
 		return
-	_selected_discard.erase(index)
-	# Capture end-state before the add so we can determine which side was extended
-	var prev_left:   int  = _rm.current_chain.left_end
-	var was_empty:   bool = _rm.current_chain.is_empty()
-	if _rm.try_add_to_chain(index):
-		# Left end changed → tile was prepended; otherwise it was appended (or first)
-		var added_left: bool = (not was_empty) and \
-			(_rm.current_chain.left_end != prev_left)
-		_fire_chain_spark.call_deferred(added_left, was_empty)
-
-func _on_tile_right_click(index: int) -> void:
-	if _phase != Phase.PLAYING or _scoring_active:
-		return
-	if index in _selected_discard:
-		_selected_discard.erase(index)
+	# Toggle selection (Balatro-style: click to select/deselect, Play acts on selection)
+	if index in _selected_tiles:
+		_selected_tiles.erase(index)
 	else:
-		_selected_discard.append(index)
+		_selected_tiles.append(index)
 	_refresh_tile_visuals()
+	_refresh_chain_display()
 	_refresh_action_buttons()
 
 func _on_play_pressed() -> void:
-	if _phase == Phase.PLAYING and not _scoring_active and _rm.can_play():
-		_rm.play_chain()
+	if _phase != Phase.PLAYING or _scoring_active or _selected_tiles.is_empty():
+		return
+	if _rm.hands_remaining <= 0:
+		return
+
+	# Validate: preview chain must include all selected tiles in a legal sequence
+	var preview := Chain.new()
+	var tiles_to_play: Array = []
+	for idx in _selected_tiles:
+		if idx < _rm.hand.size():
+			var t: Domino = _rm.hand[idx]
+			if not preview.add(t):
+				return   # invalid sequence — shouldn't normally happen if visuals are right
+			tiles_to_play.append(t)
+	if preview.is_empty():
+		return
+
+	# Batch-add to real chain (guards suppress intermediate chain_changed / hand_changed)
+	_building_chain = true
+	for tile in tiles_to_play:
+		var cur_idx: int = _rm.hand.find(tile)
+		if cur_idx >= 0:
+			_rm.try_add_to_chain(cur_idx)
+	_building_chain = false
+
+	# Clear selection WITHOUT refreshing display — _chain_container still shows preview
+	# tiles at their correct positions (needed by _on_hand_scored for animation)
+	_selected_tiles.clear()
+
+	# Play — fires hand_scored (captures tile positions), then chain_changed, hand_changed
+	_rm.play_chain()
 
 func _on_discard_pressed() -> void:
 	if _phase == Phase.PLAYING and not _scoring_active \
-			and not _selected_discard.is_empty() and _rm.can_discard():
-		_rm.discard(_selected_discard)
-		_selected_discard.clear()
+			and not _selected_tiles.is_empty() and _rm.can_discard():
+		_rm.discard(_selected_tiles)
+		_selected_tiles.clear()
 
 func _on_undo_pressed() -> void:
-	if _phase == Phase.PLAYING and not _scoring_active:
-		_rm.undo_last_chain_tile()
+	if _phase != Phase.PLAYING or _scoring_active:
+		return
+	# Undo = deselect last selected tile (pop from selection order)
+	if not _selected_tiles.is_empty():
+		_selected_tiles.pop_back()
+		_refresh_tile_visuals()
+		_refresh_chain_display()
+		_refresh_action_buttons()
 
 # ===========================================================================
 # Signal handlers — result overlay
@@ -1069,31 +1098,43 @@ func _refresh_hud() -> void:
 		_discards_dot_row.add_child(
 			_make_hud_dot(i < _rm.discards_remaining, Color(0.8, 0.7, 1.0)))
 
+## Build a preview Chain from the current selection (in click order).
+## Stops at the first tile that fails to connect — partial chains are valid previews.
+func _build_preview_chain() -> Chain:
+	var preview := Chain.new()
+	for idx in _selected_tiles:
+		if idx < _rm.hand.size():
+			if not preview.add(_rm.hand[idx]):
+				break
+	return preview
+
 func _refresh_chain_display() -> void:
 	_kill_chain_idle_tweens()
 	for child in _chain_container.get_children():
 		child.queue_free()
 
-	if _rm.current_chain.is_empty():
-		var lbl := _make_label("Play a tile to start the chain", C_DIM, 14)
+	var preview := _build_preview_chain()
+
+	if preview.is_empty():
+		var lbl := _make_label("Select tiles to build a chain", C_DIM, 14)
 		lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		_chain_container.add_child(lbl)
 	else:
 		# Left connection port
 		_chain_container.add_child(
-			_build_chain_end_indicator(_rm.current_chain.left_end, true))
+			_build_chain_end_indicator(preview.left_end, true))
 
-		for i in range(_rm.current_chain.tile_displays.size()):
+		for i in range(preview.tile_displays.size()):
 			if i > 0:
 				var arr := _make_label("→", C_DIM, 16)
 				arr.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 				_chain_container.add_child(arr)
-			var d: Vector2i = _rm.current_chain.tile_displays[i]
+			var d: Vector2i = preview.tile_displays[i]
 			_chain_container.add_child(_build_chain_tile(d.x, d.y))
 
 		# Right connection port
 		_chain_container.add_child(
-			_build_chain_end_indicator(_rm.current_chain.right_end, false))
+			_build_chain_end_indicator(preview.right_end, false))
 
 		# Start idle breathing on each tile panel (random phase so they're independent)
 		for child in _chain_container.get_children():
@@ -1102,23 +1143,27 @@ func _refresh_chain_display() -> void:
 				if idle != null:
 					_chain_idle_tweens.append(idle)
 
-	if not _rm.current_chain.is_empty():
-		var r: Dictionary = Scoring.calculate(_rm.current_chain, GameState.modules)
+	if not preview.is_empty():
+		var r: Dictionary = Scoring.calculate(preview, GameState.modules)
 		_lbl_preview.text = "%d chips  ×  %d  =  %d Chronos" % [
 			r["chips"], r["mult"], r["total"]]
-		_refresh_chain_bonus_label(_rm.current_chain.length())
+		_refresh_chain_bonus_label(preview.length())
 	else:
 		_lbl_preview.text = ""
 		_lbl_chain_bonus.text = ""
 
 func _refresh_action_buttons() -> void:
-	_btn_play.disabled    = not _rm.can_play()
-	_btn_discard.disabled = not _rm.can_discard() or _selected_discard.is_empty()
-	_btn_undo.disabled    = _rm.current_chain.is_empty()
-	_btn_discard.text     = "Discard (%d)" % _selected_discard.size()
+	# Preview must be fully valid (all selected tiles connected) to enable Play
+	var preview := _build_preview_chain()
+	var all_connected: bool = not _selected_tiles.is_empty() \
+		and preview.length() == _selected_tiles.size()
+	_btn_play.disabled    = not (all_connected and _rm.hands_remaining > 0)
+	_btn_discard.disabled = not _rm.can_discard() or _selected_tiles.is_empty()
+	_btn_undo.disabled    = _selected_tiles.is_empty()
+	_btn_discard.text     = "Discard (%d)" % _selected_tiles.size()
 
 func _rebuild_hand() -> void:
-	_selected_discard.clear()
+	_selected_tiles.clear()
 	for child in _hand_container.get_children():
 		child.queue_free()
 	_tile_btns.clear()
@@ -1146,10 +1191,11 @@ func _refresh_directives() -> void:
 			lbl.add_theme_color_override("font_color", C_DIM)
 
 func _refresh_tile_visuals() -> void:
-	var chain := _rm.current_chain
-	var chain_empty := chain.is_empty()
-	var le := chain.left_end
-	var re := chain.right_end
+	# Use the preview chain (built from current selection) for connection arrow logic
+	var preview      := _build_preview_chain()
+	var preview_empty := preview.is_empty()
+	var le := preview.left_end
+	var re := preview.right_end
 
 	for i in range(_tile_btns.size()):
 		if i >= _rm.hand.size():
@@ -1158,15 +1204,20 @@ func _refresh_tile_visuals() -> void:
 		var tile: Domino = _rm.hand[i]
 		var conn: Label  = _tile_conn_lbls[i] if i < _tile_conn_lbls.size() else null
 
-		if i in _selected_discard:
+		var sel_order: int = _selected_tiles.find(i)
+		if sel_order >= 0:
+			# Selected: gold highlight + selection-order number
 			_apply_tile_style(btn, C_TILE_FACE_SEL, C_TILE_FACE_SEL)
-			if conn: conn.text = ""
+			if conn:
+				conn.text = str(sel_order + 1)
+				conn.add_theme_color_override("font_color", C_SELECTED_BORDER)
 			continue
 
-		if chain.can_add(tile):
+		# Unselected: show connection arrow relative to current preview end
+		if preview.can_add(tile):
 			_apply_tile_style(btn, C_TILE_FACE, C_TILE_FACE_HOVER)
 			if conn:
-				if chain_empty or tile.is_wild:
+				if preview_empty or tile.is_wild:
 					conn.text = "↔"
 					conn.add_theme_color_override("font_color", C_WIN)
 				else:
@@ -1230,12 +1281,6 @@ func _create_hand_tile(tile: Domino, index: int) -> Button:
 	_ignore_mouse(vbox)
 
 	btn.pressed.connect(_on_tile_left_click.bind(index))
-	btn.gui_input.connect(func(ev: InputEvent) -> void:
-		if ev is InputEventMouseButton:
-			var m := ev as InputEventMouseButton
-			if m.button_index == MOUSE_BUTTON_RIGHT and m.pressed:
-				_on_tile_right_click(index)
-	)
 	return btn
 
 func _build_chain_tile(disp_left: int, disp_right: int) -> Control:
@@ -1344,18 +1389,18 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	match (event as InputEventKey).keycode:
 		KEY_SPACE, KEY_ENTER:
-			if _rm.can_play():
-				_rm.play_chain()
+			_on_play_pressed()
 		KEY_U:
-			_rm.undo_last_chain_tile()
+			_on_undo_pressed()
 		KEY_D:
-			if not _selected_discard.is_empty() and _rm.can_discard():
-				_rm.discard(_selected_discard)
-				_selected_discard.clear()
+			if not _selected_tiles.is_empty() and _rm.can_discard():
+				_rm.discard(_selected_tiles)
+				_selected_tiles.clear()
 		KEY_ESCAPE:
-			if not _selected_discard.is_empty():
-				_selected_discard.clear()
+			if not _selected_tiles.is_empty():
+				_selected_tiles.clear()
 				_refresh_tile_visuals()
+				_refresh_chain_display()
 				_refresh_action_buttons()
 
 ## Recursively set MOUSE_FILTER_IGNORE on a node and all its Control children,
