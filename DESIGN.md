@@ -158,12 +158,12 @@ Doubles get a visually distinct moment: gold highlight color, larger pop, differ
 ## Module System — Design Intent
 
 Modules should create **radically different strategies**, not just flat stat boosts.
-Current palette (22 modules) is good. Future additions should target missing archetypes:
+Current palette (30 modules). Archetypes implemented:
 
-- **No "chain cost" module yet** — e.g. "burn N tiles from chain for +X mult" (sacrifice)
-- **No "draw manipulation" module yet** — e.g. "see top 3 tiles, keep 2" (information)
-- **No "conversion" module yet** — e.g. "all 0-pip tiles treated as wild" (transformation)
-- **No "scaling" module yet** — e.g. "+1 mult per round survived" (compounding)
+- ✅ **Sacrifice** (`LOW_PIP_TO_MULT`) — tiles with ≤N total pips yield 0 chips but grant +X Mult each (Void Tribute / Entropy Pact / Obsidian Sacrifice)
+- ✅ **Conversion** (`BLANK_TO_CHIPS`) — each blank (0-pip) face in the chain scores +X chips, transforming dead faces into contributors (Null Recoder / Zero-Point Array / Resonant Null)
+- ✅ **Round scaling** (`ROUND_SCALING_MULT`) — +X Mult per round cleared, compounding across the whole run (Momentum Coil / Temporal Spiral)
+- 🔜 **Draw manipulation** — "see top 3 tiles, keep 2" (information advantage); requires a new pre-hand selection phase
 
 Module activation should be **visually distinct** — icon pulses when effect fires in scoring sequence.
 

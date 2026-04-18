@@ -171,6 +171,55 @@ static func all() -> Array[Module]:
 			Module.EffectType.HIGH_PIP_BONUS, 12, 8, 0,
 			"Tiles with 8+ pips on either face: +12 Chips.",
 			"At maximum resonance, the signal becomes self-sustaining."),
+
+		# ------------------------------------------------------------------
+		# SACRIFICE (LOW_PIP_TO_MULT) — trade weak tile chips for mult
+		# ------------------------------------------------------------------
+		_make("void_tribute", "Void Tribute", Constants.Rarity.CARVED,
+			Module.EffectType.LOW_PIP_TO_MULT, 2, 2, 0,
+			"Tiles with ≤2 total pips: 0 Chips, +2 Mult each.",
+			"What the Void takes, it returns as signal."),
+
+		_make("entropy_pact", "Entropy Pact", Constants.Rarity.IVORY,
+			Module.EffectType.LOW_PIP_TO_MULT, 3, 3, 0,
+			"Tiles with ≤3 total pips: 0 Chips, +3 Mult each.",
+			"The weak become leverage. Every sacrifice strengthens the pulse."),
+
+		_make_extra("obsidian_sacrifice", "Obsidian Sacrifice", Constants.Rarity.OBSIDIAN,
+			Module.EffectType.LOW_PIP_TO_MULT, 5, 4, 1,
+			"Tiles with ≤4 total pips: 0 Chips, +5 Mult each. +1 Module slot.",
+			"\"Feed it the small ones. It will give you the cascade.\""),
+
+		# ------------------------------------------------------------------
+		# CONVERSION (BLANK_TO_CHIPS) — turn blank faces into chip value
+		# ------------------------------------------------------------------
+		_make("null_recoder", "Null Recoder", Constants.Rarity.BONE,
+			Module.EffectType.BLANK_TO_CHIPS, 3, 0, 0,
+			"+3 Chips per blank (0-pip) face in chain.",
+			"Blank faces carry no pips, but they hold latent potential."),
+
+		_make("zero_point_array", "Zero-Point Array", Constants.Rarity.CARVED,
+			Module.EffectType.BLANK_TO_CHIPS, 7, 0, 0,
+			"+7 Chips per blank face in chain.",
+			"Empty nodes resonate louder than you would expect."),
+
+		_make("resonant_null", "Resonant Null", Constants.Rarity.IVORY,
+			Module.EffectType.BLANK_TO_CHIPS, 14, 0, 0,
+			"+14 Chips per blank face in chain.",
+			"The Chronometer found signal in the silence first."),
+
+		# ------------------------------------------------------------------
+		# SCALING (ROUND_SCALING_MULT) — compounds per round cleared
+		# ------------------------------------------------------------------
+		_make("momentum_coil", "Momentum Coil", Constants.Rarity.BONE,
+			Module.EffectType.ROUND_SCALING_MULT, 1, 0, 0,
+			"+1 Mult per round cleared. Grows throughout the run.",
+			"Patience compounds. Round by round, the coil tightens."),
+
+		_make("temporal_spiral", "Temporal Spiral", Constants.Rarity.CARVED,
+			Module.EffectType.ROUND_SCALING_MULT, 2, 0, 0,
+			"+2 Mult per round cleared. Stronger with every cycle.",
+			"The spiral has no end. Only acceleration."),
 	]
 
 static func get_by_rarity(rarity: int) -> Array[Module]:

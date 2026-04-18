@@ -19,6 +19,8 @@ static func calculate(chain: Chain, modules: Array = []) -> Dictionary:
 	var double_mult_per:  int   = 1   # DOUBLE_MULT_BOOST: highest value wins
 	var wild_pip_chips:   int   = 0   # WILD_PIP_VALUE: chips per wild tile (2 × face value)
 	var high_pip_bonuses: Array = []  # HIGH_PIP_BONUS: [{t: threshold, v: value}]
+	var sacrifice_specs:  Array = []  # LOW_PIP_TO_MULT: [{t: pip_threshold, v: mult_per}]
+	var blank_pip_value:  int   = 0   # BLANK_TO_CHIPS: highest value wins
 	for m in modules:
 		match m.effect_type:
 			Module.EffectType.DOUBLE_PIP_BOOST:
@@ -30,10 +32,26 @@ static func calculate(chain: Chain, modules: Array = []) -> Dictionary:
 				wild_pip_chips = maxi(wild_pip_chips, m.effect_value * 2)
 			Module.EffectType.HIGH_PIP_BONUS:
 				high_pip_bonuses.append({"t": m.effect_param, "v": m.effect_value})
+			Module.EffectType.LOW_PIP_TO_MULT:
+				sacrifice_specs.append({"t": m.effect_param, "v": m.effect_value})
+			Module.EffectType.BLANK_TO_CHIPS:
+				blank_pip_value = maxi(blank_pip_value, m.effect_value)
 
 	# --- Chip accumulation ---
 	for tile in chain.tiles:
 		var pips: int = tile.total_pips()
+
+		# LOW_PIP_TO_MULT (sacrifice): non-wild tiles with pips ≤ threshold contribute
+		# 0 chips and instead grant mult. Each qualifying spec adds its own mult bonus.
+		if not tile.is_wild and not sacrifice_specs.is_empty():
+			var sacrificed: bool = false
+			for spec in sacrifice_specs:
+				if pips <= spec["t"]:
+					mult      += spec["v"]
+					sacrificed = true
+			if sacrificed:
+				continue   # this tile is fully consumed — no chips, no doubles count
+
 		# double_weight: -1 = auto (1 if double, 0 otherwise), else explicit
 		var dw: int = tile.double_weight if tile.double_weight >= 0 \
 			else (1 if tile.is_double() else 0)
@@ -47,6 +65,11 @@ static func calculate(chain: Chain, modules: Array = []) -> Dictionary:
 		else:
 			chips += pips
 		chips += tile.bonus_chips
+
+		# BLANK_TO_CHIPS: each 0-pip face on a non-wild tile adds flat chips
+		if blank_pip_value > 0 and not tile.is_wild:
+			if tile.left  == 0: chips += blank_pip_value
+			if tile.right == 0: chips += blank_pip_value
 
 		# HIGH_PIP_BONUS: per-tile face threshold check
 		var max_face: int = max(tile.left, tile.right)
@@ -83,6 +106,9 @@ static func calculate(chain: Chain, modules: Array = []) -> Dictionary:
 			Module.EffectType.ERA_SCALING_MULT:
 				# Grows stronger each era — weak start, strong finish
 				mult += m.effect_value * (GameState.current_etapa() + 1)
+			Module.EffectType.ROUND_SCALING_MULT:
+				# Compounds per round completed — weak early, very strong late
+				mult += m.effect_value * GameState.round_index
 
 	return {
 		"chips":   chips,

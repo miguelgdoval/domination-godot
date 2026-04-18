@@ -19,6 +19,10 @@ enum EffectType {
 	WILD_PIP_VALUE,     # wild tiles score as if each face shows effect_value pips
 	CLOSING_TILE_BONUS, # chain 3+ tiles: +effect_value flat chips (rewards finishing)
 	ERA_SCALING_MULT,   # mult += effect_value × (current_etapa + 1) — grows each era
+	# ── Milestone 5 archetypes ───────────────────────────────────────────────
+	LOW_PIP_TO_MULT,    # tiles with total_pips <= effect_param: 0 chips, +effect_value mult each (sacrifice)
+	BLANK_TO_CHIPS,     # each 0-pip face in chain: +effect_value chips (conversion)
+	ROUND_SCALING_MULT, # mult += effect_value × rounds_completed — compounds per round (scaling)
 }
 
 var id:           String

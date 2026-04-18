@@ -198,6 +198,15 @@ var _last_etapa:               int = -1   # tracks previous etapa for change det
 var _rack_card_by_id: Dictionary = {}
 
 # ---------------------------------------------------------------------------
+# Module tooltip (floating overlay shown on hover)
+# ---------------------------------------------------------------------------
+var _tooltip_panel:      Control
+var _tooltip_rarity_lbl: Label
+var _tooltip_name_lbl:   Label
+var _tooltip_desc_lbl:   Label
+var _tooltip_lore_lbl:   Label
+
+# ---------------------------------------------------------------------------
 # Run-end cinematic overlay (victory / defeat — replaces simple result panel)
 # ---------------------------------------------------------------------------
 var _run_end_overlay:       Control
@@ -490,11 +499,22 @@ func _on_hand_scored(result: Dictionary) -> void:
 	if dir_bonus > 0:
 		GameState.monedas += dir_bonus
 
-	# Pre-scan modules for double pip multiplier
-	var double_pip_mult: int = 1
+	# Pre-scan modules for display-side chip calculation
+	# (scoring.gd is the source of truth; this is only for the "+N chips" pop-up labels)
+	var double_pip_mult:   int   = 1
+	var wild_pip_chips_ui: int   = 0
+	var sacrifice_specs_ui: Array = []
+	var blank_pip_val_ui:  int   = 0
 	for m in GameState.modules:
-		if m.effect_type == Module.EffectType.DOUBLE_PIP_BOOST:
-			double_pip_mult = maxi(double_pip_mult, m.effect_value)
+		match m.effect_type:
+			Module.EffectType.DOUBLE_PIP_BOOST:
+				double_pip_mult   = maxi(double_pip_mult,   m.effect_value)
+			Module.EffectType.WILD_PIP_VALUE:
+				wild_pip_chips_ui = maxi(wild_pip_chips_ui, m.effect_value * 2)
+			Module.EffectType.LOW_PIP_TO_MULT:
+				sacrifice_specs_ui.append({"t": m.effect_param})
+			Module.EffectType.BLANK_TO_CHIPS:
+				blank_pip_val_ui  = maxi(blank_pip_val_ui,  m.effect_value)
 
 	# Snapshot every chain tile while they are still on screen.
 	# Direct PanelContainer children = tile panels (VBoxContainer = end indicators, Label = arrows).
@@ -504,10 +524,31 @@ func _on_hand_scored(result: Dictionary) -> void:
 	for child in _chain_container.get_children():
 		if child is PanelContainer and idx < chain_tiles.size():
 			var tile: Domino = chain_tiles[idx]
+			var pips: int = tile.total_pips()
 			var dw: int = tile.double_weight if tile.double_weight >= 0 \
 				else (1 if tile.is_double() else 0)
-			var chips: int = tile.total_pips() * (double_pip_mult if dw > 0 else 1) \
-				+ tile.bonus_chips
+
+			# Sacrifice check: if any spec covers this tile, show 0 chips
+			var is_sac: bool = false
+			if not tile.is_wild:
+				for spec in sacrifice_specs_ui:
+					if pips <= spec["t"]:
+						is_sac = true
+						break
+
+			var chips: int = 0
+			if is_sac:
+				chips = 0   # sacrificed — traded for mult
+			elif dw > 0 and tile.is_wild and wild_pip_chips_ui > 0:
+				chips = wild_pip_chips_ui
+			elif dw > 0:
+				chips = pips * double_pip_mult + tile.bonus_chips
+			else:
+				chips = pips + tile.bonus_chips
+				if blank_pip_val_ui > 0 and not tile.is_wild:
+					if tile.left  == 0: chips += blank_pip_val_ui
+					if tile.right == 0: chips += blank_pip_val_ui
+
 			overlay_infos.append({
 				"overlay":    _build_score_overlay(child.global_position, child.size, tile),
 				"center":     child.global_position + child.size * 0.5,
@@ -515,19 +556,26 @@ func _on_hand_scored(result: Dictionary) -> void:
 				"is_double":  dw > 0,
 				"is_wild":    tile.is_wild,
 				"max_pip":    max(tile.left, tile.right),
+				"has_blank":  not tile.is_wild and (tile.left == 0 or tile.right == 0),
+				"total_pips": pips if not tile.is_wild else 999,
 			})
 			idx += 1
 
 	# Determine which modules fired so the rack can pulse them
-	var has_doubles: bool = false
-	var has_wilds:   bool = false
-	var max_pip_in_chain: int = 0
+	var has_doubles:      bool = false
+	var has_wilds:        bool = false
+	var has_blanks:       bool = false
+	var max_pip_in_chain: int  = 0
+	var min_pips_in_chain: int = 999
 	for info in overlay_infos:
-		if info["is_double"]: has_doubles        = true
-		if info["is_wild"]:   has_wilds           = true
-		max_pip_in_chain = maxi(max_pip_in_chain, info["max_pip"])
+		if info["is_double"]: has_doubles = true
+		if info["is_wild"]:   has_wilds   = true
+		if info["has_blank"]: has_blanks  = true
+		max_pip_in_chain  = maxi(max_pip_in_chain,  info["max_pip"])
+		min_pips_in_chain = mini(min_pips_in_chain, info["total_pips"])
 	var active_ids: Array = _get_active_module_ids(
-		has_doubles, _rm.current_chain.length(), has_wilds, max_pip_in_chain)
+		has_doubles, _rm.current_chain.length(), has_wilds, max_pip_in_chain,
+		has_blanks, min_pips_in_chain)
 
 	_scoring_active = true
 	_run_scoring_sequence(overlay_infos, result, _rm.chronos, active_ids)
@@ -952,6 +1000,8 @@ func _build_shop_item_card(entry: Dictionary) -> Control:
 		buy_btn.pressed.connect(_on_buy_pressed.bind(entry))
 		bottom_row.add_child(buy_btn)
 
+	# Tooltip — lore text and full description on hover
+	_add_module_tooltip(panel, m)
 	return panel
 
 func _build_equipped_module_card(m: Module) -> Control:
@@ -986,6 +1036,8 @@ func _build_equipped_module_card(m: Module) -> Control:
 	sell_btn.pressed.connect(_on_sell_pressed.bind(m))
 	vbox.add_child(sell_btn)
 
+	# Tooltip — lore and full description on hover
+	_add_module_tooltip(panel, m)
 	return panel
 
 # ===========================================================================
@@ -1425,6 +1477,11 @@ func _build_ui() -> void:
 	)
 	ui.add_child(_proto_select_overlay)
 	_proto_select_overlay.hide()
+
+	# Tooltip — last child so it renders on top of every overlay
+	_tooltip_panel = _build_tooltip_panel()
+	ui.add_child(_tooltip_panel)
+	_tooltip_panel.hide()
 
 # ---- HUD ----
 func _build_hud() -> Control:
@@ -2405,6 +2462,9 @@ func _build_rack_module_card(m: Module) -> Control:
 	col.add_child(_make_label(m.display_name, C_TEXT, 11))
 	col.add_child(_make_label(m.description,  C_DIM,  10))
 
+	# Hover tooltip — full name, description, and lore on mouse-over
+	_add_module_tooltip(panel, m)
+
 	return panel
 
 # ===========================================================================
@@ -2412,19 +2472,18 @@ func _build_rack_module_card(m: Module) -> Control:
 # ===========================================================================
 
 ## Determine which module IDs actually fired this hand.
-## has_doubles: any double tile was in the chain.
-## chain_length: number of tiles played.
-## has_wilds: any wild tile was in the chain (optional).
-## max_pip: highest single face pip value across all tiles (optional).
+## Returns the list of IDs whose rack card should pulse.
 func _get_active_module_ids(has_doubles: bool, chain_length: int,
-		has_wilds: bool = false, max_pip: int = 0) -> Array:
+		has_wilds: bool = false, max_pip: int = 0,
+		has_blanks: bool = false, min_pips: int = 999) -> Array:
 	var active: Array = []
 	for m in GameState.modules:
 		match m.effect_type:
 			Module.EffectType.FLAT_MULT, \
 			Module.EffectType.FLAT_CHIPS, \
 			Module.EffectType.CHIPS_PER_TILE, \
-			Module.EffectType.ERA_SCALING_MULT:
+			Module.EffectType.ERA_SCALING_MULT, \
+			Module.EffectType.ROUND_SCALING_MULT:
 				# Always contributes every hand
 				active.append(m.id)
 			Module.EffectType.DOUBLE_PIP_BOOST, \
@@ -2435,7 +2494,6 @@ func _get_active_module_ids(has_doubles: bool, chain_length: int,
 				if chain_length >= m.effect_param:
 					active.append(m.id)
 			Module.EffectType.HIGH_PIP_BONUS:
-				# Fires if any tile in the chain has a face ≥ threshold
 				if max_pip >= m.effect_param:
 					active.append(m.id)
 			Module.EffectType.WILD_PIP_VALUE:
@@ -2443,6 +2501,13 @@ func _get_active_module_ids(has_doubles: bool, chain_length: int,
 					active.append(m.id)
 			Module.EffectType.CLOSING_TILE_BONUS:
 				if chain_length >= 3:
+					active.append(m.id)
+			Module.EffectType.LOW_PIP_TO_MULT:
+				# Fires if any tile was within the sacrifice threshold
+				if min_pips <= m.effect_param:
+					active.append(m.id)
+			Module.EffectType.BLANK_TO_CHIPS:
+				if has_blanks:
 					active.append(m.id)
 	return active
 
@@ -3250,3 +3315,97 @@ func _ambient_glitch_flash(color: Color) -> void:
 	var ft := create_tween()
 	ft.tween_property(flash, "modulate:a", 0.0, 0.20)
 	ft.tween_callback(flash.queue_free)
+
+# ===========================================================================
+# Module tooltip
+# ===========================================================================
+## Builds the floating tooltip panel (hidden by default).
+## Added last to the UI layer so it renders above all overlays.
+func _build_tooltip_panel() -> Control:
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(290, 0)
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE   # never steal clicks
+	panel.z_index      = 100                           # above all other controls
+	var style := StyleBoxFlat.new()
+	style.bg_color     = Color(0.08, 0.07, 0.05, 0.97)
+	style.border_color = Color(0.55, 0.50, 0.38)
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(6)
+	style.set_content_margin_all(10)
+	panel.add_theme_stylebox_override("panel", style)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 5)
+	vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(vbox)
+
+	_tooltip_rarity_lbl = _make_label("", C_DIM, 10)
+	_tooltip_rarity_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(_tooltip_rarity_lbl)
+
+	_tooltip_name_lbl = _make_label("", C_TEXT, 17)
+	_tooltip_name_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_tooltip_name_lbl.custom_minimum_size = Vector2(270, 0)
+	_tooltip_name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(_tooltip_name_lbl)
+
+	var sep := _make_hsep()
+	sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(sep)
+
+	_tooltip_desc_lbl = _make_label("", C_PREVIEW, 13)
+	_tooltip_desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_tooltip_desc_lbl.custom_minimum_size = Vector2(270, 0)
+	_tooltip_desc_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(_tooltip_desc_lbl)
+
+	_tooltip_lore_lbl = _make_label("", C_DIM, 11)
+	_tooltip_lore_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_tooltip_lore_lbl.custom_minimum_size = Vector2(270, 0)
+	_tooltip_lore_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(_tooltip_lore_lbl)
+
+	return panel
+
+## Connect hover signals on any Control so it shows the module tooltip.
+func _add_module_tooltip(node: Control, m: Module) -> void:
+	node.mouse_entered.connect(func(): _show_module_tooltip(m, node))
+	node.mouse_exited.connect(_hide_module_tooltip)
+
+## Populate and display the tooltip near the hovered card.
+## Positioning is deferred one frame so the panel's size is known.
+func _show_module_tooltip(m: Module, anchor: Control) -> void:
+	_tooltip_rarity_lbl.text = Constants.RARITY_NAMES[m.rarity].to_upper()
+	_tooltip_rarity_lbl.add_theme_color_override("font_color", C_RARITY[m.rarity])
+	_tooltip_name_lbl.text = m.display_name
+	_tooltip_name_lbl.add_theme_color_override("font_color",
+		C_RARITY[m.rarity].lerp(C_TEXT, 0.45))
+	_tooltip_desc_lbl.text = m.description
+	_tooltip_lore_lbl.text = m.lore_text
+	_tooltip_lore_lbl.visible = m.lore_text != ""
+	_tooltip_panel.modulate.a = 0.0
+	_tooltip_panel.show()
+	# Defer so the panel size is computed before we position it
+	_position_tooltip_at.call_deferred(anchor)
+
+## Position the tooltip above (preferred) or below the anchor card.
+## Clamped to screen bounds so it never clips off the edges.
+func _position_tooltip_at(anchor: Control) -> void:
+	if not is_instance_valid(anchor) or not _tooltip_panel.visible:
+		return
+	var screen: Vector2 = get_viewport().get_visible_rect().size
+	var apos:   Vector2 = anchor.global_position
+	var ts:     Vector2 = _tooltip_panel.size
+	# Prefer above; if that clips the top, place below
+	var ty: float = apos.y - ts.y - 8.0
+	if ty < 4.0:
+		ty = apos.y + anchor.size.y + 8.0
+	var tx: float = clampf(apos.x, 4.0, screen.x - ts.x - 4.0)
+	_tooltip_panel.position = Vector2(tx, ty)
+	# Fade in
+	var t := create_tween()
+	t.tween_property(_tooltip_panel, "modulate:a", 1.0, 0.14)
+
+## Hide the tooltip immediately.
+func _hide_module_tooltip() -> void:
+	_tooltip_panel.hide()
