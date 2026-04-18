@@ -27,6 +27,22 @@ const C_SELECTED_BORDER := Color(0.85, 0.75, 0.30)
 const C_PIP_DOT         := Color(0.12, 0.10, 0.08)
 const C_PIP_DOT_TILE    := Color(0.92, 0.88, 0.80)  # pip on chain tile (dark bg not needed)
 
+# ---------------------------------------------------------------------------
+# Artisan / Emporium greeting lines (indexed by etapa 0–3)
+# ---------------------------------------------------------------------------
+const EMPORIUM_GREETINGS: Array = [
+	"Welcome to the Brass Emporium. Finest calibration work in the cycle.",
+	"Back again. The signal grows erratic — choose well, Operator.",
+	"You've come far. The shelves are yours — take what the pulse needs.",
+	"I won't waste your time. Take what you need and stabilise that pulse.",
+]
+const ARTISAN_GREETINGS: Array = [
+	"Initial calibration nominal. The workshop is open.",
+	"Some turbulence in the higher frequencies. Reinforce while you can.",
+	"The Chronometer strains audibly now. I've set aside my best work.",
+	"Operator. Listen carefully. This may be our last transaction.",
+]
+
 # Pip positions in a 3×3 grid (index 0-8, left-to-right top-to-bottom)
 const PIP_POSITIONS: Array = [
 	[],                             # 0
@@ -89,9 +105,10 @@ var _chronos_bar_fill_style: StyleBoxFlat
 # Hands / discards dot indicators
 var _hands_dot_row:    HBoxContainer
 var _discards_dot_row: HBoxContainer
-var _chain_container: HBoxContainer
-var _lbl_preview:     Label
-var _lbl_last_hand:   Label
+var _chain_container:  HBoxContainer
+var _lbl_preview:      Label
+var _lbl_chain_bonus:  Label   # "N more for +1 Mult" threshold hint
+var _lbl_last_hand:    Label
 var _hand_container:  HBoxContainer
 var _btn_play:        Button
 var _btn_discard:     Button
@@ -106,6 +123,7 @@ var _btn_result_action: Button
 # UI references — shop overlay
 var _shop_overlay:         Control
 var _lbl_shop_title:       Label
+var _lbl_shop_greeting:    Label
 var _lbl_shop_monedas:     Label
 var _shop_items_row:       HBoxContainer
 var _shop_modules_row:     HBoxContainer
@@ -134,6 +152,10 @@ var _start_removal_lbl:      Label
 var _start_removal_btn:      Button
 var _start_removal_candidates: Array = []   # Array[Domino]
 var _start_removal_selected:   Array = []   # selected indices
+
+# Module rack (displayed during play, below directives)
+var _module_rack_row:  HBoxContainer
+var _module_rack_panel: Control
 
 # UI references — directives panel
 var _directives_panel:   Control
@@ -272,6 +294,7 @@ func _begin_round_play() -> void:
 	_rebuild_hand()
 	_refresh_chain_display()
 	_refresh_directives()
+	_refresh_module_rack()
 
 func _end_round(won: bool) -> void:
 	if won:
@@ -299,9 +322,11 @@ func _show_shop() -> void:
 	_phase = Phase.SHOP
 	_result_overlay.hide()
 
+	var etapa: int = GameState.current_etapa()
 	var owned_ids: Array = GameState.modules.map(func(m): return m.id)
 	if GameState.is_boss_round():
 		_lbl_shop_title.text = "THE ARTISAN'S WORKSHOP"
+		_lbl_shop_greeting.text = ARTISAN_GREETINGS[clampi(etapa, 0, 3)]
 		_shop_inventory = ShopManager.generate_artisan(owned_ids)
 		_tile_offers = TileShopManager.generate_offers(3)
 		_tile_offers_bought.clear()
@@ -310,6 +335,7 @@ func _show_shop() -> void:
 		_artisan_section.show()
 	else:
 		_lbl_shop_title.text = "THE BRASS EMPORIUM"
+		_lbl_shop_greeting.text = EMPORIUM_GREETINGS[clampi(etapa, 0, 3)]
 		_shop_inventory = ShopManager.generate_emporium(3, owned_ids)
 		_artisan_section.hide()
 
@@ -364,7 +390,7 @@ func _on_hand_scored(result: Dictionary) -> void:
 			idx += 1
 
 	_scoring_active = true
-	_run_scoring_sequence(overlay_infos, result)
+	_run_scoring_sequence(overlay_infos, result, _rm.chronos)
 	_refresh_hud()
 	_refresh_directives()
 
@@ -664,20 +690,11 @@ func _refresh_hud() -> void:
 	_lbl_etapa.text   = GameState.etapa_name()
 	_lbl_monedas.text = "Monedas: %d" % GameState.monedas
 
-	# Chronos bar
-	var t: int = _rm.target if _rm != null else 1
-	var c: int = _rm.chronos if _rm != null else 0
-	_chronos_bar.max_value = t
-	_chronos_bar.value = c
-	_chronos_bar_lbl.text = "%d / %d" % [c, t]
-	var ratio := clampf(float(c) / float(t), 0.0, 2.0) if t > 0 else 0.0
-	if ratio >= 1.0:
-		_chronos_bar_fill_style.bg_color = C_WIN
-	elif ratio >= 0.75:
-		_chronos_bar_fill_style.bg_color = C_CHRONOS
-	else:
-		_chronos_bar_fill_style.bg_color = C_CHRONOS.darkened(0.30)
-	_chronos_bar.add_theme_stylebox_override("fill", _chronos_bar_fill_style)
+	# Chronos bar — skipped during scoring animation (animation drives the fill)
+	if not _scoring_active:
+		var t: int = _rm.target if _rm != null else 1
+		var c: int = _rm.chronos if _rm != null else 0
+		_set_chronos_bar(c, t)
 
 	# Hands dots
 	for ch in _hands_dot_row.get_children(): ch.queue_free()
@@ -723,8 +740,10 @@ func _refresh_chain_display() -> void:
 		var r: Dictionary = Scoring.calculate(_rm.current_chain, GameState.modules)
 		_lbl_preview.text = "%d chips  ×  %d  =  %d Chronos" % [
 			r["chips"], r["mult"], r["total"]]
+		_refresh_chain_bonus_label(_rm.current_chain.length())
 	else:
 		_lbl_preview.text = ""
+		_lbl_chain_bonus.text = ""
 
 func _refresh_action_buttons() -> void:
 	_btn_play.disabled    = not _rm.can_play()
@@ -1221,6 +1240,11 @@ func _build_table_area() -> Control:
 	_lbl_preview.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(_lbl_preview)
 
+	# Chain-length milestone hint  e.g. "2 more for +1 Mult  ·  5 more for +2 Mult"
+	_lbl_chain_bonus = _make_label("", C_DIM, 12)
+	_lbl_chain_bonus.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(_lbl_chain_bonus)
+
 	# Spacer below keeps last-hand result pinned to the bottom
 	var bot_spacer := Control.new()
 	bot_spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -1241,6 +1265,10 @@ func _build_hand_zone() -> Control:
 	# Directives bar sits at top of this zone
 	_directives_panel = _build_directives_panel()
 	outer.add_child(_directives_panel)
+
+	# Module rack — compact cards showing equipped modules during play
+	_module_rack_panel = _build_module_rack_panel()
+	outer.add_child(_module_rack_panel)
 
 	# Hand panel
 	var hand_panel := PanelContainer.new()
@@ -1358,9 +1386,15 @@ func _build_shop_overlay() -> Control:
 	var header := HBoxContainer.new()
 	vbox.add_child(header)
 
+	var title_col := VBoxContainer.new()
+	title_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title_col.add_theme_constant_override("separation", 4)
+	header.add_child(title_col)
 	_lbl_shop_title = _make_label("THE BRASS EMPORIUM", C_TEXT, 22)
-	_lbl_shop_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	header.add_child(_lbl_shop_title)
+	title_col.add_child(_lbl_shop_title)
+	_lbl_shop_greeting = _make_label("", C_DIM, 13)
+	_lbl_shop_greeting.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	title_col.add_child(_lbl_shop_greeting)
 
 	var right_col := VBoxContainer.new()
 	right_col.alignment = BoxContainer.ALIGNMENT_END
@@ -1835,12 +1869,116 @@ func _build_removal_tile(index: int, tile: Domino) -> Control:
 	return panel
 
 # ===========================================================================
+# Chronos bar helper
+# ===========================================================================
+func _set_chronos_bar(c: int, t: int) -> void:
+	_chronos_bar.max_value = t
+	_chronos_bar.value     = float(c)
+	_chronos_bar_lbl.text  = "%d / %d" % [c, t]
+	var ratio := clampf(float(c) / float(t), 0.0, 2.0) if t > 0 else 0.0
+	if ratio >= 1.0:
+		_chronos_bar_fill_style.bg_color = C_WIN
+	elif ratio >= 0.75:
+		_chronos_bar_fill_style.bg_color = C_CHRONOS
+	else:
+		_chronos_bar_fill_style.bg_color = C_CHRONOS.darkened(0.30)
+	_chronos_bar.add_theme_stylebox_override("fill", _chronos_bar_fill_style)
+
+# ===========================================================================
+# Chain length milestone hint
+# ===========================================================================
+func _refresh_chain_bonus_label(length: int) -> void:
+	var sm := Constants.CHAIN_BONUS_SMALL
+	var lg := Constants.CHAIN_BONUS_LARGE
+
+	if length >= lg:
+		_lbl_chain_bonus.text = "Chain bonus: +2 Mult  ✓"
+		_lbl_chain_bonus.add_theme_color_override("font_color", C_WIN)
+	elif length >= sm:
+		var need := lg - length
+		_lbl_chain_bonus.text = "+1 Mult  ✓    %d more tile%s for +2 Mult" % \
+			[need, "" if need == 1 else "s"]
+		_lbl_chain_bonus.add_theme_color_override("font_color", C_MONEDAS)
+	else:
+		var ns := sm - length
+		var nl := lg - length
+		_lbl_chain_bonus.text = "%d more for +1 Mult  ·  %d more for +2 Mult" % [ns, nl]
+		# Brighten as player approaches the first threshold
+		var urgency := clampf(float(length) / float(sm), 0.0, 1.0)
+		_lbl_chain_bonus.add_theme_color_override("font_color", C_DIM.lerp(C_TEXT, urgency))
+
+# ===========================================================================
+# Module rack (shown during play)
+# ===========================================================================
+func _build_module_rack_panel() -> Control:
+	var panel := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.10, 0.09, 0.07, 0.75)
+	panel.add_theme_stylebox_override("panel", style)
+
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 8)
+	hbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	panel.add_child(hbox)
+
+	var lbl := _make_label("MODULES:", C_DIM, 11)
+	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hbox.add_child(lbl)
+
+	_module_rack_row = HBoxContainer.new()
+	_module_rack_row.add_theme_constant_override("separation", 6)
+	hbox.add_child(_module_rack_row)
+
+	return panel
+
+func _refresh_module_rack() -> void:
+	for child in _module_rack_row.get_children():
+		child.queue_free()
+
+	if GameState.modules.is_empty():
+		var none_lbl := _make_label("none equipped", C_DIM, 11)
+		_module_rack_row.add_child(none_lbl)
+		return
+
+	for m in GameState.modules:
+		_module_rack_row.add_child(_build_rack_module_card(m))
+
+func _build_rack_module_card(m: Module) -> Control:
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(0, 36)
+	var style := StyleBoxFlat.new()
+	style.bg_color     = Color(0.12, 0.11, 0.08)
+	style.border_color = C_RARITY[m.rarity]
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(4)
+	panel.add_theme_stylebox_override("panel", style)
+
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 5)
+	panel.add_child(hbox)
+
+	var dot := _make_label("●", C_RARITY[m.rarity], 10)
+	dot.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hbox.add_child(dot)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	hbox.add_child(col)
+
+	col.add_child(_make_label(m.display_name, C_TEXT, 11))
+	col.add_child(_make_label(m.description,  C_DIM,  10))
+
+	return panel
+
+# ===========================================================================
 # Scoring animation sequence
 # ===========================================================================
 
 ## Full Balatro-style scoring sequence.
 ## overlay_infos: Array of Dicts built in _on_hand_scored while tiles still on screen.
-func _run_scoring_sequence(overlay_infos: Array, result: Dictionary) -> void:
+## new_chronos: the updated _rm.chronos value used to animate the bar fill.
+func _run_scoring_sequence(overlay_infos: Array, result: Dictionary, new_chronos: int) -> void:
 	var seq := create_tween()
 
 	for info in overlay_infos:
@@ -1881,14 +2019,20 @@ func _run_scoring_sequence(overlay_infos: Array, result: Dictionary) -> void:
 		)
 		seq.tween_interval(0.32)
 
-	# Step 4 — total Chronos burst (always shown)
+	# Step 4 — total Chronos burst + bar animates to new value
 	seq.tween_callback(func():
 		_do_tile_pop("+%d Chronos" % result["total"], C_CHRONOS, chain_center, 38, 1.50)
+		var bar_tween := create_tween()
+		bar_tween.tween_property(_chronos_bar, "value", float(new_chronos), 0.55)
 	)
 
-	# Step 5 — unlock input shortly after the final pop spawns
-	seq.tween_interval(0.22)
-	seq.tween_callback(func(): _scoring_active = false)
+	# Step 5 — unlock input, finalise bar colour/label
+	seq.tween_interval(0.28)
+	seq.tween_callback(func():
+		_scoring_active = false
+		if _rm != null:
+			_set_chronos_bar(_rm.chronos, _rm.target)
+	)
 
 ## Build a ghost domino overlay at screen_pos, parented to the UI layer.
 ## Positioned over the real tile before the chain clears.
