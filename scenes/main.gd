@@ -506,7 +506,14 @@ func _on_tile_left_click(index: int) -> void:
 	if _phase != Phase.PLAYING or _scoring_active:
 		return
 	_selected_discard.erase(index)
-	_rm.try_add_to_chain(index)
+	# Capture end-state before the add so we can determine which side was extended
+	var prev_left:   int  = _rm.current_chain.left_end
+	var was_empty:   bool = _rm.current_chain.is_empty()
+	if _rm.try_add_to_chain(index):
+		# Left end changed → tile was prepended; otherwise it was appended (or first)
+		var added_left: bool = (not was_empty) and \
+			(_rm.current_chain.left_end != prev_left)
+		_fire_chain_spark.call_deferred(added_left, was_empty)
 
 func _on_tile_right_click(index: int) -> void:
 	if _phase != Phase.PLAYING or _scoring_active:
@@ -2242,13 +2249,32 @@ func _run_scoring_sequence(overlay_infos: Array, result: Dictionary,
 		new_chronos: int, active_module_ids: Array) -> void:
 	var seq := create_tween()
 
+	# Pre-compute cumulative chip totals so closures can capture the right value
+	# for each tile without relying on mutable loop-variable capture.
+	var cum_chips: Array[int] = []
+	var running: int = 0
 	for info in overlay_infos:
-		var overlay:   Control = info["overlay"]
-		var center:    Vector2 = info["center"]
-		var chips:     int     = info["chips"]
-		var is_dbl:    bool    = info["is_double"]
-		var hl_color:  Color   = C_MONEDAS if is_dbl else C_CHRONOS
-		var pop_color: Color   = C_MONEDAS if is_dbl else C_TEXT
+		running += int(info["chips"])
+		cum_chips.append(running)
+	var total_chips: int = running
+
+	# Initialise the accumulating counter (written to _lbl_preview which is cleared
+	# by _refresh_chain_display on the same frame; this callback runs next frame)
+	seq.tween_callback(func():
+		_lbl_preview.text = "0  chips"
+		_lbl_preview.add_theme_color_override("font_color", C_DIM)
+		_lbl_preview.add_theme_font_size_override("font_size", 18)
+	)
+
+	for ti in range(overlay_infos.size()):
+		var info:      Dictionary = overlay_infos[ti]
+		var overlay:   Control    = info["overlay"]
+		var center:    Vector2    = info["center"]
+		var chips:     int        = info["chips"]
+		var is_dbl:    bool       = info["is_double"]
+		var hl_color:  Color      = C_MONEDAS if is_dbl else C_CHRONOS
+		var pop_color: Color      = C_MONEDAS if is_dbl else C_TEXT
+		var chips_so_far: int     = cum_chips[ti]   # captured fresh per iteration ✓
 
 		# Step 1 — tile flashes (bright border + tinted background)
 		seq.tween_callback(func():
@@ -2261,8 +2287,11 @@ func _run_scoring_sequence(overlay_infos: Array, result: Dictionary,
 		)
 		seq.tween_interval(0.07)
 
-		# Step 2 — chip pop rises, overlay fades out
+		# Step 2 — chip pop rises; counter ticks up; overlay ghost fades out
 		seq.tween_callback(func():
+			_lbl_preview.text = "%d  chips" % chips_so_far
+			_lbl_preview.add_theme_color_override("font_color",
+				C_MONEDAS if is_dbl else C_PREVIEW)
 			_do_tile_pop("+%d" % chips, pop_color, center, 21, 0.80)
 			var fade := create_tween()
 			fade.tween_interval(0.05)
@@ -2281,26 +2310,33 @@ func _run_scoring_sequence(overlay_infos: Array, result: Dictionary,
 		)
 		seq.tween_interval(0.18)
 
-	# Step 4 — multiplier slam (skipped when mult == 1)
+	# Step 4 — multiplier slam: counter pivots to "N chips × M"
 	var chain_center := _chain_container.global_position + _chain_container.size * 0.5
 	seq.tween_interval(0.05)
 	if result["mult"] > 1:
 		seq.tween_callback(func():
+			_lbl_preview.text = "%d  chips  ×  %d" % [total_chips, result["mult"]]
+			_lbl_preview.add_theme_color_override("font_color", C_TARGET)
 			_do_tile_pop("×%d" % result["mult"], C_TARGET, chain_center, 34, 1.10)
 		)
 		seq.tween_interval(0.32)
 
-	# Step 5 — total Chronos burst + bar animates to new value
+	# Step 5 — total Chronos burst; counter shows full equation; bar animates
 	seq.tween_callback(func():
+		_lbl_preview.text = "%d  chips  ×  %d  =  %d" % \
+			[total_chips, result["mult"], result["total"]]
+		_lbl_preview.add_theme_color_override("font_color", C_CHRONOS)
 		_do_tile_pop("+%d Chronos" % result["total"], C_CHRONOS, chain_center, 38, 1.50)
 		var bar_tween := create_tween()
 		bar_tween.tween_property(_chronos_bar, "value", float(new_chronos), 0.55)
 	)
 
-	# Step 6 — unlock input, finalise bar colour/label
+	# Step 6 — unlock input, finalise bar colour/label, restore preview style
 	seq.tween_interval(0.28)
 	seq.tween_callback(func():
 		_scoring_active = false
+		_lbl_preview.add_theme_font_size_override("font_size", 16)
+		_lbl_preview.add_theme_color_override("font_color", C_PREVIEW)
 		if _rm != null:
 			_set_chronos_bar(_rm.chronos, _rm.target)
 	)
@@ -2334,6 +2370,66 @@ func _build_score_overlay(screen_pos: Vector2, tile_size: Vector2, tile: Domino)
 
 	_ui_layer.add_child(panel)
 	return panel
+
+## Called deferred after a successful tile placement so layout has settled.
+## Finds the correct panel in the rebuilt chain and fires a connection spark.
+func _fire_chain_spark(added_left: bool, was_first: bool) -> void:
+	# Collect only tile PanelContainers (end indicators are VBoxContainers)
+	var tile_panels: Array = []
+	for child in _chain_container.get_children():
+		if child is PanelContainer:
+			tile_panels.append(child)
+	if tile_panels.is_empty():
+		return
+
+	# First tile → spark at centre; left add → leftmost panel; right add → rightmost
+	var panel: Control = tile_panels[0] if (was_first or added_left) else tile_panels[-1]
+	var spark_pos: Vector2 = panel.global_position + panel.size * 0.5
+	var accent: Color = Constants.ETAPA_ACCENT[clampi(GameState.current_etapa(), 0, 3)]
+	_do_chain_spark(spark_pos, accent)
+
+## Burst effect at the tile-connection point: expanding ring + 6 radial sparks.
+func _do_chain_spark(pos: Vector2, color: Color) -> void:
+	# 1. Expanding ring — scale up while fading
+	var ring := PanelContainer.new()
+	ring.custom_minimum_size = Vector2(30, 30)
+	var rs := StyleBoxFlat.new()
+	rs.bg_color     = Color(color.r, color.g, color.b, 0.12)
+	rs.border_color = color
+	rs.set_border_width_all(2)
+	rs.set_corner_radius_all(15)
+	ring.add_theme_stylebox_override("panel", rs)
+	ring.pivot_offset = Vector2(15, 15)
+	ring.scale        = Vector2(0.2, 0.2)
+	ring.position     = pos - Vector2(15, 15)
+	ring.modulate.a   = 1.0
+	_ui_layer.add_child(ring)
+
+	var rt := create_tween().set_parallel(true)
+	rt.tween_property(ring, "scale", Vector2(1.7, 1.7), 0.22) \
+		.set_trans(Tween.TRANS_CIRC).set_ease(Tween.EASE_OUT)
+	rt.tween_property(ring, "modulate:a", 0.0, 0.22)
+	rt.chain().tween_callback(ring.queue_free)
+
+	# 2. Six dots radiating outward at 60° intervals
+	for i in range(6):
+		var rad: float = i * PI / 3.0
+		var dir := Vector2(cos(rad), sin(rad))
+		var dot := PanelContainer.new()
+		dot.custom_minimum_size = Vector2(5, 5)
+		var ds := StyleBoxFlat.new()
+		ds.bg_color = color
+		ds.set_corner_radius_all(3)
+		dot.add_theme_stylebox_override("panel", ds)
+		dot.position = pos - Vector2(2.5, 2.5)
+		_ui_layer.add_child(dot)
+
+		var end_pos: Vector2 = pos + dir * 30.0 - Vector2(2.5, 2.5)
+		var dt := create_tween().set_parallel(true)
+		dt.tween_property(dot, "position", end_pos, 0.27) \
+			.set_trans(Tween.TRANS_CIRC).set_ease(Tween.EASE_OUT)
+		dt.tween_property(dot, "modulate:a", 0.0, 0.27)
+		dt.chain().tween_callback(dot.queue_free)
 
 ## Create a floating label at screen_pos and tween it up + out.
 func _do_tile_pop(text: String, color: Color, screen_pos: Vector2,
