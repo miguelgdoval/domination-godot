@@ -43,6 +43,23 @@ const ARTISAN_GREETINGS: Array = [
 	"Operator. Listen carefully. This may be our last transaction.",
 ]
 
+# Etapa transition cinematic (indexed 0–3)
+const ETAPA_ROMAN:       Array[String] = ["I", "II", "III", "IV"]
+const ETAPA_SHORT_NAMES: Array[String] = ["Mahogany", "Brass", "Obsidian", "Void"]
+const ETAPA_ATMOSPHERE:  Array[String] = [
+	"The Chronometer hums.\nAll signals nominal.",
+	"Strain detected.\nAmber frequencies rising.",
+	"Systems degrading.\nVisual crackle intensifies.",
+	"Critical failure imminent.\nHold the line, Operator.",
+]
+# Boss intro atmospheric lore (one line per etapa)
+const BOSS_LORE: Array[String] = [
+	"The frequencies bleed.\nWhat was stable becomes noise.",
+	"Your signal reaches us fractured.\nThe decay accelerates.",
+	"The resonance lock has no key.\nOnly pressure.",
+	"This is not a test.\nThe Chronometer cannot hold much longer.",
+]
+
 # Pip positions in a 3×3 grid (index 0-8, left-to-right top-to-bottom)
 const PIP_POSITIONS: Array = [
 	[],                             # 0
@@ -161,10 +178,24 @@ var _module_rack_panel: Control
 var _directives_panel:   Control
 var _directive_labels:   Array = []   # Array[Label], one per active directive
 
-# UI references — boss warning overlay
-var _boss_overlay:       Control
-var _lbl_boss_name:      Label
-var _lbl_boss_desc:      Label
+# UI references — boss warning overlay (cinematic)
+var _boss_overlay:      Control
+var _lbl_boss_warning:  Label   # "⚠ CORRUPTION DETECTED" — fades in first
+var _lbl_boss_name:     Label   # glitch→typewriter reveal
+var _lbl_boss_lore:     Label   # atmospheric one-liner
+var _lbl_boss_desc:     Label   # mechanical effect text
+var _boss_begin_btn:    Button  # delayed fade-in at end of sequence
+
+# UI references — etapa transition cinematic overlay
+var _etapa_transition_overlay: Control
+var _etapa_content_vbox:       VBoxContainer
+var _lbl_etapa_numeral:        Label
+var _lbl_etapa_name_big:       Label
+var _lbl_etapa_atmosphere:     Label
+var _last_etapa:               int = -1   # tracks previous etapa for change detection
+
+# Module rack pulse tracking (id → rack card Control)
+var _rack_card_by_id: Dictionary = {}
 
 # UI references — title / selection overlays
 var _title_overlay:        Control
@@ -237,7 +268,12 @@ func _set_selection_border(panel: PanelContainer, selected: bool, rarity: int) -
 # Round lifecycle
 # ===========================================================================
 func _start_round() -> void:
-	# Boss rounds show a warning before play begins
+	var new_etapa: int = GameState.current_etapa()
+	if new_etapa != _last_etapa:
+		_last_etapa = new_etapa
+		_show_etapa_transition(new_etapa)
+
+	# Boss rounds show a cinematic warning before play begins
 	if GameState.is_boss_round():
 		_show_boss_warning()
 		return
@@ -245,10 +281,67 @@ func _start_round() -> void:
 
 func _show_boss_warning() -> void:
 	_phase = Phase.BOSS_WARNING
-	var etapa: int = GameState.current_etapa()
-	_lbl_boss_name.text = Constants.BOSS_NAMES[etapa]
-	_lbl_boss_desc.text = Constants.BOSS_DESCS[etapa]
+	var etapa: int    = GameState.current_etapa()
+	var boss_name: String = Constants.BOSS_NAMES[etapa]
+
+	# Reset all elements to invisible before showing overlay
+	_lbl_boss_warning.modulate.a = 0.0
+	_lbl_boss_name.modulate.a    = 0.0
+	_lbl_boss_lore.modulate.a    = 0.0
+	_lbl_boss_desc.modulate.a    = 0.0
+	_boss_begin_btn.modulate.a   = 0.0
+	_boss_begin_btn.disabled     = true
+	_lbl_boss_name.text          = ""
+	_lbl_boss_lore.text          = BOSS_LORE[clampi(etapa, 0, 3)]
+	_lbl_boss_desc.text          = Constants.BOSS_DESCS[etapa]
+
+	# Reset separator
+	for child in _boss_overlay.get_child(0).get_child(0).get_children():
+		if child.has_meta("is_boss_sep"):
+			child.modulate.a = 0.0
+
 	_boss_overlay.show()
+
+	var seq := create_tween()
+
+	# Phase 1 — warning header pulses in (0.3s)
+	seq.tween_property(_lbl_boss_warning, "modulate:a", 1.0, 0.30)
+	seq.tween_interval(0.40)
+
+	# Phase 2 — boss name: glitch scramble × 4, then typewriter letter-by-letter
+	seq.tween_callback(func():
+		_lbl_boss_name.modulate.a = 1.0
+		_lbl_boss_name.text = _glitch_text(boss_name)
+	)
+	for _i in range(3):
+		seq.tween_interval(0.09)
+		seq.tween_callback(func(): _lbl_boss_name.text = _glitch_text(boss_name))
+	seq.tween_interval(0.11)
+	# Typewriter: one real character per 70 ms
+	for i in range(1, boss_name.length() + 1):
+		var n: int = i   # capture loop index
+		seq.tween_callback(func(): _lbl_boss_name.text = boss_name.substr(0, n))
+		seq.tween_interval(0.07)
+
+	# Phase 3 — atmospheric lore fades in
+	seq.tween_interval(0.18)
+	seq.tween_property(_lbl_boss_lore, "modulate:a", 1.0, 0.45)
+
+	# Phase 4 — separator + mechanic desc appears
+	seq.tween_interval(0.15)
+	seq.tween_callback(func():
+		for child in _boss_overlay.get_child(0).get_child(0).get_children():
+			if child.has_meta("is_boss_sep"):
+				child.modulate.a = 1.0
+	)
+	seq.tween_property(_lbl_boss_desc, "modulate:a", 1.0, 0.30)
+
+	# Phase 5 — button fades in and becomes interactive
+	seq.tween_interval(0.40)
+	seq.tween_callback(func():
+		_boss_begin_btn.disabled = false
+	)
+	seq.tween_property(_boss_begin_btn, "modulate:a", 1.0, 0.40)
 
 func _on_boss_begin_pressed() -> void:
 	_boss_overlay.hide()
@@ -389,8 +482,16 @@ func _on_hand_scored(result: Dictionary) -> void:
 			})
 			idx += 1
 
+	# Determine which modules fired so the rack can pulse them
+	var has_doubles: bool = false
+	for info in overlay_infos:
+		if info["is_double"]:
+			has_doubles = true
+			break
+	var active_ids: Array = _get_active_module_ids(has_doubles, _rm.current_chain.length())
+
 	_scoring_active = true
-	_run_scoring_sequence(overlay_infos, result, _rm.chronos)
+	_run_scoring_sequence(overlay_infos, result, _rm.chronos, active_ids)
 	_refresh_hud()
 	_refresh_directives()
 
@@ -1068,6 +1169,11 @@ func _build_ui() -> void:
 	_title_overlay = _build_title_overlay()
 	ui.add_child(_title_overlay)
 
+	# Etapa transition — added LAST so it renders over everything
+	_etapa_transition_overlay = _build_etapa_transition_overlay()
+	ui.add_child(_etapa_transition_overlay)
+	_etapa_transition_overlay.hide()
+
 	_core_select_overlay = _build_selection_overlay(
 		"CALIBRATION CORE",
 		"Choose your starting tile configuration.",
@@ -1694,56 +1800,145 @@ func _build_directives_panel() -> Control:
 
 	return panel
 
-# ---- Boss warning overlay ----
+# ---- Boss warning overlay (cinematic) ----
 func _build_boss_overlay() -> Control:
+	# Pure black — the cinematic backdrop
 	var overlay := ColorRect.new()
-	overlay.color = Color(0.05, 0.02, 0.02, 0.90)
+	overlay.color = Color(0.0, 0.0, 0.0, 0.96)
 	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 	var center := CenterContainer.new()
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	overlay.add_child(center)
 
-	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(540, 0)
-	var style := StyleBoxFlat.new()
-	style.bg_color     = Color(0.12, 0.06, 0.06)
-	style.border_color = C_LOSE
-	style.set_border_width_all(2)
-	style.set_corner_radius_all(8)
-	panel.add_theme_stylebox_override("panel", style)
-	center.add_child(panel)
-
 	var vbox := VBoxContainer.new()
 	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
-	vbox.add_theme_constant_override("separation", 14)
-	panel.add_child(vbox)
+	vbox.add_theme_constant_override("separation", 22)
+	vbox.custom_minimum_size = Vector2(600, 0)
+	center.add_child(vbox)
 
-	var warn_lbl := _make_label("⚠  CORRUPTION DETECTED", C_LOSE, 14)
-	warn_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(warn_lbl)
+	# ── Warning header ───────────────────────────────────────
+	_lbl_boss_warning = _make_label("⚠   CORRUPTION DETECTED   ⚠", C_LOSE, 13)
+	_lbl_boss_warning.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_lbl_boss_warning.modulate.a = 0.0
+	vbox.add_child(_lbl_boss_warning)
 
-	_lbl_boss_name = _make_label("", C_LOSE, 28)
+	# ── Boss entity name (glitch → typewriter) ────────────────
+	_lbl_boss_name = _make_label("", C_LOSE, 42)
 	_lbl_boss_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_lbl_boss_name.modulate.a = 0.0
 	vbox.add_child(_lbl_boss_name)
 
-	vbox.add_child(_make_hsep())
+	# ── Atmospheric lore line ─────────────────────────────────
+	_lbl_boss_lore = _make_label("", C_TEXT, 17)
+	_lbl_boss_lore.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_lbl_boss_lore.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_lbl_boss_lore.custom_minimum_size = Vector2(520, 0)
+	_lbl_boss_lore.modulate.a = 0.0
+	vbox.add_child(_lbl_boss_lore)
 
-	_lbl_boss_desc = _make_label("", C_TEXT, 15)
+	# Thin separator
+	var sep := _make_hsep()
+	sep.modulate.a = 0.0
+	sep.set_meta("is_boss_sep", true)
+	vbox.add_child(sep)
+
+	# ── Mechanical effect description ─────────────────────────
+	_lbl_boss_desc = _make_label("", C_DIM, 14)
 	_lbl_boss_desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_lbl_boss_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_lbl_boss_desc.custom_minimum_size = Vector2(460, 0)
+	_lbl_boss_desc.custom_minimum_size = Vector2(480, 0)
+	_lbl_boss_desc.modulate.a = 0.0
 	vbox.add_child(_lbl_boss_desc)
 
-	vbox.add_child(_make_hsep())
-
+	# ── Begin button (appears last, delayed) ──────────────────
 	var btn_row := HBoxContainer.new()
 	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	vbox.add_child(btn_row)
-	btn_row.add_child(
-		_make_button("FACE THE CORRUPTION  →", _on_boss_begin_pressed, Vector2(260, 50)))
+
+	_boss_begin_btn = _make_button("FACE THE CORRUPTION  →", _on_boss_begin_pressed,
+		Vector2(280, 52))
+	_boss_begin_btn.modulate.a = 0.0
+	btn_row.add_child(_boss_begin_btn)
 
 	return overlay
+
+# ---- Etapa transition cinematic overlay ----
+func _build_etapa_transition_overlay() -> Control:
+	# Full-screen black backdrop — we animate color:a not modulate so
+	# children can have independent modulate values
+	var overlay := ColorRect.new()
+	overlay.color = Color(0.0, 0.0, 0.0, 0.0)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	# Block input while the cinematic plays
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(center)
+
+	_etapa_content_vbox = VBoxContainer.new()
+	_etapa_content_vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	_etapa_content_vbox.add_theme_constant_override("separation", 10)
+	_etapa_content_vbox.custom_minimum_size = Vector2(580, 0)
+	_etapa_content_vbox.modulate.a = 0.0
+	center.add_child(_etapa_content_vbox)
+
+	_lbl_etapa_numeral = _make_label("I", C_TITLE_GLOW, 100)
+	_lbl_etapa_numeral.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_etapa_content_vbox.add_child(_lbl_etapa_numeral)
+
+	_lbl_etapa_name_big = _make_label("MAHOGANY", C_TEXT, 38)
+	_lbl_etapa_name_big.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_etapa_content_vbox.add_child(_lbl_etapa_name_big)
+
+	var sep := _make_hsep()
+	sep.custom_minimum_size = Vector2(300, 0)
+	_etapa_content_vbox.add_child(sep)
+
+	_lbl_etapa_atmosphere = _make_label("", C_DIM, 16)
+	_lbl_etapa_atmosphere.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_lbl_etapa_atmosphere.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_lbl_etapa_atmosphere.custom_minimum_size = Vector2(460, 0)
+	_etapa_content_vbox.add_child(_lbl_etapa_atmosphere)
+
+	return overlay
+
+func _show_etapa_transition(etapa: int) -> void:
+	var e := clampi(etapa, 0, 3)
+	var accent: Color = Constants.ETAPA_ACCENT[e]
+
+	# Populate content
+	_lbl_etapa_numeral.text = ETAPA_ROMAN[e]
+	_lbl_etapa_numeral.add_theme_color_override("font_color", accent)
+	_lbl_etapa_name_big.text = ETAPA_SHORT_NAMES[e].to_upper()
+	_lbl_etapa_name_big.add_theme_color_override("font_color", C_TEXT)
+	_lbl_etapa_atmosphere.text = ETAPA_ATMOSPHERE[e]
+	_lbl_etapa_atmosphere.add_theme_color_override("font_color", C_DIM.lerp(accent, 0.35))
+
+	# Reset state
+	_etapa_transition_overlay.color = Color(0.0, 0.0, 0.0, 0.0)
+	_etapa_content_vbox.modulate.a = 0.0
+	_etapa_content_vbox.scale      = Vector2(0.86, 0.86)
+	_etapa_transition_overlay.show()
+
+	var seq := create_tween()
+	# Set pivot to centre after one frame so size is computed
+	seq.tween_callback(func():
+		_etapa_content_vbox.pivot_offset = _etapa_content_vbox.size * 0.5
+	)
+	# Phase 1 — background fades in; content scales + fades in simultaneously
+	seq.tween_property(_etapa_transition_overlay, "color:a", 0.88, 0.28)
+	seq.parallel().tween_property(_etapa_content_vbox, "modulate:a", 1.0, 0.38)
+	seq.parallel().tween_property(_etapa_content_vbox, "scale",
+		Vector2(1.0, 1.0), 0.38).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	# Hold at full opacity
+	seq.tween_interval(1.20)
+	# Phase 2 — fade everything out
+	seq.tween_property(_etapa_transition_overlay, "color:a", 0.0, 0.42)
+	seq.parallel().tween_property(_etapa_content_vbox, "modulate:a", 0.0, 0.42)
+	seq.tween_callback(_etapa_transition_overlay.hide)
 
 # ---- Artisan tile offer card ----
 func _build_tile_offer_card(index: int, entry: Dictionary) -> Control:
@@ -1869,6 +2064,21 @@ func _build_removal_tile(index: int, tile: Domino) -> Control:
 	return panel
 
 # ===========================================================================
+# Glitch text helper (boss name scramble effect)
+# ===========================================================================
+## Returns a same-length string of random glitch characters,
+## preserving spaces so the layout doesn't jump around.
+func _glitch_text(src: String) -> String:
+	const GLITCH: String = "▒▓░█▌▐▀▄╬╪╫╦╩╗╝╔╚═║╠╣"
+	var result := ""
+	for i in range(src.length()):
+		if src[i] == " ":
+			result += " "
+		else:
+			result += GLITCH[randi() % GLITCH.length()]
+	return result
+
+# ===========================================================================
 # Chronos bar helper
 # ===========================================================================
 func _set_chronos_bar(c: int, t: int) -> void:
@@ -1934,6 +2144,7 @@ func _build_module_rack_panel() -> Control:
 func _refresh_module_rack() -> void:
 	for child in _module_rack_row.get_children():
 		child.queue_free()
+	_rack_card_by_id.clear()
 
 	if GameState.modules.is_empty():
 		var none_lbl := _make_label("none equipped", C_DIM, 11)
@@ -1941,7 +2152,9 @@ func _refresh_module_rack() -> void:
 		return
 
 	for m in GameState.modules:
-		_module_rack_row.add_child(_build_rack_module_card(m))
+		var card := _build_rack_module_card(m)
+		_module_rack_row.add_child(card)
+		_rack_card_by_id[m.id] = card
 
 func _build_rack_module_card(m: Module) -> Control:
 	var panel := PanelContainer.new()
@@ -1952,6 +2165,9 @@ func _build_rack_module_card(m: Module) -> Control:
 	style.set_border_width_all(1)
 	style.set_corner_radius_all(4)
 	panel.add_theme_stylebox_override("panel", style)
+	# Store style reference for pulse animation
+	panel.set_meta("border_style", style)
+	panel.set_meta("base_border_color", C_RARITY[m.rarity])
 
 	var hbox := HBoxContainer.new()
 	hbox.add_theme_constant_override("separation", 5)
@@ -1975,10 +2191,55 @@ func _build_rack_module_card(m: Module) -> Control:
 # Scoring animation sequence
 # ===========================================================================
 
+## Determine which module IDs actually fired this hand.
+## has_doubles: any double tile was in the chain.
+## chain_length: number of tiles played.
+func _get_active_module_ids(has_doubles: bool, chain_length: int) -> Array:
+	var active: Array = []
+	for m in GameState.modules:
+		match m.effect_type:
+			Module.EffectType.FLAT_MULT, \
+			Module.EffectType.FLAT_CHIPS, \
+			Module.EffectType.CHIPS_PER_TILE:
+				active.append(m.id)
+			Module.EffectType.DOUBLE_PIP_BOOST, \
+			Module.EffectType.DOUBLE_MULT_BOOST:
+				if has_doubles:
+					active.append(m.id)
+			Module.EffectType.LONG_CHAIN_BOOST:
+				if chain_length >= m.effect_param:
+					active.append(m.id)
+	return active
+
+## Scale + glow a module rack card to signal its effect fired.
+func _pulse_rack_card(card: Control) -> void:
+	card.pivot_offset = card.size * 0.5
+	var t := create_tween()
+	t.tween_property(card, "scale", Vector2(1.10, 1.10), 0.11) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.tween_property(card, "scale", Vector2(1.0, 1.0), 0.18) \
+		.set_trans(Tween.TRANS_SPRING).set_ease(Tween.EASE_OUT)
+	# Flash border bright then back
+	if card.has_meta("border_style") and card.has_meta("base_border_color"):
+		var style: StyleBoxFlat = card.get_meta("border_style")
+		var base_col: Color     = card.get_meta("base_border_color")
+		var flash_col: Color    = base_col.lightened(0.65)
+		var bt := create_tween()
+		bt.tween_method(func(c: Color):
+			style.border_color = c
+			card.add_theme_stylebox_override("panel", style),
+			base_col, flash_col, 0.11)
+		bt.tween_method(func(c: Color):
+			style.border_color = c
+			card.add_theme_stylebox_override("panel", style),
+			flash_col, base_col, 0.28)
+
 ## Full Balatro-style scoring sequence.
 ## overlay_infos: Array of Dicts built in _on_hand_scored while tiles still on screen.
+## active_module_ids: IDs of modules that fired this hand (for rack pulse).
 ## new_chronos: the updated _rm.chronos value used to animate the bar fill.
-func _run_scoring_sequence(overlay_infos: Array, result: Dictionary, new_chronos: int) -> void:
+func _run_scoring_sequence(overlay_infos: Array, result: Dictionary,
+		new_chronos: int, active_module_ids: Array) -> void:
 	var seq := create_tween()
 
 	for info in overlay_infos:
@@ -2010,7 +2271,17 @@ func _run_scoring_sequence(overlay_infos: Array, result: Dictionary, new_chronos
 		)
 		seq.tween_interval(0.13)
 
-	# Step 3 — multiplier slam (skipped when mult == 1)
+	# Step 3 — module activation pulses (cards glow if their effect fired)
+	if not active_module_ids.is_empty():
+		seq.tween_interval(0.04)
+		seq.tween_callback(func():
+			for m_id in active_module_ids:
+				if m_id in _rack_card_by_id:
+					_pulse_rack_card(_rack_card_by_id[m_id])
+		)
+		seq.tween_interval(0.18)
+
+	# Step 4 — multiplier slam (skipped when mult == 1)
 	var chain_center := _chain_container.global_position + _chain_container.size * 0.5
 	seq.tween_interval(0.05)
 	if result["mult"] > 1:
@@ -2019,14 +2290,14 @@ func _run_scoring_sequence(overlay_infos: Array, result: Dictionary, new_chronos
 		)
 		seq.tween_interval(0.32)
 
-	# Step 4 — total Chronos burst + bar animates to new value
+	# Step 5 — total Chronos burst + bar animates to new value
 	seq.tween_callback(func():
 		_do_tile_pop("+%d Chronos" % result["total"], C_CHRONOS, chain_center, 38, 1.50)
 		var bar_tween := create_tween()
 		bar_tween.tween_property(_chronos_bar, "value", float(new_chronos), 0.55)
 	)
 
-	# Step 5 — unlock input, finalise bar colour/label
+	# Step 6 — unlock input, finalise bar colour/label
 	seq.tween_interval(0.28)
 	seq.tween_callback(func():
 		_scoring_active = false

@@ -136,12 +136,12 @@ Doubles get a visually distinct moment: gold highlight color, larger pop, differ
 - [x] Hand tile connection arrows (← → ↔ ·)
 - [x] Chronos progress bar
 - [x] Hands/discards as dot indicators
-- [ ] Chain length milestone markers ("3 more for +1 Mult")
-- [ ] Module activation pulses (icon glows when effect fires)
+- [x] Chain length milestone markers ("3 more for +1 Mult")
+- [x] Module activation pulses (icon glows when effect fires)
 
 ### Tier 3 — Mood + World
-- [ ] Etapa transition sweep (not just color change)
-- [ ] Boss intro sequence (cinematic)
+- [x] Etapa transition sweep (not just color change)
+- [x] Boss intro sequence (cinematic)
 - [ ] Artisan shop enter/exit transitions
 - [ ] Tile placement particle spark on valid connection
 - [ ] Etapa ambient effects (late etapa visual degradation)
@@ -196,10 +196,10 @@ The boss mechanic description should be *implied by the lore text*, not stated m
 3. ✅ Hand tile connection arrows (← → ↔ ·)
 4. ✅ Scoring overlay animation (tile highlights, chip pops, mult slam)
 5. ✅ Input lock during scoring
-6. 🔜 Animated chronos bar fill on score
-7. 🔜 Module rack visible during play (icons pulse on activation)
-8. 🔜 Chain length milestone text
-9. 🔜 Artisan dialogue per etapa
-10. 🔜 Boss intro cinematic
-11. 🔜 Etapa transition sweep effect
+6. ✅ Animated chronos bar fill on score
+7. ✅ Module rack visible during play (icons pulse on activation)
+8. ✅ Chain length milestone text
+9. ✅ Artisan dialogue per etapa
+10. ✅ Boss intro cinematic (glitch → typewriter name reveal, staged lore/desc/button)
+11. ✅ Etapa transition sweep effect (Roman numeral + name + atmosphere, scale-in/out)
 12. 🔜 Sound design pass
