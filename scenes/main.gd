@@ -197,6 +197,28 @@ var _last_etapa:               int = -1   # tracks previous etapa for change det
 # Module rack pulse tracking (id → rack card Control)
 var _rack_card_by_id: Dictionary = {}
 
+# ---------------------------------------------------------------------------
+# Run-end cinematic overlay (victory / defeat — replaces simple result panel)
+# ---------------------------------------------------------------------------
+var _run_end_overlay:       Control
+var _lbl_run_end_glyph:     Label
+var _lbl_run_end_title:     Label
+var _lbl_run_end_sub:       Label
+var _run_end_stats_col:     VBoxContainer
+var _run_end_progress_bar:  ProgressBar
+var _run_end_progress_lbl:  Label
+var _btn_run_end:           Button
+
+# ---------------------------------------------------------------------------
+# Ambient degradation (etapas 2–4 visual noise)
+# ---------------------------------------------------------------------------
+var _ambient_active: bool = false
+
+# ---------------------------------------------------------------------------
+# Chain tile idle breathing
+# ---------------------------------------------------------------------------
+var _chain_idle_tweens: Array = []
+
 # UI references — title / selection overlays
 var _title_overlay:        Control
 var _core_select_overlay:  Control
@@ -214,12 +236,15 @@ func _ready() -> void:
 # ===========================================================================
 func _show_title() -> void:
 	_phase = Phase.TITLE
+	_ambient_active = false
+	_kill_chain_idle_tweens()
 	_title_overlay.show()
 	_core_select_overlay.hide()
 	_proto_select_overlay.hide()
 	_tile_removal_overlay.hide()
 	_result_overlay.hide()
 	_shop_overlay.hide()
+	_run_end_overlay.hide()
 
 func _on_title_start_pressed() -> void:
 	_pending_core     = 0
@@ -388,6 +413,7 @@ func _begin_round_play() -> void:
 	_refresh_chain_display()
 	_refresh_directives()
 	_refresh_module_rack()
+	_start_ambient_effects(GameState.current_etapa())
 
 func _end_round(won: bool) -> void:
 	if won:
@@ -414,6 +440,7 @@ func _end_round(won: bool) -> void:
 func _show_shop() -> void:
 	_phase = Phase.SHOP
 	_result_overlay.hide()
+	_ambient_active = false
 
 	var etapa: int = GameState.current_etapa()
 	var owned_ids: Array = GameState.modules.map(func(m): return m.id)
@@ -434,7 +461,14 @@ func _show_shop() -> void:
 
 	_shop_bought.clear()
 	_populate_shop()
+	_shop_overlay.modulate.a = 0.0
+	_shop_overlay.scale      = Vector2(0.96, 0.96)
 	_shop_overlay.show()
+	# Slide-in transition
+	var st := create_tween().set_parallel(true)
+	st.tween_property(_shop_overlay, "modulate:a", 1.0, 0.28)
+	st.tween_property(_shop_overlay, "scale", Vector2.ONE, 0.28) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 # ===========================================================================
 # Signal handlers — gameplay
@@ -479,16 +513,21 @@ func _on_hand_scored(result: Dictionary) -> void:
 				"center":     child.global_position + child.size * 0.5,
 				"chips":      chips,
 				"is_double":  dw > 0,
+				"is_wild":    tile.is_wild,
+				"max_pip":    max(tile.left, tile.right),
 			})
 			idx += 1
 
 	# Determine which modules fired so the rack can pulse them
 	var has_doubles: bool = false
+	var has_wilds:   bool = false
+	var max_pip_in_chain: int = 0
 	for info in overlay_infos:
-		if info["is_double"]:
-			has_doubles = true
-			break
-	var active_ids: Array = _get_active_module_ids(has_doubles, _rm.current_chain.length())
+		if info["is_double"]: has_doubles        = true
+		if info["is_wild"]:   has_wilds           = true
+		max_pip_in_chain = maxi(max_pip_in_chain, info["max_pip"])
+	var active_ids: Array = _get_active_module_ids(
+		has_doubles, _rm.current_chain.length(), has_wilds, max_pip_in_chain)
 
 	_scoring_active = true
 	_run_scoring_sequence(overlay_infos, result, _rm.chronos, active_ids)
@@ -543,13 +582,12 @@ func _on_undo_pressed() -> void:
 # Signal handlers — result overlay
 # ===========================================================================
 func _on_result_action_pressed() -> void:
-	match _phase:
-		Phase.ROUND_RESULT:
-			_show_shop()
-		Phase.GAME_OVER:
-			_show_title()
-		Phase.VICTORY:
-			_show_title()
+	if _phase == Phase.ROUND_RESULT:
+		_show_shop()
+
+func _on_run_end_pressed() -> void:
+	_run_end_overlay.hide()
+	_show_title()
 
 # ===========================================================================
 # Signal handlers — shop
@@ -608,52 +646,212 @@ func _on_confirm_removal_pressed() -> void:
 	_populate_artisan_tiles()
 
 func _on_shop_continue_pressed() -> void:
-	GameState.advance_round()
-	if GameState.is_run_complete():
-		_show_run_end(true)
-		return
-	_start_round()
+	# Fade the shop out before navigating
+	var et := create_tween().set_parallel(true)
+	et.tween_property(_shop_overlay, "modulate:a", 0.0, 0.22)
+	et.tween_property(_shop_overlay, "scale", Vector2(0.97, 0.97), 0.22)
+	et.chain().tween_callback(func():
+		_shop_overlay.hide()
+		_shop_overlay.modulate.a = 1.0
+		_shop_overlay.scale      = Vector2.ONE
+		GameState.advance_round()
+		if GameState.is_run_complete():
+			_show_run_end(true)
+			return
+		_start_round()
+	)
 
 func _show_run_end(victory: bool) -> void:
-	_phase = Phase.VICTORY if victory else Phase.GAME_OVER
+	_phase      = Phase.VICTORY if victory else Phase.GAME_OVER
+	_ambient_active = false
 	_shop_overlay.hide()
+	_result_overlay.hide()
 
-	if victory:
-		_lbl_result.text = "CHRONOMETER RECALIBRATED"
-		_lbl_result.add_theme_color_override("font_color", C_MONEDAS)
-	else:
-		_lbl_result.text = "SIMULATION FAILURE"
-		_lbl_result.add_theme_color_override("font_color", C_LOSE)
+	# ── Overlay tint: warm dark for victory, blood red for defeat ────────────
+	(_run_end_overlay as ColorRect).color = \
+		Color(0.05, 0.04, 0.02, 0.97) if victory else Color(0.07, 0.02, 0.02, 0.97)
+	_run_end_overlay.modulate.a = 0.0
 
-	# Build run stats string
-	var rounds_done: int = GameState.round_index   # already advanced if victory
-	if not victory:
-		rounds_done = GameState.round_index
+	# ── Glyph ────────────────────────────────────────────────────────────────
+	var glyph_text: String  = "⬡"  if victory else "⚠"
+	var glyph_color: Color  = C_MONEDAS if victory else C_LOSE
+	_lbl_run_end_glyph.text = glyph_text
+	_lbl_run_end_glyph.add_theme_color_override("font_color", glyph_color)
+	_lbl_run_end_glyph.scale = Vector2(0.3, 0.3) if victory else Vector2(1.0, 1.0)
+	_lbl_run_end_glyph.modulate.a = 0.0
+
+	# ── Title ────────────────────────────────────────────────────────────────
+	var title_text: String  = "THE CHRONOMETER STABILIZES" if victory else "REINITIALIZING PROTOCOL"
+	var title_color: Color  = C_MONEDAS if victory else C_LOSE
+	_lbl_run_end_title.text = ""   # will be typewritten
+	_lbl_run_end_title.add_theme_color_override("font_color", title_color)
+	_lbl_run_end_title.modulate.a = 0.0
+
+	# ── Sub line ─────────────────────────────────────────────────────────────
+	_lbl_run_end_sub.text = \
+		"Entropy contained. The age persists." if victory else \
+		"The Chronometer cannot be recovered."
+	_lbl_run_end_sub.modulate.a = 0.0
+
+	# ── Stats ─────────────────────────────────────────────────────────────────
+	for child in _run_end_stats_col.get_children():
+		child.queue_free()
+
+	var rounds_done: int  = GameState.round_index
 	var total_rounds: int = GameState.total_rounds()
-
-	var stats: String = ""
-	if victory:
-		stats += "The Perpetual Chronometer stabilizes. Entropy contained.\n\n"
-	else:
-		stats += "REINITIALIZING PROTOCOL. OPERATOR REMAINS AVAILABLE.\n\n"
-
-	stats += "Rounds completed:   %d / %d\n" % [rounds_done, total_rounds]
-	stats += "Total Chronos:      %d\n"       % GameState.total_chronos
-	stats += "Best single Pulse:  %d\n"       % GameState.best_hand
-	stats += "Hands played:       %d\n"       % GameState.hands_played
-
-	if not GameState.modules.is_empty():
-		var mod_names: Array = GameState.modules.map(func(m): return m.display_name)
-		stats += "\nModules equipped:   %s" % ", ".join(mod_names)
-
-	stats += "\nCore: %s   ·   Protocol: %s" % [
-		Constants.CORE_NAMES[GameState.chosen_core],
-		Constants.PROTOCOL_NAMES[GameState.chosen_protocol],
+	var stat_lines: Array = [
+		["Rounds completed",  "%d / %d" % [rounds_done, total_rounds]],
+		["Total Chronos",     "%d"       % GameState.total_chronos],
+		["Best single Pulse", "%d"       % GameState.best_hand],
+		["Hands played",      "%d"       % GameState.hands_played],
+		["Core",              Constants.CORE_NAMES[GameState.chosen_core]],
+		["Protocol",          Constants.PROTOCOL_NAMES[GameState.chosen_protocol]],
 	]
+	if not GameState.modules.is_empty():
+		var names: Array = GameState.modules.map(func(m): return m.display_name)
+		stat_lines.append(["Modules", ", ".join(names)])
 
-	_lbl_result_sub.text = stats
-	_btn_result_action.text = "NEW TRIAL CYCLE"
-	_result_overlay.show()
+	var stat_labels: Array = []
+	for pair in stat_lines:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		row.modulate.a = 0.0
+		_run_end_stats_col.add_child(row)
+
+		var key_lbl := _make_label(pair[0] + ":", C_DIM, 14)
+		key_lbl.custom_minimum_size = Vector2(200, 0)
+		key_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		row.add_child(key_lbl)
+
+		var val_color := C_TEXT if victory else C_DIM.lerp(C_TEXT, 0.5)
+		var val_lbl := _make_label(pair[1], val_color, 14)
+		val_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		val_lbl.custom_minimum_size = Vector2(320, 0)
+		row.add_child(val_lbl)
+
+		stat_labels.append(row)
+
+	# ── Progress bar (defeat only) ────────────────────────────────────────────
+	_run_end_progress_bar.visible = not victory
+	_run_end_progress_bar.value   = 0
+	_run_end_progress_bar.modulate.a = 0.0 if not victory else 0.0
+	_run_end_progress_lbl.visible = not victory
+	_run_end_progress_lbl.modulate.a = 0.0
+
+	# ── Button ────────────────────────────────────────────────────────────────
+	_btn_run_end.text = "NEW TRIAL CYCLE  →"
+	_btn_run_end.modulate.a = 0.0
+	_btn_run_end.disabled   = true
+
+	_run_end_overlay.show()
+
+	# ════════════════════════════════════════════════════════════════════════
+	# CINEMATIC SEQUENCE
+	# ════════════════════════════════════════════════════════════════════════
+	var seq := create_tween()
+
+	if victory:
+		# ── VICTORY SEQUENCE ──────────────────────────────────────────────
+		# 1. Background fades in softly
+		seq.tween_property(_run_end_overlay, "modulate:a", 1.0, 0.40)
+
+		# 2. Glyph bounces in (scale 0.3 → 1.0 with BACK ease)
+		seq.tween_callback(func():
+			_lbl_run_end_glyph.pivot_offset = _lbl_run_end_glyph.size * 0.5
+		)
+		seq.tween_property(_lbl_run_end_glyph, "modulate:a", 1.0, 0.05)
+		seq.parallel().tween_property(_lbl_run_end_glyph, "scale",
+			Vector2(1.0, 1.0), 0.50).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		seq.tween_interval(0.15)
+
+		# 3. Title typewriters in
+		seq.tween_callback(func(): _lbl_run_end_title.modulate.a = 1.0)
+		for i in range(1, title_text.length() + 1):
+			var n: int = i
+			seq.tween_callback(func(): _lbl_run_end_title.text = title_text.substr(0, n))
+			seq.tween_interval(0.04)
+
+		# 4. Sub line fades in
+		seq.tween_interval(0.12)
+		seq.tween_property(_lbl_run_end_sub, "modulate:a", 1.0, 0.45)
+		seq.tween_interval(0.10)
+
+		# 5. Stats stagger in one by one
+		for row in stat_labels:
+			var r: Control = row
+			seq.tween_callback(func(): r.modulate.a = 1.0)
+			seq.tween_interval(0.08)
+
+		# 6. Button pulses in — then keeps gently glowing
+		seq.tween_interval(0.20)
+		seq.tween_callback(func(): _btn_run_end.disabled = false)
+		seq.tween_property(_btn_run_end, "modulate:a", 1.0, 0.45)
+
+		# 7. Spawn golden drift particles in background
+		seq.tween_callback(func(): _spawn_victory_particles())
+
+	else:
+		# ── DEFEAT SEQUENCE ───────────────────────────────────────────────
+		# 1. Background cuts in fast
+		seq.tween_property(_run_end_overlay, "modulate:a", 1.0, 0.18)
+
+		# 2. Glyph glitches in (flicker then settle)
+		seq.tween_callback(func():
+			_lbl_run_end_glyph.modulate.a = 1.0
+			_lbl_run_end_glyph.text = _glitch_text("WARN")
+		)
+		for _gi in range(4):
+			seq.tween_interval(0.09)
+			seq.tween_callback(func(): _lbl_run_end_glyph.text = _glitch_text("WARN"))
+		seq.tween_interval(0.09)
+		seq.tween_callback(func(): _lbl_run_end_glyph.text = glyph_text)
+
+		# 3. Title: glitch scramble → typewriter
+		seq.tween_interval(0.10)
+		seq.tween_callback(func():
+			_lbl_run_end_title.modulate.a = 1.0
+			_lbl_run_end_title.text = _glitch_text(title_text)
+		)
+		for _gi in range(3):
+			seq.tween_interval(0.08)
+			seq.tween_callback(func(): _lbl_run_end_title.text = _glitch_text(title_text))
+		seq.tween_interval(0.10)
+		for i in range(1, title_text.length() + 1):
+			var n: int = i
+			seq.tween_callback(func(): _lbl_run_end_title.text = title_text.substr(0, n))
+			seq.tween_interval(0.06)
+
+		# 4. Sub line
+		seq.tween_interval(0.15)
+		seq.tween_property(_lbl_run_end_sub, "modulate:a", 1.0, 0.35)
+
+		# 5. Stats appear as a group (no individual stagger — more oppressive)
+		seq.tween_interval(0.20)
+		for row in stat_labels:
+			var r: Control = row
+			r.modulate.a = 0.0
+		seq.tween_callback(func():
+			for row in stat_labels:
+				row.modulate.a = 1.0
+		)
+
+		# 6. Progress bar: "REBOOTING OPERATOR INTERFACE"
+		seq.tween_interval(0.30)
+		seq.tween_property(_run_end_progress_lbl, "modulate:a", 1.0, 0.20)
+		seq.tween_property(_run_end_progress_bar, "modulate:a", 1.0, 0.20)
+		seq.tween_callback(func():
+			var bt := create_tween()
+			bt.tween_property(_run_end_progress_bar, "value", 100.0, 2.0) \
+				.set_trans(Tween.TRANS_LINEAR)
+		)
+		seq.tween_interval(2.10)
+
+		# 7. Button appears after reboot completes
+		seq.tween_callback(func(): _btn_run_end.disabled = false)
+		seq.tween_property(_btn_run_end, "modulate:a", 1.0, 0.35)
+
+		# 8. Start corruption flashes
+		seq.tween_callback(func(): _start_defeat_corruption())
 
 # ===========================================================================
 # Shop population
@@ -820,6 +1018,7 @@ func _refresh_hud() -> void:
 			_make_hud_dot(i < _rm.discards_remaining, Color(0.8, 0.7, 1.0)))
 
 func _refresh_chain_display() -> void:
+	_kill_chain_idle_tweens()
 	for child in _chain_container.get_children():
 		child.queue_free()
 
@@ -843,6 +1042,13 @@ func _refresh_chain_display() -> void:
 		# Right connection port
 		_chain_container.add_child(
 			_build_chain_end_indicator(_rm.current_chain.right_end, false))
+
+		# Start idle breathing on each tile panel (random phase so they're independent)
+		for child in _chain_container.get_children():
+			if child is PanelContainer:
+				var idle := _start_tile_breathe(child)
+				if idle != null:
+					_chain_idle_tweens.append(idle)
 
 	if not _rm.current_chain.is_empty():
 		var r: Dictionary = Scoring.calculate(_rm.current_chain, GameState.modules)
@@ -989,6 +1195,9 @@ func _build_chain_tile(disp_left: int, disp_right: int) -> Control:
 	style.set_border_width_all(2)
 	style.set_corner_radius_all(6)
 	panel.add_theme_stylebox_override("panel", style)
+	# Store style ref so _start_tile_breathe can animate the border
+	panel.set_meta("border_style",      style)
+	panel.set_meta("base_border_color", C_TILE_BORDER)
 
 	var vbox := VBoxContainer.new()
 	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -1172,6 +1381,10 @@ func _build_ui() -> void:
 	_tile_removal_overlay = _build_tile_removal_overlay()
 	ui.add_child(_tile_removal_overlay)
 	_tile_removal_overlay.hide()
+
+	_run_end_overlay = _build_run_end_overlay()
+	ui.add_child(_run_end_overlay)
+	_run_end_overlay.hide()
 
 	_title_overlay = _build_title_overlay()
 	ui.add_child(_title_overlay)
@@ -2201,13 +2414,18 @@ func _build_rack_module_card(m: Module) -> Control:
 ## Determine which module IDs actually fired this hand.
 ## has_doubles: any double tile was in the chain.
 ## chain_length: number of tiles played.
-func _get_active_module_ids(has_doubles: bool, chain_length: int) -> Array:
+## has_wilds: any wild tile was in the chain (optional).
+## max_pip: highest single face pip value across all tiles (optional).
+func _get_active_module_ids(has_doubles: bool, chain_length: int,
+		has_wilds: bool = false, max_pip: int = 0) -> Array:
 	var active: Array = []
 	for m in GameState.modules:
 		match m.effect_type:
 			Module.EffectType.FLAT_MULT, \
 			Module.EffectType.FLAT_CHIPS, \
-			Module.EffectType.CHIPS_PER_TILE:
+			Module.EffectType.CHIPS_PER_TILE, \
+			Module.EffectType.ERA_SCALING_MULT:
+				# Always contributes every hand
 				active.append(m.id)
 			Module.EffectType.DOUBLE_PIP_BOOST, \
 			Module.EffectType.DOUBLE_MULT_BOOST:
@@ -2215,6 +2433,16 @@ func _get_active_module_ids(has_doubles: bool, chain_length: int) -> Array:
 					active.append(m.id)
 			Module.EffectType.LONG_CHAIN_BOOST:
 				if chain_length >= m.effect_param:
+					active.append(m.id)
+			Module.EffectType.HIGH_PIP_BONUS:
+				# Fires if any tile in the chain has a face ≥ threshold
+				if max_pip >= m.effect_param:
+					active.append(m.id)
+			Module.EffectType.WILD_PIP_VALUE:
+				if has_wilds:
+					active.append(m.id)
+			Module.EffectType.CLOSING_TILE_BONUS:
+				if chain_length >= 3:
 					active.append(m.id)
 	return active
 
@@ -2329,6 +2557,7 @@ func _run_scoring_sequence(overlay_infos: Array, result: Dictionary,
 		_do_tile_pop("+%d Chronos" % result["total"], C_CHRONOS, chain_center, 38, 1.50)
 		var bar_tween := create_tween()
 		bar_tween.tween_property(_chronos_bar, "value", float(new_chronos), 0.55)
+		_maybe_table_shake(result["total"])
 	)
 
 	# Step 6 — unlock input, finalise bar colour/label, restore preview style
@@ -2725,3 +2954,299 @@ func _make_hsep() -> Control:
 	style.bg_color = Color(0.3, 0.28, 0.22)
 	sep.add_theme_stylebox_override("separator", style)
 	return sep
+
+# ===========================================================================
+# Run-end cinematic overlay (build)
+# ===========================================================================
+## Constructs the full-screen victory / defeat overlay.
+## _show_run_end() populates and animates it; this just wires up the nodes.
+func _build_run_end_overlay() -> Control:
+	# Root is a ColorRect so _show_run_end() can tint it per outcome
+	var overlay := ColorRect.new()
+	overlay.color = Color(0.05, 0.04, 0.02, 0.97)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+	var scroll := ScrollContainer.new()
+	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(scroll)
+
+	var center := CenterContainer.new()
+	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	center.size_flags_vertical   = Control.SIZE_EXPAND_FILL
+	scroll.add_child(center)
+
+	var vbox := VBoxContainer.new()
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_theme_constant_override("separation", 18)
+	vbox.custom_minimum_size = Vector2(660, 0)
+	center.add_child(vbox)
+
+	# ── Glyph (⬡ victory / ⚠ defeat) ────────────────────────────────────────
+	_lbl_run_end_glyph = _make_label("⬡", C_MONEDAS, 72)
+	_lbl_run_end_glyph.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(_lbl_run_end_glyph)
+
+	# ── Title (typewritten in the sequence) ──────────────────────────────────
+	_lbl_run_end_title = _make_label("", C_MONEDAS, 28)
+	_lbl_run_end_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_lbl_run_end_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_lbl_run_end_title.custom_minimum_size = Vector2(580, 0)
+	vbox.add_child(_lbl_run_end_title)
+
+	# ── Sub-line ──────────────────────────────────────────────────────────────
+	_lbl_run_end_sub = _make_label("", C_DIM, 15)
+	_lbl_run_end_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(_lbl_run_end_sub)
+
+	vbox.add_child(_make_hsep())
+
+	# ── Stats block (rows built dynamically in _show_run_end) ────────────────
+	_run_end_stats_col = VBoxContainer.new()
+	_run_end_stats_col.add_theme_constant_override("separation", 6)
+	vbox.add_child(_run_end_stats_col)
+
+	vbox.add_child(_make_hsep())
+
+	# ── Defeat-only: rebooting progress bar ──────────────────────────────────
+	_run_end_progress_lbl = _make_label("REBOOTING OPERATOR INTERFACE", C_DIM, 12)
+	_run_end_progress_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(_run_end_progress_lbl)
+
+	_run_end_progress_bar = ProgressBar.new()
+	_run_end_progress_bar.min_value = 0.0
+	_run_end_progress_bar.max_value = 100.0
+	_run_end_progress_bar.value     = 0.0
+	_run_end_progress_bar.show_percentage = false
+	_run_end_progress_bar.custom_minimum_size = Vector2(420, 20)
+	var pb_bg := StyleBoxFlat.new()
+	pb_bg.bg_color = Color(0.08, 0.03, 0.03)
+	pb_bg.set_corner_radius_all(4)
+	_run_end_progress_bar.add_theme_stylebox_override("background", pb_bg)
+	var pb_fill := StyleBoxFlat.new()
+	pb_fill.bg_color = C_LOSE.darkened(0.25)
+	pb_fill.set_corner_radius_all(4)
+	_run_end_progress_bar.add_theme_stylebox_override("fill", pb_fill)
+	vbox.add_child(_run_end_progress_bar)
+
+	# ── Button ─────────────────────────────────────────────────────────────────
+	var btn_row := HBoxContainer.new()
+	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_child(btn_row)
+
+	_btn_run_end = _make_button("NEW TRIAL CYCLE  →", _on_run_end_pressed,
+		Vector2(260, 52))
+	_btn_run_end.modulate.a = 0.0
+	_btn_run_end.disabled   = true
+	btn_row.add_child(_btn_run_end)
+
+	return overlay
+
+# ===========================================================================
+# Chain tile idle breathing
+# ===========================================================================
+## Kill every stored idle-breathe tween and clear the array.
+## Must be called before rebuilding the chain display.
+func _kill_chain_idle_tweens() -> void:
+	for t in _chain_idle_tweens:
+		if t is Tween and t.is_valid():
+			t.kill()
+	_chain_idle_tweens.clear()
+
+## Creates a looping, sinusoidal border-glow pulse on a chain tile panel.
+## Returns the Tween so the caller can store and later kill it.
+## Panels lacking the stored "border_style" meta are skipped (returns null).
+func _start_tile_breathe(panel: Control) -> Tween:
+	if not panel.has_meta("border_style"):
+		return null
+	var style: StyleBoxFlat = panel.get_meta("border_style") as StyleBoxFlat
+	if style == null:
+		return null
+
+	var base_col:   Color = panel.get_meta("base_border_color") as Color
+	var bright_col: Color = base_col.lightened(0.32)
+
+	# Random initial offset so tiles don't pulse in sync.
+	# The delay is inside the loop so it repeats — this effectively stretches
+	# one cycle slightly, which is imperceptible at the 0–1.8 s range used.
+	var delay: float = randf_range(0.0, 1.8)
+
+	var t := create_tween().set_loops()
+	t.tween_interval(delay)
+	t.tween_method(func(c: Color): style.border_color = c,
+		base_col, bright_col, 0.85).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	t.tween_method(func(c: Color): style.border_color = c,
+		bright_col, base_col, 0.85).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	return t
+
+# ===========================================================================
+# Camera shake
+# ===========================================================================
+## Briefly shake the entire UI layer proportional to the score.
+## threshold ≥80: mild (±3 px); ≥200: medium (±7 px); ≥500: strong (±13 px).
+func _maybe_table_shake(score: int) -> void:
+	if score < 80:
+		return
+
+	# Intensity: smooth ramp from 3 at score=80 to 13 at score=600+
+	var t_val: float = clampf((score - 80.0) / 520.0, 0.0, 1.0)
+	var intensity: float = lerpf(3.0, 13.0, t_val)
+	var cycles:    int   = 3 if score < 200 else (4 if score < 500 else 5)
+
+	var origin: Vector2 = _ui_layer.offset
+	var shk := create_tween()
+	for _i in range(cycles):
+		var dx: float = randf_range(-intensity, intensity)
+		var dy: float = randf_range(-intensity * 0.45, intensity * 0.45)
+		shk.tween_property(_ui_layer, "offset", origin + Vector2(dx, dy), 0.038) \
+			.set_trans(Tween.TRANS_SINE)
+	# Spring back to rest
+	shk.tween_property(_ui_layer, "offset", origin, 0.12) \
+		.set_trans(Tween.TRANS_SPRING).set_ease(Tween.EASE_OUT)
+
+# ===========================================================================
+# Victory particles
+# ===========================================================================
+## Spawns 12 golden drift particles on the UI layer that float upward and
+## fade out — used as a background effect on the victory end-screen.
+func _spawn_victory_particles() -> void:
+	var screen_size: Vector2 = get_viewport().get_visible_rect().size
+	for i in range(12):
+		var n: int = i   # capture loop index in closure
+
+		var sz: float = randf_range(5.0, 12.0)
+		var dot := PanelContainer.new()
+		dot.custom_minimum_size = Vector2(sz, sz)
+		var ds := StyleBoxFlat.new()
+		ds.bg_color = C_MONEDAS.lerp(C_WIN, randf())
+		ds.set_corner_radius_all(ceili(sz * 0.5))
+		dot.add_theme_stylebox_override("panel", ds)
+
+		var start_pos := Vector2(
+			randf_range(screen_size.x * 0.12, screen_size.x * 0.88),
+			randf_range(screen_size.y * 0.35, screen_size.y * 0.80))
+		dot.position   = start_pos
+		dot.modulate.a = 0.0
+		_ui_layer.add_child(dot)
+
+		var end_pos := start_pos + Vector2(
+			randf_range(-45.0, 45.0),
+			randf_range(-200.0, -70.0))
+		var dur:   float = randf_range(1.8, 3.4)
+		var delay: float = float(n) * 0.11 + randf_range(0.0, 0.25)
+
+		var pt := create_tween()
+		pt.tween_interval(delay)
+		pt.tween_callback(func(): dot.modulate.a = randf_range(0.55, 1.0))
+		pt.tween_property(dot, "position", end_pos, dur) \
+			.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		pt.parallel().tween_property(dot, "modulate:a", 0.0, dur)
+		pt.tween_callback(dot.queue_free)
+
+# ===========================================================================
+# Defeat corruption flashes
+# ===========================================================================
+## Self-rescheduling red screen flash used on the defeat end-screen.
+## Stops automatically when the phase leaves GAME_OVER.
+func _start_defeat_corruption() -> void:
+	if _phase != Phase.GAME_OVER:
+		return   # navigated away — stop the chain
+
+	var flash := ColorRect.new()
+	flash.color        = Color(0.75, 0.08, 0.08, 0.0)
+	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flash.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_ui_layer.add_child(flash)
+
+	var peak: float = randf_range(0.05, 0.15)
+	var ft := create_tween()
+	ft.tween_property(flash, "color:a", peak,  0.08)
+	ft.tween_property(flash, "color:a", 0.0,   0.22)
+	ft.tween_callback(flash.queue_free)
+
+	# Reschedule: shorter intervals as the "system degrades"
+	var next_delay: float = randf_range(0.7, 2.4)
+	get_tree().create_timer(next_delay).timeout.connect(
+		_start_defeat_corruption, CONNECT_ONE_SHOT)
+
+# ===========================================================================
+# Ambient degradation effects (etapas 1–3)
+# ===========================================================================
+## Kick off the ambient degradation loop for the current etapa.
+## Etapa 0 (Mahogany) is intentionally pristine — no effects.
+func _start_ambient_effects(etapa: int) -> void:
+	_ambient_active = true
+	if etapa < 1:
+		return   # Mahogany is clean
+	_ambient_tick(etapa)
+
+## One tick of ambient degradation. Self-reschedules via create_timer.
+func _ambient_tick(etapa: int) -> void:
+	if not _ambient_active:
+		return
+
+	# Base interval and jitter scale with etapa (later = more frequent)
+	const BASE_INTERVALS: Array = [0.0, 4.2, 2.6, 1.3]
+	const JITTERS:        Array = [0.0, 2.0, 1.4, 0.8]
+	var e: int = clampi(etapa, 0, 3)
+	var next: float = BASE_INTERVALS[e] + randf_range(0.0, JITTERS[e])
+
+	match e:
+		1:
+			# Brass — gentle table-title flicker; occasional chain-label dim
+			if randf() > 0.45:
+				_flicker_label(_lbl_table_title, 0.18)
+			else:
+				_flicker_label(_lbl_chain_bonus, 0.22)
+
+		2:
+			# Obsidian — more labels affected + occasional amber flash
+			match randi() % 3:
+				0:
+					_flicker_label(_lbl_table_title, 0.28)
+					_flicker_label(_lbl_etapa,        0.22)
+				1:
+					_flicker_label(_lbl_round,        0.20)
+					_flicker_label(_lbl_chain_bonus,  0.30)
+				2:
+					_ambient_glitch_flash(Color(1.00, 0.60, 0.10, 0.045))
+
+		3:
+			# Void — heavy distortion across multiple UI elements
+			match randi() % 4:
+				0:
+					_flicker_label(_lbl_table_title, 0.38)
+					_flicker_label(_lbl_round,        0.32)
+					_flicker_label(_lbl_etapa,        0.32)
+				1:
+					_ambient_glitch_flash(Color(0.75, 0.15, 0.75, 0.06))
+				2:
+					_ambient_glitch_flash(Color(0.65, 0.05, 0.05, 0.08))
+					_flicker_label(_lbl_preview, 0.40)
+				3:
+					_flicker_label(_lbl_table_title, 0.45)
+					_flicker_label(_lbl_chain_bonus,  0.40)
+					_ambient_glitch_flash(Color(0.20, 0.80, 0.80, 0.05))
+
+	get_tree().create_timer(next).timeout.connect(
+		func(): _ambient_tick(etapa), CONNECT_ONE_SHOT)
+
+## Brief triple-flicker on a Label: dim → restore → dim → restore.
+func _flicker_label(lbl: Label, intensity: float) -> void:
+	if not is_instance_valid(lbl):
+		return
+	var t := create_tween()
+	t.tween_property(lbl, "modulate:a", 1.0 - intensity, 0.045)
+	t.tween_property(lbl, "modulate:a", 1.0,             0.045)
+	t.tween_property(lbl, "modulate:a", 1.0 - intensity * 0.55, 0.030)
+	t.tween_property(lbl, "modulate:a", 1.0,             0.07)
+
+## A coloured translucent rectangle flashed over the whole screen for one frame.
+func _ambient_glitch_flash(color: Color) -> void:
+	var flash := ColorRect.new()
+	flash.color        = color
+	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flash.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_ui_layer.add_child(flash)
+	var ft := create_tween()
+	ft.tween_property(flash, "modulate:a", 0.0, 0.20)
+	ft.tween_callback(flash.queue_free)

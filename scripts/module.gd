@@ -14,6 +14,11 @@ enum EffectType {
 	EXTRA_HAND,         # +effect_value to max plays each round
 	DISCARD_BONUS,      # +effect_value to max discards each round
 	CHIPS_PER_TILE,     # +effect_value chips for every tile in the chain
+	# ── New archetypes ────────────────────────────────────────────────────────
+	HIGH_PIP_BONUS,     # if max(left,right) >= effect_param: +effect_value chips per tile
+	WILD_PIP_VALUE,     # wild tiles score as if each face shows effect_value pips
+	CLOSING_TILE_BONUS, # chain 3+ tiles: +effect_value flat chips (rewards finishing)
+	ERA_SCALING_MULT,   # mult += effect_value × (current_etapa + 1) — grows each era
 }
 
 var id:           String

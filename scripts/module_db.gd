@@ -138,6 +138,39 @@ static func all() -> Array[Module]:
 			Module.EffectType.CHIPS_PER_TILE, 3, 0, 1,
 			"+3 Chips per tile in chain. +1 Module slot.",
 			"\"The Void does not merely connect. It amplifies.\""),
+
+		# ------------------------------------------------------------------
+		# NEW ARCHETYPES — high pip, wild conversion, closing, era scaling
+		# ------------------------------------------------------------------
+		_make("resonant_threshold", "Resonant Threshold", Constants.Rarity.CARVED,
+			Module.EffectType.HIGH_PIP_BONUS, 6, 7, 0,
+			"Tiles with 7+ pips on either face: +6 Chips.",
+			"The heaviest Nodes resonate at a higher frequency."),
+
+		_make("void_channeler", "Void Channeler", Constants.Rarity.IVORY,
+			Module.EffectType.WILD_PIP_VALUE, 5, 0, 0,
+			"Wild tiles score as if each face shows 5 pips (+10 Chips).",
+			"The Void is not empty. It hums with potential energy."),
+
+		_make("finisher_protocol", "Finisher Protocol", Constants.Rarity.CARVED,
+			Module.EffectType.CLOSING_TILE_BONUS, 20, 0, 0,
+			"Chain 3+ tiles: +20 Chips.",
+			"A closed circuit releases all stored energy at once."),
+
+		_make("temporal_accumulator", "Temporal Accumulator", Constants.Rarity.BONE,
+			Module.EffectType.ERA_SCALING_MULT, 1, 0, 0,
+			"+1 Mult per Era entered. (×1 / ×2 / ×3 / ×4 over the run)",
+			"Patience is a form of power. The mechanism remembers."),
+
+		_make_extra("entropy_harvester", "Entropy Harvester", Constants.Rarity.OBSIDIAN,
+			Module.EffectType.ERA_SCALING_MULT, 3, 0, 1,
+			"+3 Mult per Era entered. Grows with the run. +1 slot.",
+			"\"It does not fight entropy. It feeds on it.\""),
+
+		_make("harmonic_apex", "Harmonic Apex", Constants.Rarity.IVORY,
+			Module.EffectType.HIGH_PIP_BONUS, 12, 8, 0,
+			"Tiles with 8+ pips on either face: +12 Chips.",
+			"At maximum resonance, the signal becomes self-sustaining."),
 	]
 
 static func get_by_rarity(rarity: int) -> Array[Module]:

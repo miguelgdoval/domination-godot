@@ -15,14 +15,21 @@ static func calculate(chain: Chain, modules: Array = []) -> Dictionary:
 	var length:  int = chain.length()
 
 	# --- Pre-scan modules for per-tile modifiers ---
-	var double_pip_mult: int = 1   # DOUBLE_PIP_BOOST: highest value wins
-	var double_mult_per: int = 1   # DOUBLE_MULT_BOOST: highest value wins
+	var double_pip_mult:  int   = 1   # DOUBLE_PIP_BOOST: highest value wins
+	var double_mult_per:  int   = 1   # DOUBLE_MULT_BOOST: highest value wins
+	var wild_pip_chips:   int   = 0   # WILD_PIP_VALUE: chips per wild tile (2 × face value)
+	var high_pip_bonuses: Array = []  # HIGH_PIP_BONUS: [{t: threshold, v: value}]
 	for m in modules:
 		match m.effect_type:
 			Module.EffectType.DOUBLE_PIP_BOOST:
 				double_pip_mult = maxi(double_pip_mult, m.effect_value)
 			Module.EffectType.DOUBLE_MULT_BOOST:
 				double_mult_per = maxi(double_mult_per, m.effect_value)
+			Module.EffectType.WILD_PIP_VALUE:
+				# Module stores face value; chip contribution = 2 faces × value
+				wild_pip_chips = maxi(wild_pip_chips, m.effect_value * 2)
+			Module.EffectType.HIGH_PIP_BONUS:
+				high_pip_bonuses.append({"t": m.effect_param, "v": m.effect_value})
 
 	# --- Chip accumulation ---
 	for tile in chain.tiles:
@@ -32,10 +39,20 @@ static func calculate(chain: Chain, modules: Array = []) -> Dictionary:
 			else (1 if tile.is_double() else 0)
 		if dw > 0:
 			doubles += dw
-			chips += pips * double_pip_mult
+			if tile.is_wild and wild_pip_chips > 0:
+				# Wild tile with WILD_PIP_VALUE: score face-value chips instead of 0
+				chips += wild_pip_chips
+			else:
+				chips += pips * double_pip_mult
 		else:
 			chips += pips
 		chips += tile.bonus_chips
+
+		# HIGH_PIP_BONUS: per-tile face threshold check
+		var max_face: int = max(tile.left, tile.right)
+		for hpb in high_pip_bonuses:
+			if max_face >= hpb["t"]:
+				chips += hpb["v"]
 
 	# --- Base multiplier bonuses ---
 	# Double resonance
@@ -59,6 +76,13 @@ static func calculate(chain: Chain, modules: Array = []) -> Dictionary:
 					mult += m.effect_value
 			Module.EffectType.CHIPS_PER_TILE:
 				chips += length * m.effect_value
+			Module.EffectType.CLOSING_TILE_BONUS:
+				# Rewards finishing a proper chain (3+ tiles)
+				if length >= 3:
+					chips += m.effect_value
+			Module.EffectType.ERA_SCALING_MULT:
+				# Grows stronger each era — weak start, strong finish
+				mult += m.effect_value * (GameState.current_etapa() + 1)
 
 	return {
 		"chips":   chips,
