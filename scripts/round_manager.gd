@@ -90,9 +90,9 @@ func play_chain() -> Dictionary:
 	chronos += result["total"]
 	hands_remaining -= 1
 
+	hand_scored.emit(result)
 	current_chain.clear()
 	chain_changed.emit()
-	hand_scored.emit(result)
 
 	_draw_to_full()
 	hand_changed.emit()

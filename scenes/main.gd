@@ -52,13 +52,15 @@ const C_RARITY := [
 # ---------------------------------------------------------------------------
 # Game state
 # ---------------------------------------------------------------------------
-enum Phase { TITLE, CORE_SELECT, PROTOCOL_SELECT, BOSS_WARNING, PLAYING, ROUND_RESULT, SHOP, GAME_OVER, VICTORY }
+enum Phase { TITLE, CORE_SELECT, PROTOCOL_SELECT, TILE_REMOVAL, BOSS_WARNING, PLAYING, ROUND_RESULT, SHOP, GAME_OVER, VICTORY }
 
 var _phase: Phase = Phase.TITLE
 var _rm: RoundManager
 var _dm: DirectiveManager
 var _selected_discard: Array = []
 var _tile_btns: Array = []
+var _tile_conn_lbls: Array = []   # connection-arrow labels, parallel to _tile_btns
+var _scoring_active: bool = false # input locked while scoring animation plays
 var _shop_inventory: Array = []          # module entries [{item, cost}]
 var _shop_bought: Array = []             # module ids bought this visit
 # Artisan's Workshop tile state
@@ -77,13 +79,16 @@ var _protocol_cards: Array = []
 # ---------------------------------------------------------------------------
 # UI references — gameplay
 # ---------------------------------------------------------------------------
-var _lbl_round:       Label
-var _lbl_chronos:     Label
-var _lbl_target:      Label
-var _lbl_hands:       Label
-var _lbl_discards:    Label
-var _lbl_monedas:     Label
-var _lbl_etapa:       Label
+var _lbl_round:   Label
+var _lbl_etapa:   Label
+var _lbl_monedas: Label
+# Chronos progress bar
+var _chronos_bar:            ProgressBar
+var _chronos_bar_lbl:        Label
+var _chronos_bar_fill_style: StyleBoxFlat
+# Hands / discards dot indicators
+var _hands_dot_row:    HBoxContainer
+var _discards_dot_row: HBoxContainer
 var _chain_container: HBoxContainer
 var _lbl_preview:     Label
 var _lbl_last_hand:   Label
@@ -119,6 +124,17 @@ var _hud_style:        StyleBoxFlat
 var _hand_panel_style: StyleBoxFlat
 var _lbl_table_title:  Label
 
+## Canvas layer reference for floating score animations
+var _ui_layer: CanvasLayer
+
+# UI references — starting tile removal overlay
+var _tile_removal_overlay:   Control
+var _start_removal_row:      HBoxContainer
+var _start_removal_lbl:      Label
+var _start_removal_btn:      Button
+var _start_removal_candidates: Array = []   # Array[Domino]
+var _start_removal_selected:   Array = []   # selected indices
+
 # UI references — directives panel
 var _directives_panel:   Control
 var _directive_labels:   Array = []   # Array[Label], one per active directive
@@ -148,6 +164,7 @@ func _show_title() -> void:
 	_title_overlay.show()
 	_core_select_overlay.hide()
 	_proto_select_overlay.hide()
+	_tile_removal_overlay.hide()
 	_result_overlay.hide()
 	_shop_overlay.hide()
 
@@ -174,7 +191,7 @@ func _on_protocol_card_pressed(index: int) -> void:
 func _on_protocol_confirm_pressed() -> void:
 	_proto_select_overlay.hide()
 	GameState.start_run(_pending_core, _pending_protocol)
-	_start_round()
+	_show_start_removal()
 
 func _refresh_core_cards() -> void:
 	for i in range(_core_cards.size()):
@@ -217,6 +234,7 @@ func _on_boss_begin_pressed() -> void:
 
 func _begin_round_play() -> void:
 	_phase = Phase.PLAYING
+	_scoring_active = false
 	_selected_discard.clear()
 
 	# Apply etapa colour theme (tweened)
@@ -315,10 +333,38 @@ func _on_hand_scored(result: Dictionary) -> void:
 	_lbl_last_hand.text = "%d chips  ×  %d  =  %d Chronos" % [
 		result["chips"], result["mult"], result["total"]]
 	GameState.record_hand(result["total"])
-	# Check play-based directives
 	var dir_bonus: int = _dm.check_play(result)
 	if dir_bonus > 0:
 		GameState.monedas += dir_bonus
+
+	# Pre-scan modules for double pip multiplier
+	var double_pip_mult: int = 1
+	for m in GameState.modules:
+		if m.effect_type == Module.EffectType.DOUBLE_PIP_BOOST:
+			double_pip_mult = maxi(double_pip_mult, m.effect_value)
+
+	# Snapshot every chain tile while they are still on screen.
+	# Direct PanelContainer children = tile panels (VBoxContainer = end indicators, Label = arrows).
+	var overlay_infos: Array = []
+	var chain_tiles: Array = _rm.current_chain.tiles.duplicate()
+	var idx: int = 0
+	for child in _chain_container.get_children():
+		if child is PanelContainer and idx < chain_tiles.size():
+			var tile: Domino = chain_tiles[idx]
+			var dw: int = tile.double_weight if tile.double_weight >= 0 \
+				else (1 if tile.is_double() else 0)
+			var chips: int = tile.total_pips() * (double_pip_mult if dw > 0 else 1) \
+				+ tile.bonus_chips
+			overlay_infos.append({
+				"overlay":    _build_score_overlay(child.global_position, child.size, tile),
+				"center":     child.global_position + child.size * 0.5,
+				"chips":      chips,
+				"is_double":  dw > 0,
+			})
+			idx += 1
+
+	_scoring_active = true
+	_run_scoring_sequence(overlay_infos, result)
 	_refresh_hud()
 	_refresh_directives()
 
@@ -330,13 +376,13 @@ func _on_round_ended(won: bool) -> void:
 	_end_round(won)
 
 func _on_tile_left_click(index: int) -> void:
-	if _phase != Phase.PLAYING:
+	if _phase != Phase.PLAYING or _scoring_active:
 		return
 	_selected_discard.erase(index)
 	_rm.try_add_to_chain(index)
 
 func _on_tile_right_click(index: int) -> void:
-	if _phase != Phase.PLAYING:
+	if _phase != Phase.PLAYING or _scoring_active:
 		return
 	if index in _selected_discard:
 		_selected_discard.erase(index)
@@ -346,16 +392,17 @@ func _on_tile_right_click(index: int) -> void:
 	_refresh_action_buttons()
 
 func _on_play_pressed() -> void:
-	if _phase == Phase.PLAYING and _rm.can_play():
+	if _phase == Phase.PLAYING and not _scoring_active and _rm.can_play():
 		_rm.play_chain()
 
 func _on_discard_pressed() -> void:
-	if _phase == Phase.PLAYING and not _selected_discard.is_empty() and _rm.can_discard():
+	if _phase == Phase.PLAYING and not _scoring_active \
+			and not _selected_discard.is_empty() and _rm.can_discard():
 		_rm.discard(_selected_discard)
 		_selected_discard.clear()
 
 func _on_undo_pressed() -> void:
-	if _phase == Phase.PLAYING:
+	if _phase == Phase.PLAYING and not _scoring_active:
 		_rm.undo_last_chain_tile()
 
 # ===========================================================================
@@ -613,15 +660,39 @@ func _build_equipped_module_card(m: Module) -> Control:
 # Gameplay UI refresh
 # ===========================================================================
 func _refresh_hud() -> void:
-	_lbl_round.text    = GameState.round_display()
-	_lbl_etapa.text    = GameState.etapa_name()
-	_lbl_chronos.text  = "Chronos: %d" % _rm.chronos
-	_lbl_target.text   = "Target: %d"  % _rm.target
-	_lbl_hands.text    = "Hands: %d"   % _rm.hands_remaining
-	_lbl_discards.text = "Discards: %d" % _rm.discards_remaining
-	_lbl_monedas.text  = "Monedas: %d" % GameState.monedas
-	var over: bool = _rm.chronos >= _rm.target
-	_lbl_chronos.add_theme_color_override("font_color", C_WIN if over else C_CHRONOS)
+	_lbl_round.text   = GameState.round_display()
+	_lbl_etapa.text   = GameState.etapa_name()
+	_lbl_monedas.text = "Monedas: %d" % GameState.monedas
+
+	# Chronos bar
+	var t: int = _rm.target if _rm != null else 1
+	var c: int = _rm.chronos if _rm != null else 0
+	_chronos_bar.max_value = t
+	_chronos_bar.value = c
+	_chronos_bar_lbl.text = "%d / %d" % [c, t]
+	var ratio := clampf(float(c) / float(t), 0.0, 2.0) if t > 0 else 0.0
+	if ratio >= 1.0:
+		_chronos_bar_fill_style.bg_color = C_WIN
+	elif ratio >= 0.75:
+		_chronos_bar_fill_style.bg_color = C_CHRONOS
+	else:
+		_chronos_bar_fill_style.bg_color = C_CHRONOS.darkened(0.30)
+	_chronos_bar.add_theme_stylebox_override("fill", _chronos_bar_fill_style)
+
+	# Hands dots
+	for ch in _hands_dot_row.get_children(): ch.queue_free()
+	var hands_color := Color(0.7, 0.8, 1.0)
+	var last_hand := _rm.hands_remaining == 1 and not _rm.did_win()
+	for i in range(_rm.max_hands):
+		var filled := i < _rm.hands_remaining
+		_hands_dot_row.add_child(_make_hud_dot(
+			filled, C_LOSE if (last_hand and filled) else hands_color))
+
+	# Discards dots
+	for ch in _discards_dot_row.get_children(): ch.queue_free()
+	for i in range(_rm.max_discards):
+		_discards_dot_row.add_child(
+			_make_hud_dot(i < _rm.discards_remaining, Color(0.8, 0.7, 1.0)))
 
 func _refresh_chain_display() -> void:
 	for child in _chain_container.get_children():
@@ -632,13 +703,21 @@ func _refresh_chain_display() -> void:
 		lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		_chain_container.add_child(lbl)
 	else:
+		# Left connection port
+		_chain_container.add_child(
+			_build_chain_end_indicator(_rm.current_chain.left_end, true))
+
 		for i in range(_rm.current_chain.tile_displays.size()):
 			if i > 0:
-				var arr := _make_label("→", C_DIM, 18)
+				var arr := _make_label("→", C_DIM, 16)
 				arr.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 				_chain_container.add_child(arr)
 			var d: Vector2i = _rm.current_chain.tile_displays[i]
 			_chain_container.add_child(_build_chain_tile(d.x, d.y))
+
+		# Right connection port
+		_chain_container.add_child(
+			_build_chain_end_indicator(_rm.current_chain.right_end, false))
 
 	if not _rm.current_chain.is_empty():
 		var r: Dictionary = Scoring.calculate(_rm.current_chain, GameState.modules)
@@ -658,6 +737,7 @@ func _rebuild_hand() -> void:
 	for child in _hand_container.get_children():
 		child.queue_free()
 	_tile_btns.clear()
+	_tile_conn_lbls.clear()
 	for i in range(_rm.hand.size()):
 		var btn := _create_hand_tile(_rm.hand[i], i)
 		_hand_container.add_child(btn)
@@ -681,16 +761,44 @@ func _refresh_directives() -> void:
 			lbl.add_theme_color_override("font_color", C_DIM)
 
 func _refresh_tile_visuals() -> void:
+	var chain := _rm.current_chain
+	var chain_empty := chain.is_empty()
+	var le := chain.left_end
+	var re := chain.right_end
+
 	for i in range(_tile_btns.size()):
 		if i >= _rm.hand.size():
 			break
-		var btn: Button = _tile_btns[i]
+		var btn:  Button = _tile_btns[i]
+		var tile: Domino = _rm.hand[i]
+		var conn: Label  = _tile_conn_lbls[i] if i < _tile_conn_lbls.size() else null
+
 		if i in _selected_discard:
 			_apply_tile_style(btn, C_TILE_FACE_SEL, C_TILE_FACE_SEL)
-		elif _rm.current_chain.can_add(_rm.hand[i]):
+			if conn: conn.text = ""
+			continue
+
+		if chain.can_add(tile):
 			_apply_tile_style(btn, C_TILE_FACE, C_TILE_FACE_HOVER)
+			if conn:
+				if chain_empty or tile.is_wild:
+					conn.text = "↔"
+					conn.add_theme_color_override("font_color", C_WIN)
+				else:
+					var fl := _tile_fits_left(tile, le)
+					var fr := _tile_fits_right(tile, re)
+					if fl and fr:
+						conn.text = "↔"
+					elif fl:
+						conn.text = "←"
+					else:
+						conn.text = "→"
+					conn.add_theme_color_override("font_color", C_WIN)
 		else:
 			_apply_tile_style(btn, C_TILE_FACE_DIM, C_TILE_FACE_DIM)
+			if conn:
+				conn.text = "·"
+				conn.add_theme_color_override("font_color", C_DIM)
 
 # ===========================================================================
 # Domino tile widgets
@@ -726,6 +834,12 @@ func _create_hand_tile(tile: Domino, index: int) -> Button:
 	var bot := _make_pip_display(tile.right, 14, C_PIP_DOT)
 	bot.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	vbox.add_child(bot)
+
+	# Connection direction indicator (← → ↔ ·) — updated by _refresh_tile_visuals
+	var conn_lbl := _make_label("", C_DIM, 11)
+	conn_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(conn_lbl)
+	_tile_conn_lbls.append(conn_lbl)
 
 	# All children must be transparent to mouse so the Button receives clicks
 	_ignore_mouse(vbox)
@@ -838,6 +952,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if not (event is InputEventKey) or not (event as InputEventKey).pressed:
 		return
+	if _scoring_active:
+		return
 	match (event as InputEventKey).keycode:
 		KEY_SPACE, KEY_ENTER:
 			if _rm.can_play():
@@ -900,7 +1016,8 @@ func _build_ui() -> void:
 	_bg_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(_bg_rect)
 
-	var ui := CanvasLayer.new()
+	_ui_layer = CanvasLayer.new()
+	var ui: CanvasLayer = _ui_layer
 	add_child(ui)
 
 	var root := VBoxContainer.new()
@@ -924,6 +1041,10 @@ func _build_ui() -> void:
 	_boss_overlay = _build_boss_overlay()
 	ui.add_child(_boss_overlay)
 	_boss_overlay.hide()
+
+	_tile_removal_overlay = _build_tile_removal_overlay()
+	ui.add_child(_tile_removal_overlay)
+	_tile_removal_overlay.hide()
 
 	_title_overlay = _build_title_overlay()
 	ui.add_child(_title_overlay)
@@ -966,22 +1087,100 @@ func _build_hud() -> Control:
 	_hud_style = StyleBoxFlat.new()
 	_hud_style.bg_color = C_PANEL
 	panel.add_theme_stylebox_override("panel", _hud_style)
+
 	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 12)
 	panel.add_child(hbox)
 
-	_lbl_round    = _make_hud_label("Round 1/15",  C_TEXT)
-	_lbl_etapa    = _make_hud_label("Mahogany",    C_DIM)
-	_lbl_chronos  = _make_hud_label("Chronos: 0",  C_CHRONOS)
-	_lbl_target   = _make_hud_label("Target: 150", C_TARGET)
-	_lbl_hands    = _make_hud_label("Hands: 4",    Color(0.7, 0.8, 1.0))
-	_lbl_discards = _make_hud_label("Discards: 2", Color(0.8, 0.7, 1.0))
-	_lbl_monedas  = _make_hud_label("Monedas: 0",  C_MONEDAS)
+	# ── Section 1: Round + Etapa ──────────────────────────
+	var left_vbox := VBoxContainer.new()
+	left_vbox.add_theme_constant_override("separation", 2)
+	left_vbox.custom_minimum_size = Vector2(130, 0)
+	left_vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	hbox.add_child(left_vbox)
+	_lbl_round = _make_label("Round 1 / 15", C_TEXT, 13)
+	_lbl_etapa = _make_label("Mahogany", C_DIM, 11)
+	left_vbox.add_child(_lbl_round)
+	left_vbox.add_child(_lbl_etapa)
 
-	for lbl in [_lbl_round, _lbl_etapa, _lbl_chronos, _lbl_target,
-				_lbl_hands, _lbl_discards, _lbl_monedas]:
-		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		lbl.horizontal_alignment  = HORIZONTAL_ALIGNMENT_CENTER
-		hbox.add_child(lbl)
+	hbox.add_child(_make_vdiv())
+
+	# ── Section 2: Chronos progress bar (dominant) ────────
+	var bar_col := VBoxContainer.new()
+	bar_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bar_col.add_theme_constant_override("separation", 3)
+	bar_col.alignment = BoxContainer.ALIGNMENT_CENTER
+	hbox.add_child(bar_col)
+
+	var bar_title := _make_label("CHRONOS", C_DIM, 10)
+	bar_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	bar_col.add_child(bar_title)
+
+	# Stacked: ProgressBar behind a centred label
+	var bar_wrap := Control.new()
+	bar_wrap.custom_minimum_size = Vector2(0, 22)
+	bar_wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bar_col.add_child(bar_wrap)
+
+	_chronos_bar = ProgressBar.new()
+	_chronos_bar.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_chronos_bar.min_value = 0
+	_chronos_bar.max_value = 100
+	_chronos_bar.value     = 0
+	_chronos_bar.show_percentage = false
+	var bar_bg := StyleBoxFlat.new()
+	bar_bg.bg_color = Color(0.08, 0.07, 0.05)
+	bar_bg.set_corner_radius_all(4)
+	_chronos_bar.add_theme_stylebox_override("background", bar_bg)
+	_chronos_bar_fill_style = StyleBoxFlat.new()
+	_chronos_bar_fill_style.bg_color = C_CHRONOS.darkened(0.3)
+	_chronos_bar_fill_style.set_corner_radius_all(4)
+	_chronos_bar.add_theme_stylebox_override("fill", _chronos_bar_fill_style)
+	bar_wrap.add_child(_chronos_bar)
+
+	_chronos_bar_lbl = _make_label("0 / 0", C_TEXT, 12)
+	_chronos_bar_lbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_chronos_bar_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_chronos_bar_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	_chronos_bar_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bar_wrap.add_child(_chronos_bar_lbl)
+
+	hbox.add_child(_make_vdiv())
+
+	# ── Section 3: Hands + Discards dot indicators ────────
+	var counts_col := VBoxContainer.new()
+	counts_col.add_theme_constant_override("separation", 5)
+	counts_col.alignment = BoxContainer.ALIGNMENT_CENTER
+	counts_col.custom_minimum_size = Vector2(150, 0)
+	hbox.add_child(counts_col)
+
+	var h_row := HBoxContainer.new()
+	h_row.add_theme_constant_override("separation", 6)
+	h_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	counts_col.add_child(h_row)
+	h_row.add_child(_make_label("HANDS", C_DIM, 10))
+	_hands_dot_row = HBoxContainer.new()
+	_hands_dot_row.add_theme_constant_override("separation", 4)
+	h_row.add_child(_hands_dot_row)
+
+	var d_row := HBoxContainer.new()
+	d_row.add_theme_constant_override("separation", 6)
+	d_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	counts_col.add_child(d_row)
+	d_row.add_child(_make_label("DISC", C_DIM, 10))
+	_discards_dot_row = HBoxContainer.new()
+	_discards_dot_row.add_theme_constant_override("separation", 4)
+	d_row.add_child(_discards_dot_row)
+
+	hbox.add_child(_make_vdiv())
+
+	# ── Section 4: Monedas ────────────────────────────────
+	_lbl_monedas = _make_label("Monedas: 0", C_MONEDAS, 14)
+	_lbl_monedas.custom_minimum_size = Vector2(120, 0)
+	_lbl_monedas.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_lbl_monedas.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	hbox.add_child(_lbl_monedas)
+
 	return panel
 
 # ---- Table area (dominant game surface — expands to fill) ----
@@ -1004,6 +1203,11 @@ func _build_table_area() -> Control:
 	_lbl_table_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(_lbl_table_title)
 
+	# Spacer pushes chain to vertical centre
+	var top_spacer := Control.new()
+	top_spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(top_spacer)
+
 	# Chain tiles — centred horizontally, shrinks vertically to tile height
 	_chain_container = HBoxContainer.new()
 	_chain_container.alignment             = BoxContainer.ALIGNMENT_CENTER
@@ -1012,12 +1216,17 @@ func _build_table_area() -> Control:
 	_chain_container.add_theme_constant_override("separation", 10)
 	vbox.add_child(_chain_container)
 
-	# Score preview
+	# Score preview sits just below the chain
 	_lbl_preview = _make_label("", C_PREVIEW, 16)
 	_lbl_preview.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(_lbl_preview)
 
-	# Last-hand result
+	# Spacer below keeps last-hand result pinned to the bottom
+	var bot_spacer := Control.new()
+	bot_spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(bot_spacer)
+
+	# Last-hand result — pinned at bottom of table
 	_lbl_last_hand = _make_label("", C_LAST_HAND, 14)
 	_lbl_last_hand.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(_lbl_last_hand)
@@ -1624,6 +1833,355 @@ func _build_removal_tile(index: int, tile: Domino) -> Control:
 	panel.add_child(btn)
 
 	return panel
+
+# ===========================================================================
+# Scoring animation sequence
+# ===========================================================================
+
+## Full Balatro-style scoring sequence.
+## overlay_infos: Array of Dicts built in _on_hand_scored while tiles still on screen.
+func _run_scoring_sequence(overlay_infos: Array, result: Dictionary) -> void:
+	var seq := create_tween()
+
+	for info in overlay_infos:
+		var overlay:   Control = info["overlay"]
+		var center:    Vector2 = info["center"]
+		var chips:     int     = info["chips"]
+		var is_dbl:    bool    = info["is_double"]
+		var hl_color:  Color   = C_MONEDAS if is_dbl else C_CHRONOS
+		var pop_color: Color   = C_MONEDAS if is_dbl else C_TEXT
+
+		# Step 1 — tile flashes (bright border + tinted background)
+		seq.tween_callback(func():
+			var hl := StyleBoxFlat.new()
+			hl.bg_color     = hl_color.lerp(C_TILE_FACE, 0.45)
+			hl.border_color = hl_color
+			hl.set_border_width_all(3)
+			hl.set_corner_radius_all(6)
+			overlay.add_theme_stylebox_override("panel", hl)
+		)
+		seq.tween_interval(0.07)
+
+		# Step 2 — chip pop rises, overlay fades out
+		seq.tween_callback(func():
+			_do_tile_pop("+%d" % chips, pop_color, center, 21, 0.80)
+			var fade := create_tween()
+			fade.tween_interval(0.05)
+			fade.tween_property(overlay, "modulate:a", 0.0, 0.22)
+			fade.tween_callback(overlay.queue_free)
+		)
+		seq.tween_interval(0.13)
+
+	# Step 3 — multiplier slam (skipped when mult == 1)
+	var chain_center := _chain_container.global_position + _chain_container.size * 0.5
+	seq.tween_interval(0.05)
+	if result["mult"] > 1:
+		seq.tween_callback(func():
+			_do_tile_pop("×%d" % result["mult"], C_TARGET, chain_center, 34, 1.10)
+		)
+		seq.tween_interval(0.32)
+
+	# Step 4 — total Chronos burst (always shown)
+	seq.tween_callback(func():
+		_do_tile_pop("+%d Chronos" % result["total"], C_CHRONOS, chain_center, 38, 1.50)
+	)
+
+	# Step 5 — unlock input shortly after the final pop spawns
+	seq.tween_interval(0.22)
+	seq.tween_callback(func(): _scoring_active = false)
+
+## Build a ghost domino overlay at screen_pos, parented to the UI layer.
+## Positioned over the real tile before the chain clears.
+func _build_score_overlay(screen_pos: Vector2, tile_size: Vector2, tile: Domino) -> Control:
+	var panel := PanelContainer.new()
+	panel.position = screen_pos
+	panel.custom_minimum_size = tile_size
+	var style := StyleBoxFlat.new()
+	style.bg_color     = C_TILE_FACE.darkened(0.06)
+	style.border_color = C_TILE_BORDER
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(6)
+	panel.add_theme_stylebox_override("panel", style)
+
+	var vbox := VBoxContainer.new()
+	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	vbox.add_theme_constant_override("separation", 0)
+	vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(vbox)
+
+	var top := _make_pip_display(tile.left,  12, C_PIP_DOT)
+	top.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(top)
+	vbox.add_child(_make_tile_hsep())
+	var bot := _make_pip_display(tile.right, 12, C_PIP_DOT)
+	bot.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(bot)
+
+	_ui_layer.add_child(panel)
+	return panel
+
+## Create a floating label at screen_pos and tween it up + out.
+func _do_tile_pop(text: String, color: Color, screen_pos: Vector2,
+		font_size: int, duration: float) -> void:
+	var lbl := Label.new()
+	lbl.text = text
+	lbl.add_theme_font_size_override("font_size", font_size)
+	lbl.add_theme_color_override("font_color", color)
+	lbl.modulate.a = 1.0
+	_ui_layer.add_child(lbl)
+	_animate_pop_at.call_deferred(lbl, screen_pos, duration)
+
+func _animate_pop_at(lbl: Label, screen_pos: Vector2, duration: float) -> void:
+	lbl.position = screen_pos - lbl.size * 0.5
+	var tween := create_tween().set_parallel(true)
+	tween.tween_property(lbl, "position:y", lbl.position.y - 75.0, duration)
+	tween.tween_property(lbl, "modulate:a", 0.0, duration)
+	tween.chain().tween_callback(lbl.queue_free)
+
+# ===========================================================================
+# Chain end pip indicators
+# ===========================================================================
+
+## Glowing connector port flanking the chain — shows which pip value is free.
+func _build_chain_end_indicator(pip: int, is_left: bool) -> Control:
+	var outer := VBoxContainer.new()
+	outer.alignment = BoxContainer.ALIGNMENT_CENTER
+	outer.add_theme_constant_override("separation", 3)
+
+	var accent: Color = Constants.ETAPA_ACCENT[GameState.current_etapa()]
+
+	var pip_panel := PanelContainer.new()
+	pip_panel.custom_minimum_size = Vector2(48, 48)
+	var s := StyleBoxFlat.new()
+	s.bg_color     = Color(0.07, 0.09, 0.06)
+	s.border_color = accent
+	s.set_border_width_all(2)
+	s.set_corner_radius_all(5)
+	pip_panel.add_theme_stylebox_override("panel", s)
+
+	if pip == Chain.WILD:
+		var star := _make_label("★", accent, 16)
+		star.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		star.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+		star.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		star.size_flags_vertical   = Control.SIZE_EXPAND_FILL
+		pip_panel.add_child(star)
+	else:
+		pip_panel.add_child(_make_pip_display(pip, 7, accent))
+
+	var arrow := _make_label("←" if is_left else "→", accent, 12)
+	arrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	arrow.modulate.a = 0.65
+
+	if is_left:
+		outer.add_child(arrow)
+		outer.add_child(pip_panel)
+	else:
+		outer.add_child(pip_panel)
+		outer.add_child(arrow)
+	return outer
+
+# ===========================================================================
+# Connection direction helpers (mirrors Chain private logic for UI use)
+# ===========================================================================
+func _tile_fits_left(tile: Domino, le: int) -> bool:
+	if tile.is_wild or le == Chain.WILD or le == Chain.EMPTY:
+		return true
+	return tile.right == le or tile.left == le
+
+func _tile_fits_right(tile: Domino, re: int) -> bool:
+	if tile.is_wild or re == Chain.WILD or re == Chain.EMPTY:
+		return true
+	return tile.left == re or tile.right == re
+
+# ===========================================================================
+# Small widget helpers
+# ===========================================================================
+
+## Filled / unfilled dot for hands and discards counters in the HUD.
+func _make_hud_dot(filled: bool, color: Color) -> Control:
+	var dot := PanelContainer.new()
+	dot.custom_minimum_size = Vector2(11, 11)
+	var s := StyleBoxFlat.new()
+	s.bg_color = color if filled else color.darkened(0.65)
+	s.set_corner_radius_all(6)
+	dot.add_theme_stylebox_override("panel", s)
+	return dot
+
+## Vertical divider for the HUD sections.
+func _make_vdiv() -> Control:
+	var sep := VSeparator.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.30, 0.28, 0.22, 0.55)
+	style.set_content_margin_all(0)
+	sep.add_theme_stylebox_override("separator", style)
+	sep.add_theme_constant_override("separation", 1)
+	return sep
+
+# ===========================================================================
+# Starting tile removal
+# ===========================================================================
+func _show_start_removal() -> void:
+	_phase = Phase.TILE_REMOVAL
+	_start_removal_candidates = TileShopManager.generate_removal_candidates(GameState.box, 8)
+	_start_removal_selected.clear()
+	_populate_start_removal()
+	_tile_removal_overlay.show()
+
+func _on_start_removal_toggle(index: int) -> void:
+	if index in _start_removal_selected:
+		_start_removal_selected.erase(index)
+	elif _start_removal_selected.size() < MAX_FREE_REMOVALS:
+		_start_removal_selected.append(index)
+	_populate_start_removal()
+
+func _on_start_removal_confirm_pressed() -> void:
+	var sorted: Array = _start_removal_selected.duplicate()
+	sorted.sort()
+	sorted.reverse()
+	for i in sorted:
+		if i < _start_removal_candidates.size():
+			GameState.box.remove_tile(_start_removal_candidates[i])
+	_tile_removal_overlay.hide()
+	_start_round()
+
+func _on_start_removal_skip_pressed() -> void:
+	_tile_removal_overlay.hide()
+	_start_round()
+
+func _populate_start_removal() -> void:
+	for child in _start_removal_row.get_children():
+		child.queue_free()
+	for i in range(_start_removal_candidates.size()):
+		_start_removal_row.add_child(
+			_build_start_removal_tile(i, _start_removal_candidates[i]))
+	var left: int = MAX_FREE_REMOVALS - _start_removal_selected.size()
+	_start_removal_lbl.text = "%d removal%s remaining (free)" % [
+		left, "" if left == 1 else "s"]
+	_start_removal_btn.disabled = _start_removal_selected.is_empty()
+
+func _build_start_removal_tile(index: int, tile: Domino) -> Control:
+	var selected: bool = index in _start_removal_selected
+	var at_cap: bool   = _start_removal_selected.size() >= MAX_FREE_REMOVALS
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(80, 70)
+	var style := StyleBoxFlat.new()
+	style.bg_color     = Color(0.20, 0.08, 0.08) if selected else Color(0.13, 0.11, 0.08)
+	style.border_color = C_LOSE if selected else (C_DIM if at_cap else C_TILE_BORDER)
+	style.set_border_width_all(2 if selected else 1)
+	style.set_corner_radius_all(4)
+	panel.add_theme_stylebox_override("panel", style)
+
+	var vbox := VBoxContainer.new()
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_theme_constant_override("separation", 2)
+	panel.add_child(vbox)
+
+	var pip_row := HBoxContainer.new()
+	pip_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	pip_row.add_theme_constant_override("separation", 0)
+	pip_row.custom_minimum_size = Vector2(0, 40)
+	vbox.add_child(pip_row)
+
+	var lc := _make_pip_display(tile.left,  8, C_PIP_DOT)
+	lc.custom_minimum_size = Vector2(30, 0)
+	pip_row.add_child(lc)
+	pip_row.add_child(_make_tile_vsep())
+	var rc := _make_pip_display(tile.right, 8, C_PIP_DOT)
+	rc.custom_minimum_size = Vector2(30, 0)
+	pip_row.add_child(rc)
+
+	var pips_lbl := _make_label("%d|%d" % [tile.left, tile.right], C_DIM, 10)
+	pips_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(pips_lbl)
+
+	var mark_lbl := _make_label("✕ REMOVE" if selected else "○", C_LOSE if selected else C_DIM, 10)
+	mark_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(mark_lbl)
+
+	var btn := Button.new()
+	btn.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	for s_name in ["normal", "hover", "pressed", "focus"]:
+		btn.add_theme_stylebox_override(s_name, StyleBoxEmpty.new())
+	btn.text = ""
+	btn.disabled = at_cap and not selected
+	btn.pressed.connect(_on_start_removal_toggle.bind(index))
+	panel.add_child(btn)
+
+	return panel
+
+func _build_tile_removal_overlay() -> Control:
+	var overlay := ColorRect.new()
+	overlay.color = Color(0, 0, 0, 0.88)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+	var scroll := ScrollContainer.new()
+	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(scroll)
+
+	var center := CenterContainer.new()
+	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	center.size_flags_vertical   = Control.SIZE_EXPAND_FILL
+	scroll.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(860, 0)
+	var style := StyleBoxFlat.new()
+	style.bg_color     = Color(0.10, 0.09, 0.07)
+	style.border_color = Color(0.50, 0.45, 0.35)
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(8)
+	panel.add_theme_stylebox_override("panel", style)
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 16)
+	panel.add_child(vbox)
+
+	# Header
+	var hdr := _make_label("INITIAL CALIBRATION", C_TITLE_GLOW, 26)
+	hdr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(hdr)
+
+	var sub := _make_label(
+		"Before the first round, you may remove up to 2 tiles from your starting box.\nThe tiles shown are the weakest in your configuration.",
+		C_DIM, 14)
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	sub.custom_minimum_size = Vector2(700, 0)
+	vbox.add_child(sub)
+
+	vbox.add_child(_make_hsep())
+
+	# Tile row
+	_start_removal_row = HBoxContainer.new()
+	_start_removal_row.add_theme_constant_override("separation", 10)
+	_start_removal_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_child(_start_removal_row)
+
+	vbox.add_child(_make_hsep())
+
+	# Footer
+	var footer := HBoxContainer.new()
+	footer.add_theme_constant_override("separation", 16)
+	footer.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_child(footer)
+
+	_start_removal_lbl = _make_label("2 removals remaining (free)", C_MONEDAS, 13)
+	_start_removal_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_start_removal_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	footer.add_child(_start_removal_lbl)
+
+	var skip_btn := _make_button("SKIP  →", _on_start_removal_skip_pressed, Vector2(120, 44))
+	footer.add_child(skip_btn)
+
+	_start_removal_btn = _make_button(
+		"REMOVE & BEGIN  →", _on_start_removal_confirm_pressed, Vector2(200, 44))
+	_start_removal_btn.disabled = true
+	footer.add_child(_start_removal_btn)
+
+	return overlay
 
 # ===========================================================================
 # Generic helpers
