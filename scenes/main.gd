@@ -15,17 +15,19 @@ const C_PREVIEW     := Color(0.70, 1.00, 0.70)
 const C_LAST_HAND   := Color(1.00, 0.86, 0.30)
 const C_WIN         := Color(0.40, 1.00, 0.40)
 const C_LOSE        := Color(1.00, 0.30, 0.30)
-const C_TILE_FACE       := Color(0.94, 0.91, 0.83)
-const C_TILE_FACE_HOVER := Color(1.00, 0.97, 0.89)
-const C_TILE_FACE_DIM   := Color(0.55, 0.52, 0.46)
-const C_TILE_FACE_SEL   := Color(0.72, 0.22, 0.18)
-const C_TILE_BORDER     := Color(0.42, 0.36, 0.26)
-const C_TILE_DIVIDER    := Color(0.42, 0.36, 0.26)
+const C_TILE_BODY       := Color(0.21, 0.17, 0.11)   # dark ebony outer frame
+const C_TILE_FACE       := Color(0.89, 0.85, 0.74)   # aged ivory pip-half face
+const C_TILE_FACE_HOVER := Color(0.96, 0.92, 0.82)   # brightened hover
+const C_TILE_FACE_DIM   := Color(0.46, 0.43, 0.38)   # strongly faded
+const C_TILE_FACE_SEL   := Color(0.96, 0.88, 0.52)   # amber/gold selected (active, not red)
+const C_TILE_BORDER     := Color(0.60, 0.48, 0.26)   # rich brass
+const C_TILE_BORDER_SEL := Color(0.96, 0.80, 0.28)   # bright gold for selected tiles
+const C_TILE_DIVIDER    := Color(0.52, 0.42, 0.22)   # brass divider bar
 const C_TILE_PIP        := Color(0.10, 0.08, 0.06)
 const C_TITLE_GLOW      := Color(0.85, 0.70, 0.30)
 const C_SELECTED_BORDER := Color(0.85, 0.75, 0.30)
-const C_PIP_DOT         := Color(0.12, 0.10, 0.08)
-const C_PIP_DOT_TILE    := Color(0.92, 0.88, 0.80)  # pip on chain tile (dark bg not needed)
+const C_PIP_DOT         := Color(0.09, 0.07, 0.04)   # very dark crisp pip dots
+const C_PIP_DOT_TILE    := Color(0.92, 0.88, 0.80)
 
 # ---------------------------------------------------------------------------
 # Artisan / Emporium greeting lines (indexed by etapa 0–3)
@@ -1204,18 +1206,23 @@ func _refresh_tile_visuals() -> void:
 		var tile: Domino = _rm.hand[i]
 		var conn: Label  = _tile_conn_lbls[i] if i < _tile_conn_lbls.size() else null
 
+		# Rarity-tinted base border stored on creation
+		var base_border := C_TILE_BORDER
+		if btn.has_meta("base_border"):
+			base_border = btn.get_meta("base_border")
+
 		var sel_order: int = _selected_tiles.find(i)
 		if sel_order >= 0:
-			# Selected: gold highlight + selection-order number
-			_apply_tile_style(btn, C_TILE_FACE_SEL, C_TILE_FACE_SEL)
+			# Selected: amber face + bright gold border + order number
+			_apply_tile_style(btn, C_TILE_FACE_SEL, C_TILE_FACE_SEL, C_TILE_BORDER_SEL)
 			if conn:
 				conn.text = str(sel_order + 1)
-				conn.add_theme_color_override("font_color", C_SELECTED_BORDER)
+				conn.add_theme_color_override("font_color", C_TILE_BORDER_SEL)
 			continue
 
 		# Unselected: show connection arrow relative to current preview end
 		if preview.can_add(tile):
-			_apply_tile_style(btn, C_TILE_FACE, C_TILE_FACE_HOVER)
+			_apply_tile_style(btn, C_TILE_FACE, C_TILE_FACE_HOVER, base_border)
 			if conn:
 				if preview_empty or tile.is_wild:
 					conn.text = "↔"
@@ -1231,7 +1238,8 @@ func _refresh_tile_visuals() -> void:
 						conn.text = "→"
 					conn.add_theme_color_override("font_color", C_WIN)
 		else:
-			_apply_tile_style(btn, C_TILE_FACE_DIM, C_TILE_FACE_DIM)
+			_apply_tile_style(btn, C_TILE_FACE_DIM, C_TILE_FACE_DIM,
+					base_border.darkened(0.42))
 			if conn:
 				conn.text = "·"
 				conn.add_theme_color_override("font_color", C_DIM)
@@ -1241,21 +1249,27 @@ func _refresh_tile_visuals() -> void:
 # ===========================================================================
 func _create_hand_tile(tile: Domino, index: int) -> Button:
 	var btn := Button.new()
-	btn.custom_minimum_size = Vector2(84, 140)
+	btn.custom_minimum_size = Vector2(88, 148)
 	btn.text = ""
 	btn.clip_contents = true
-	_apply_tile_style(btn, C_TILE_FACE, C_TILE_FACE_HOVER)
 
+	# ── Inner layout inset from button edges so the dark body shows as a frame ──
 	var vbox := VBoxContainer.new()
 	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	vbox.offset_left   = 4;  vbox.offset_top    = 4
+	vbox.offset_right  = -4; vbox.offset_bottom = -4
 	vbox.add_theme_constant_override("separation", 0)
 	btn.add_child(vbox)
 
-	var top := _make_pip_display(tile.left, 14, C_PIP_DOT)
-	top.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vbox.add_child(top)
+	# ── Top pip-half panel ──
+	var top_panel := PanelContainer.new()
+	top_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var top_dot := C_TITLE_GLOW if tile.left < 0 else C_PIP_DOT
+	top_panel.add_child(_make_pip_display(tile.left, 15, top_dot))
+	vbox.add_child(top_panel)
+	btn.set_meta("top_panel", top_panel)
 
-	# Name label for special tiles
+	# Rarity / custom name strip (between pip halves, narrow)
 	if tile.custom_name != "":
 		var name_lbl := Label.new()
 		name_lbl.text = tile.custom_name
@@ -1265,19 +1279,39 @@ func _create_hand_tile(tile: Domino, index: int) -> Button:
 		name_lbl.clip_contents = true
 		vbox.add_child(name_lbl)
 
+	# ── Divider ──
 	vbox.add_child(_make_tile_hsep())
 
-	var bot := _make_pip_display(tile.right, 14, C_PIP_DOT)
-	bot.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vbox.add_child(bot)
+	# ── Bottom pip-half panel ──
+	var bot_panel := PanelContainer.new()
+	bot_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var bot_dot := C_TITLE_GLOW if tile.right < 0 else C_PIP_DOT
+	bot_panel.add_child(_make_pip_display(tile.right, 15, bot_dot))
+	vbox.add_child(bot_panel)
+	btn.set_meta("bot_panel", bot_panel)
 
-	# Connection direction indicator (← → ↔ ·) — updated by _refresh_tile_visuals
-	var conn_lbl := _make_label("", C_DIM, 11)
+	# ── Connection / selection indicator (bottom strip) ──
+	var conn_lbl := _make_label("", C_DIM, 12)
 	conn_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	conn_lbl.custom_minimum_size  = Vector2(0, 16)
 	vbox.add_child(conn_lbl)
 	_tile_conn_lbls.append(conn_lbl)
 
-	# All children must be transparent to mouse so the Button receives clicks
+	# ── Rarity-tinted border: subtle identity per tile grade ──
+	var base_border: Color
+	match tile.rarity:
+		Constants.Rarity.CARVED:   base_border = C_TILE_BORDER.lerp(Color(0.30, 0.72, 0.30), 0.22)
+		Constants.Rarity.IVORY:    base_border = C_TILE_BORDER.lerp(Color(0.90, 0.82, 0.28), 0.30)
+		Constants.Rarity.OBSIDIAN: base_border = C_TILE_BORDER.lerp(Color(0.60, 0.28, 0.92), 0.32)
+		_:                         base_border = C_TILE_BORDER   # BONE: plain brass
+	if tile.is_wild:
+		base_border = C_TITLE_GLOW   # wilds always shine gold
+	btn.set_meta("base_border", base_border)
+
+	# Apply full style (outer frame + pip-half faces)
+	_apply_tile_style(btn, C_TILE_FACE, C_TILE_FACE_HOVER, base_border)
+
+	# All children must be transparent so the Button receives clicks
 	_ignore_mouse(vbox)
 
 	btn.pressed.connect(_on_tile_left_click.bind(index))
@@ -1285,30 +1319,46 @@ func _create_hand_tile(tile: Domino, index: int) -> Button:
 
 func _build_chain_tile(disp_left: int, disp_right: int) -> Control:
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(76, 136)   # portrait, same height as hand tile
+	panel.custom_minimum_size = Vector2(78, 140)
+
+	# Dark ebony outer frame — content_margin creates the inner inset
 	var style := StyleBoxFlat.new()
-	style.bg_color     = C_TILE_FACE.darkened(0.06)  # slightly dimmer than active hand tiles
+	style.bg_color    = C_TILE_BODY
 	style.border_color = C_TILE_BORDER
-	style.set_border_width_all(2)
-	style.set_corner_radius_all(6)
+	style.set_border_width_all(3)
+	style.set_corner_radius_all(8)
+	style.shadow_color = Color(0, 0, 0, 0.40); style.shadow_size = 3
+	style.set_content_margin_all(4)
 	panel.add_theme_stylebox_override("panel", style)
 	# Store style ref so _start_tile_breathe can animate the border
 	panel.set_meta("border_style",      style)
 	panel.set_meta("base_border_color", C_TILE_BORDER)
 
 	var vbox := VBoxContainer.new()
-	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	vbox.add_theme_constant_override("separation", 0)
 	vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(vbox)
 
-	var top := _make_pip_display(disp_left,  12, C_PIP_DOT)
-	top.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vbox.add_child(top)
+	# Top pip-half panel
+	var top_panel := PanelContainer.new()
+	top_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	top_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_set_pip_panel_face(top_panel, C_TILE_FACE, true)
+	var top_dot := C_TITLE_GLOW if disp_left < 0 else C_PIP_DOT
+	top_panel.add_child(_make_pip_display(disp_left, 13, top_dot))
+	vbox.add_child(top_panel)
+
 	vbox.add_child(_make_tile_hsep())
-	var bot := _make_pip_display(disp_right, 12, C_PIP_DOT)
-	bot.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vbox.add_child(bot)
+
+	# Bottom pip-half panel
+	var bot_panel := PanelContainer.new()
+	bot_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	bot_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_set_pip_panel_face(bot_panel, C_TILE_FACE, false)
+	var bot_dot := C_TITLE_GLOW if disp_right < 0 else C_PIP_DOT
+	bot_panel.add_child(_make_pip_display(disp_right, 13, bot_dot))
+	vbox.add_child(bot_panel)
+
 	return panel
 
 ## Build a pip-dot display for one half of a domino.
@@ -1414,8 +1464,9 @@ func _ignore_mouse(node: Node) -> void:
 func _make_tile_hsep() -> Control:
 	var sep := ColorRect.new()
 	sep.color = C_TILE_DIVIDER
-	sep.custom_minimum_size   = Vector2(0, 2)
+	sep.custom_minimum_size   = Vector2(0, 4)
 	sep.size_flags_horizontal = Control.SIZE_FILL
+	sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return sep
 
 func _make_tile_vsep() -> Control:
@@ -1425,20 +1476,54 @@ func _make_tile_vsep() -> Control:
 	sep.size_flags_vertical  = Control.SIZE_FILL
 	return sep
 
-func _apply_tile_style(btn: Button, face: Color, hover: Color) -> void:
+## Set the face colour of one pip half-panel (top or bottom).
+## Applies rounded corners matching the half position plus content margins.
+func _set_pip_panel_face(panel: PanelContainer, face: Color, is_top: bool) -> void:
+	var s := StyleBoxFlat.new()
+	s.bg_color = face
+	s.set_content_margin_all(4)
+	if is_top:
+		s.corner_radius_top_left    = 4; s.corner_radius_top_right    = 4
+		s.corner_radius_bottom_left = 0; s.corner_radius_bottom_right = 0
+	else:
+		s.corner_radius_top_left    = 0; s.corner_radius_top_right    = 0
+		s.corner_radius_bottom_left = 4; s.corner_radius_bottom_right = 4
+	panel.add_theme_stylebox_override("panel", s)
+
+## Style a hand-tile Button: dark ebony frame, thick brass border, drop shadow.
+## face / hover  — ivory face colour used for the inner pip-half panels.
+## border        — border colour; defaults to standard brass, pass C_TILE_BORDER_SEL
+##                 for the selected state or a rarity-tinted colour for flavour.
+func _apply_tile_style(btn: Button, face: Color, hover: Color,
+		border: Color = C_TILE_BORDER) -> void:
+	var shadow := Color(0.0, 0.0, 0.0, 0.42)
+
 	for n in ["normal", "focus"]:
 		var s := StyleBoxFlat.new()
-		s.bg_color = face; s.border_color = C_TILE_BORDER
-		s.set_border_width_all(2); s.set_corner_radius_all(5)
+		s.bg_color    = C_TILE_BODY
+		s.border_color = border
+		s.set_border_width_all(3); s.set_corner_radius_all(8)
+		s.shadow_color = shadow; s.shadow_size = 4
 		btn.add_theme_stylebox_override(n, s)
+
 	var sh := StyleBoxFlat.new()
-	sh.bg_color = hover; sh.border_color = C_TILE_BORDER
-	sh.set_border_width_all(2); sh.set_corner_radius_all(5)
+	sh.bg_color    = C_TILE_BODY.lightened(0.08)
+	sh.border_color = border.lightened(0.28)
+	sh.set_border_width_all(3); sh.set_corner_radius_all(8)
+	sh.shadow_color = shadow; sh.shadow_size = 5
 	btn.add_theme_stylebox_override("hover", sh)
+
 	var sp := StyleBoxFlat.new()
-	sp.bg_color = face.darkened(0.12); sp.border_color = C_TILE_BORDER
-	sp.set_border_width_all(2); sp.set_corner_radius_all(5)
+	sp.bg_color    = C_TILE_BODY.darkened(0.08)
+	sp.border_color = border
+	sp.set_border_width_all(3); sp.set_corner_radius_all(8)
 	btn.add_theme_stylebox_override("pressed", sp)
+
+	# Update inner pip-half panels (hand tiles store refs in meta)
+	if btn.has_meta("top_panel"):
+		_set_pip_panel_face(btn.get_meta("top_panel"), face, true)
+	if btn.has_meta("bot_panel"):
+		_set_pip_panel_face(btn.get_meta("bot_panel"), face, false)
 
 # ===========================================================================
 # UI construction
@@ -2285,8 +2370,11 @@ func _build_tile_offer_card(index: int, entry: Dictionary) -> Control:
 	var pip_panel := PanelContainer.new()
 	pip_panel.custom_minimum_size = Vector2(0, 52)
 	var pip_bg := StyleBoxFlat.new()
-	pip_bg.bg_color = C_TILE_FACE
-	pip_bg.set_corner_radius_all(4)
+	pip_bg.bg_color = C_TILE_BODY
+	pip_bg.border_color = (C_TITLE_GLOW if t.is_wild else C_RARITY[t.rarity].lerp(C_TILE_BORDER, 0.5))
+	pip_bg.set_border_width_all(2)
+	pip_bg.set_corner_radius_all(5)
+	pip_bg.set_content_margin_all(3)
 	pip_panel.add_theme_stylebox_override("panel", pip_bg)
 	vbox.add_child(pip_panel)
 
@@ -2294,13 +2382,29 @@ func _build_tile_offer_card(index: int, entry: Dictionary) -> Control:
 	pip_row.add_theme_constant_override("separation", 0)
 	pip_panel.add_child(pip_row)
 
-	var left_disp := _make_pip_display(t.left,  10, C_PIP_DOT)
-	left_disp.custom_minimum_size = Vector2(52, 0)
-	pip_row.add_child(left_disp)
+	var left_half := PanelContainer.new()
+	left_half.custom_minimum_size = Vector2(52, 0)
+	left_half.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var lhs := StyleBoxFlat.new(); lhs.bg_color = C_TILE_FACE
+	lhs.corner_radius_top_left = 3; lhs.corner_radius_bottom_left = 3
+	lhs.set_content_margin_all(3)
+	left_half.add_theme_stylebox_override("panel", lhs)
+	var ld := C_TITLE_GLOW if t.left < 0 else C_PIP_DOT
+	left_half.add_child(_make_pip_display(t.left, 10, ld))
+	pip_row.add_child(left_half)
+
 	pip_row.add_child(_make_tile_vsep())
-	var right_disp := _make_pip_display(t.right, 10, C_PIP_DOT)
-	right_disp.custom_minimum_size = Vector2(52, 0)
-	pip_row.add_child(right_disp)
+
+	var right_half := PanelContainer.new()
+	right_half.custom_minimum_size = Vector2(52, 0)
+	right_half.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var rhs := StyleBoxFlat.new(); rhs.bg_color = C_TILE_FACE
+	rhs.corner_radius_top_right = 3; rhs.corner_radius_bottom_right = 3
+	rhs.set_content_margin_all(3)
+	right_half.add_theme_stylebox_override("panel", rhs)
+	var rd := C_TITLE_GLOW if t.right < 0 else C_PIP_DOT
+	right_half.add_child(_make_pip_display(t.right, 10, rd))
+	pip_row.add_child(right_half)
 
 	# Special tile name
 	if t.custom_name != "":
@@ -2342,10 +2446,11 @@ func _build_removal_tile(index: int, tile: Domino) -> Control:
 	var panel := PanelContainer.new()
 	panel.custom_minimum_size = Vector2(80, 60)
 	var style := StyleBoxFlat.new()
-	style.bg_color     = Color(0.20, 0.08, 0.08) if selected else Color(0.11, 0.10, 0.07)
-	style.border_color = C_LOSE if selected else (C_DIM if at_cap else C_TILE_BORDER)
+	style.bg_color     = C_TILE_BODY
+	style.border_color = C_LOSE if selected else (C_DIM.darkened(0.2) if at_cap else C_TILE_BORDER)
 	style.set_border_width_all(2 if selected else 1)
-	style.set_corner_radius_all(4)
+	style.set_corner_radius_all(5)
+	style.set_content_margin_all(3)
 	panel.add_theme_stylebox_override("panel", style)
 
 	var vbox := VBoxContainer.new()
@@ -2353,17 +2458,27 @@ func _build_removal_tile(index: int, tile: Domino) -> Control:
 	vbox.add_theme_constant_override("separation", 2)
 	panel.add_child(vbox)
 
+	# Pip display with ivory bg so dots are visible on the dark panel
+	var pip_outer := PanelContainer.new()
+	pip_outer.custom_minimum_size = Vector2(0, 32)
+	var pip_bg := StyleBoxFlat.new()
+	pip_bg.bg_color = C_TILE_FACE.darkened(0.08) if selected else C_TILE_FACE
+	pip_bg.set_corner_radius_all(3); pip_bg.set_content_margin_all(2)
+	pip_outer.add_theme_stylebox_override("panel", pip_bg)
+	vbox.add_child(pip_outer)
+
 	var pip_row := HBoxContainer.new()
 	pip_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	pip_row.add_theme_constant_override("separation", 0)
-	pip_row.custom_minimum_size = Vector2(0, 36)
-	vbox.add_child(pip_row)
+	pip_outer.add_child(pip_row)
 
-	var lc := _make_pip_display(tile.left,  7, C_PIP_DOT)
+	var lcd := C_TITLE_GLOW if tile.left  < 0 else C_PIP_DOT
+	var rcd := C_TITLE_GLOW if tile.right < 0 else C_PIP_DOT
+	var lc := _make_pip_display(tile.left,  7, lcd)
 	lc.custom_minimum_size = Vector2(28, 0)
 	pip_row.add_child(lc)
 	pip_row.add_child(_make_tile_vsep())
-	var rc := _make_pip_display(tile.right, 7, C_PIP_DOT)
+	var rc := _make_pip_display(tile.right, 7, rcd)
 	rc.custom_minimum_size = Vector2(28, 0)
 	pip_row.add_child(rc)
 
@@ -2686,26 +2801,38 @@ func _build_score_overlay(screen_pos: Vector2, tile_size: Vector2, tile: Domino)
 	var panel := PanelContainer.new()
 	panel.position = screen_pos
 	panel.custom_minimum_size = tile_size
+
+	# Match the new dark-frame tile style
 	var style := StyleBoxFlat.new()
-	style.bg_color     = C_TILE_FACE.darkened(0.06)
+	style.bg_color     = C_TILE_BODY
 	style.border_color = C_TILE_BORDER
-	style.set_border_width_all(2)
-	style.set_corner_radius_all(6)
+	style.set_border_width_all(3); style.set_corner_radius_all(8)
+	style.shadow_color = Color(0, 0, 0, 0.40); style.shadow_size = 3
+	style.set_content_margin_all(4)
 	panel.add_theme_stylebox_override("panel", style)
 
 	var vbox := VBoxContainer.new()
-	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	vbox.add_theme_constant_override("separation", 0)
 	vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(vbox)
 
-	var top := _make_pip_display(tile.left,  12, C_PIP_DOT)
-	top.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vbox.add_child(top)
+	var top_panel := PanelContainer.new()
+	top_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	top_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_set_pip_panel_face(top_panel, C_TILE_FACE, true)
+	var top_dot := C_TITLE_GLOW if tile.left < 0 else C_PIP_DOT
+	top_panel.add_child(_make_pip_display(tile.left, 12, top_dot))
+	vbox.add_child(top_panel)
+
 	vbox.add_child(_make_tile_hsep())
-	var bot := _make_pip_display(tile.right, 12, C_PIP_DOT)
-	bot.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vbox.add_child(bot)
+
+	var bot_panel := PanelContainer.new()
+	bot_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	bot_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_set_pip_panel_face(bot_panel, C_TILE_FACE, false)
+	var bot_dot := C_TITLE_GLOW if tile.right < 0 else C_PIP_DOT
+	bot_panel.add_child(_make_pip_display(tile.right, 12, bot_dot))
+	vbox.add_child(bot_panel)
 
 	_ui_layer.add_child(panel)
 	return panel
@@ -2917,10 +3044,11 @@ func _build_start_removal_tile(index: int, tile: Domino) -> Control:
 	var panel := PanelContainer.new()
 	panel.custom_minimum_size = Vector2(80, 70)
 	var style := StyleBoxFlat.new()
-	style.bg_color     = Color(0.20, 0.08, 0.08) if selected else Color(0.13, 0.11, 0.08)
-	style.border_color = C_LOSE if selected else (C_DIM if at_cap else C_TILE_BORDER)
+	style.bg_color     = C_TILE_BODY
+	style.border_color = C_LOSE if selected else (C_DIM.darkened(0.2) if at_cap else C_TILE_BORDER)
 	style.set_border_width_all(2 if selected else 1)
-	style.set_corner_radius_all(4)
+	style.set_corner_radius_all(5)
+	style.set_content_margin_all(3)
 	panel.add_theme_stylebox_override("panel", style)
 
 	var vbox := VBoxContainer.new()
@@ -2928,17 +3056,27 @@ func _build_start_removal_tile(index: int, tile: Domino) -> Control:
 	vbox.add_theme_constant_override("separation", 2)
 	panel.add_child(vbox)
 
+	# Ivory pip area so dots are visible
+	var pip_outer := PanelContainer.new()
+	pip_outer.custom_minimum_size = Vector2(0, 36)
+	var pip_bg := StyleBoxFlat.new()
+	pip_bg.bg_color = C_TILE_FACE.darkened(0.08) if selected else C_TILE_FACE
+	pip_bg.set_corner_radius_all(3); pip_bg.set_content_margin_all(2)
+	pip_outer.add_theme_stylebox_override("panel", pip_bg)
+	vbox.add_child(pip_outer)
+
 	var pip_row := HBoxContainer.new()
 	pip_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	pip_row.add_theme_constant_override("separation", 0)
-	pip_row.custom_minimum_size = Vector2(0, 40)
-	vbox.add_child(pip_row)
+	pip_outer.add_child(pip_row)
 
-	var lc := _make_pip_display(tile.left,  8, C_PIP_DOT)
+	var lcd2 := C_TITLE_GLOW if tile.left  < 0 else C_PIP_DOT
+	var rcd2 := C_TITLE_GLOW if tile.right < 0 else C_PIP_DOT
+	var lc := _make_pip_display(tile.left,  8, lcd2)
 	lc.custom_minimum_size = Vector2(30, 0)
 	pip_row.add_child(lc)
 	pip_row.add_child(_make_tile_vsep())
-	var rc := _make_pip_display(tile.right, 8, C_PIP_DOT)
+	var rc := _make_pip_display(tile.right, 8, rcd2)
 	rc.custom_minimum_size = Vector2(30, 0)
 	pip_row.add_child(rc)
 
