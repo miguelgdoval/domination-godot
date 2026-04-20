@@ -231,6 +231,11 @@ var _ambient_active: bool = false
 # ---------------------------------------------------------------------------
 var _chain_idle_tweens: Array = []
 
+# ---------------------------------------------------------------------------
+# Tile face texture (loaded once, used by all pip-half panels)
+# ---------------------------------------------------------------------------
+var _tile_face_tex: Texture2D = null
+
 # UI references — title / selection overlays
 var _title_overlay:        Control
 var _core_select_overlay:  Control
@@ -1476,19 +1481,40 @@ func _make_tile_vsep() -> Control:
 	sep.size_flags_vertical  = Control.SIZE_FILL
 	return sep
 
-## Set the face colour of one pip half-panel (top or bottom).
-## Applies rounded corners matching the half position plus content margins.
+## Set the face of one pip half-panel (top or bottom).
+## When _tile_face_tex is loaded: uses StyleBoxTexture + per-channel modulate
+## so the parchment grain shows through every state (dim, selected, hover).
+## Falls back to a flat StyleBoxFlat when no texture is available.
 func _set_pip_panel_face(panel: PanelContainer, face: Color, is_top: bool) -> void:
-	var s := StyleBoxFlat.new()
-	s.bg_color = face
-	s.set_content_margin_all(4)
-	if is_top:
-		s.corner_radius_top_left    = 4; s.corner_radius_top_right    = 4
-		s.corner_radius_bottom_left = 0; s.corner_radius_bottom_right = 0
+	if _tile_face_tex != null:
+		# ── Texture mode ──────────────────────────────────────────────────────
+		# Only create the StyleBoxTexture once; subsequent calls just modulate.
+		if not panel.has_theme_stylebox_override("panel") \
+				or not (panel.get_theme_stylebox("panel") is StyleBoxTexture):
+			var s := StyleBoxTexture.new()
+			s.texture = _tile_face_tex
+			s.set_content_margin_all(5)
+			panel.add_theme_stylebox_override("panel", s)
+		# Scale the texture colour toward the requested face colour per-channel.
+		# face == C_TILE_FACE  → modulate = white  (texture shown as-is)
+		# face == C_TILE_FACE_DIM  → darkens + desaturates naturally
+		# face == C_TILE_FACE_SEL  → warms/ambers it
+		panel.modulate = Color(
+			clampf(face.r / C_TILE_FACE.r, 0.0, 2.0),
+			clampf(face.g / C_TILE_FACE.g, 0.0, 2.0),
+			clampf(face.b / C_TILE_FACE.b, 0.0, 2.0),
+			1.0)
 	else:
-		s.corner_radius_top_left    = 0; s.corner_radius_top_right    = 0
-		s.corner_radius_bottom_left = 4; s.corner_radius_bottom_right = 4
-	panel.add_theme_stylebox_override("panel", s)
+		# ── Flat colour fallback ───────────────────────────────────────────────
+		var s := StyleBoxFlat.new()
+		s.bg_color = face; s.set_content_margin_all(4)
+		if is_top:
+			s.corner_radius_top_left    = 4; s.corner_radius_top_right    = 4
+			s.corner_radius_bottom_left = 0; s.corner_radius_bottom_right = 0
+		else:
+			s.corner_radius_top_left    = 0; s.corner_radius_top_right    = 0
+			s.corner_radius_bottom_left = 4; s.corner_radius_bottom_right = 4
+		panel.add_theme_stylebox_override("panel", s)
 
 ## Style a hand-tile Button: dark ebony frame, thick brass border, drop shadow.
 ## face / hover  — ivory face colour used for the inner pip-half panels.
@@ -1529,6 +1555,11 @@ func _apply_tile_style(btn: Button, face: Color, hover: Color,
 # UI construction
 # ===========================================================================
 func _build_ui() -> void:
+	# Load tile face texture (graceful fallback to flat colour if missing)
+	const TILE_TEX_PATH := "res://assets/tile.png"
+	if ResourceLoader.exists(TILE_TEX_PATH):
+		_tile_face_tex = load(TILE_TEX_PATH)
+
 	_bg_rect = ColorRect.new()
 	_bg_rect.color = C_BG
 	_bg_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
