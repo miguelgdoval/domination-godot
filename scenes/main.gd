@@ -1253,28 +1253,30 @@ func _refresh_tile_visuals() -> void:
 # Domino tile widgets
 # ===========================================================================
 func _create_hand_tile(tile: Domino, index: int) -> Button:
+	# Real domino proportions: 2:1 (98 × 196). 11px inset ensures the ivory face
+	# never intrudes into the 12px rounded corners of the outer ebony frame.
 	var btn := Button.new()
-	btn.custom_minimum_size = Vector2(88, 148)
+	btn.custom_minimum_size = Vector2(98, 196)
 	btn.text = ""
 	btn.clip_contents = true
 
-	# ── Inner layout inset from button edges so the dark body shows as a frame ──
+	# Inner layout — 11px inset on all sides exposes the dark body as a frame
 	var vbox := VBoxContainer.new()
 	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	vbox.offset_left   = 4;  vbox.offset_top    = 4
-	vbox.offset_right  = -4; vbox.offset_bottom = -4
+	vbox.offset_left   = 11; vbox.offset_top    = 11
+	vbox.offset_right  = -11; vbox.offset_bottom = -11
 	vbox.add_theme_constant_override("separation", 0)
 	btn.add_child(vbox)
 
-	# ── Top pip-half panel ──
+	# Top pip-half panel
 	var top_panel := PanelContainer.new()
 	top_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var top_dot := C_TITLE_GLOW if tile.left < 0 else C_PIP_DOT
-	top_panel.add_child(_make_pip_display(tile.left, 15, top_dot))
+	top_panel.add_child(_make_pip_display(tile.left, 17, top_dot))
 	vbox.add_child(top_panel)
 	btn.set_meta("top_panel", top_panel)
 
-	# Rarity / custom name strip (between pip halves, narrow)
+	# Custom name badge (special / wild tiles)
 	if tile.custom_name != "":
 		var name_lbl := Label.new()
 		name_lbl.text = tile.custom_name
@@ -1284,56 +1286,53 @@ func _create_hand_tile(tile: Domino, index: int) -> Button:
 		name_lbl.clip_contents = true
 		vbox.add_child(name_lbl)
 
-	# ── Divider ──
+	# Spine divider with centre spinner rivet
 	vbox.add_child(_make_tile_hsep())
 
-	# ── Bottom pip-half panel ──
+	# Bottom pip-half panel
 	var bot_panel := PanelContainer.new()
 	bot_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var bot_dot := C_TITLE_GLOW if tile.right < 0 else C_PIP_DOT
-	bot_panel.add_child(_make_pip_display(tile.right, 15, bot_dot))
+	bot_panel.add_child(_make_pip_display(tile.right, 17, bot_dot))
 	vbox.add_child(bot_panel)
 	btn.set_meta("bot_panel", bot_panel)
 
-	# ── Connection / selection indicator (bottom strip) ──
-	var conn_lbl := _make_label("", C_DIM, 12)
+	# Connection / selection indicator strip
+	var conn_lbl := _make_label("", C_DIM, 13)
 	conn_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	conn_lbl.custom_minimum_size  = Vector2(0, 16)
+	conn_lbl.custom_minimum_size  = Vector2(0, 18)
 	vbox.add_child(conn_lbl)
 	_tile_conn_lbls.append(conn_lbl)
 
-	# ── Rarity-tinted border: subtle identity per tile grade ──
+	# Rarity-tinted border for subtle tile-grade identity
 	var base_border: Color
 	match tile.rarity:
 		Constants.Rarity.CARVED:   base_border = C_TILE_BORDER.lerp(Color(0.30, 0.72, 0.30), 0.22)
 		Constants.Rarity.IVORY:    base_border = C_TILE_BORDER.lerp(Color(0.90, 0.82, 0.28), 0.30)
 		Constants.Rarity.OBSIDIAN: base_border = C_TILE_BORDER.lerp(Color(0.60, 0.28, 0.92), 0.32)
-		_:                         base_border = C_TILE_BORDER   # BONE: plain brass
+		_:                         base_border = C_TILE_BORDER
 	if tile.is_wild:
-		base_border = C_TITLE_GLOW   # wilds always shine gold
+		base_border = C_TITLE_GLOW
 	btn.set_meta("base_border", base_border)
 
-	# Apply full style (outer frame + pip-half faces)
 	_apply_tile_style(btn, C_TILE_FACE, C_TILE_FACE_HOVER, base_border)
-
-	# All children must be transparent so the Button receives clicks
 	_ignore_mouse(vbox)
-
 	btn.pressed.connect(_on_tile_left_click.bind(index))
 	return btn
 
 func _build_chain_tile(disp_left: int, disp_right: int) -> Control:
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(78, 140)
+	panel.custom_minimum_size = Vector2(88, 176)
 
-	# Dark ebony outer frame — content_margin creates the inner inset
+	# Dark ebony outer frame — 11px content_margin keeps pip panels
+	# safely inside the 12px rounded corners (distance at corner = √(11²+11²) ≈ 15.6px)
 	var style := StyleBoxFlat.new()
-	style.bg_color    = C_TILE_BODY
+	style.bg_color     = C_TILE_BODY
 	style.border_color = C_TILE_BORDER
-	style.set_border_width_all(3)
-	style.set_corner_radius_all(8)
-	style.shadow_color = Color(0, 0, 0, 0.40); style.shadow_size = 3
-	style.set_content_margin_all(4)
+	style.set_border_width_all(4)
+	style.set_corner_radius_all(12)
+	style.shadow_color = Color(0, 0, 0, 0.42); style.shadow_size = 5
+	style.set_content_margin_all(11)
 	panel.add_theme_stylebox_override("panel", style)
 	# Store style ref so _start_tile_breathe can animate the border
 	panel.set_meta("border_style",      style)
@@ -1350,7 +1349,7 @@ func _build_chain_tile(disp_left: int, disp_right: int) -> Control:
 	top_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_set_pip_panel_face(top_panel, C_TILE_FACE, true)
 	var top_dot := C_TITLE_GLOW if disp_left < 0 else C_PIP_DOT
-	top_panel.add_child(_make_pip_display(disp_left, 13, top_dot))
+	top_panel.add_child(_make_pip_display(disp_left, 14, top_dot))
 	vbox.add_child(top_panel)
 
 	vbox.add_child(_make_tile_hsep())
@@ -1361,7 +1360,7 @@ func _build_chain_tile(disp_left: int, disp_right: int) -> Control:
 	bot_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_set_pip_panel_face(bot_panel, C_TILE_FACE, false)
 	var bot_dot := C_TITLE_GLOW if disp_right < 0 else C_PIP_DOT
-	bot_panel.add_child(_make_pip_display(disp_right, 13, bot_dot))
+	bot_panel.add_child(_make_pip_display(disp_right, 14, bot_dot))
 	vbox.add_child(bot_panel)
 
 	return panel
@@ -1376,7 +1375,7 @@ func _make_pip_display(pip: int, dot_size: int, dot_color: Color) -> Control:
 		lbl.text = "★"
 		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-		lbl.add_theme_font_size_override("font_size", dot_size + 8)
+		lbl.add_theme_font_size_override("font_size", dot_size + 12)
 		lbl.add_theme_color_override("font_color", dot_color)
 		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		lbl.size_flags_vertical   = Control.SIZE_EXPAND_FILL
@@ -1384,8 +1383,8 @@ func _make_pip_display(pip: int, dot_size: int, dot_color: Color) -> Control:
 
 	var grid := GridContainer.new()
 	grid.columns = 3
-	grid.add_theme_constant_override("h_separation", 2)
-	grid.add_theme_constant_override("v_separation", 2)
+	grid.add_theme_constant_override("h_separation", 3)
+	grid.add_theme_constant_override("v_separation", 3)
 	# Centre the grid within its parent
 	grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	grid.size_flags_vertical   = Control.SIZE_SHRINK_CENTER
@@ -1467,12 +1466,36 @@ func _ignore_mouse(node: Node) -> void:
 		_ignore_mouse(child)
 
 func _make_tile_hsep() -> Control:
-	var sep := ColorRect.new()
-	sep.color = C_TILE_DIVIDER
-	sep.custom_minimum_size   = Vector2(0, 4)
-	sep.size_flags_horizontal = Control.SIZE_FILL
-	sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return sep
+	# Outer container — 10px tall, full width
+	var outer := Control.new()
+	outer.custom_minimum_size   = Vector2(0, 10)
+	outer.size_flags_horizontal = Control.SIZE_FILL
+	outer.mouse_filter          = Control.MOUSE_FILTER_IGNORE
+
+	# Spine bar across the full width, centred vertically (30%–70%)
+	var bar := ColorRect.new()
+	bar.color          = C_TILE_DIVIDER
+	bar.anchor_left    = 0.0;  bar.anchor_right  = 1.0
+	bar.anchor_top     = 0.35; bar.anchor_bottom = 0.65
+	bar.offset_left    = 0;    bar.offset_right  = 0
+	bar.offset_top     = 0;    bar.offset_bottom = 0
+	bar.mouse_filter   = Control.MOUSE_FILTER_IGNORE
+	outer.add_child(bar)
+
+	# Spinner rivet — a 10×10 rounded circle centred on the spine
+	var rivet := PanelContainer.new()
+	rivet.anchor_left   = 0.5; rivet.anchor_right  = 0.5
+	rivet.anchor_top    = 0.5; rivet.anchor_bottom = 0.5
+	rivet.offset_left   = -5;  rivet.offset_right  = 5
+	rivet.offset_top    = -5;  rivet.offset_bottom = 5
+	rivet.mouse_filter  = Control.MOUSE_FILTER_IGNORE
+	var rs := StyleBoxFlat.new()
+	rs.bg_color = C_TILE_DIVIDER.lightened(0.45)
+	rs.set_corner_radius_all(5)
+	rivet.add_theme_stylebox_override("panel", rs)
+	outer.add_child(rivet)
+
+	return outer
 
 func _make_tile_vsep() -> Control:
 	var sep := ColorRect.new()
@@ -1517,32 +1540,31 @@ func _set_pip_panel_face(panel: PanelContainer, face: Color, is_top: bool) -> vo
 		panel.add_theme_stylebox_override("panel", s)
 
 ## Style a hand-tile Button: dark ebony frame, thick brass border, drop shadow.
-## face / hover  — ivory face colour used for the inner pip-half panels.
-## border        — border colour; defaults to standard brass, pass C_TILE_BORDER_SEL
-##                 for the selected state or a rarity-tinted colour for flavour.
+## face / hover  — face colour used for the inner pip-half panels.
+## border        — border colour; pass C_TILE_BORDER_SEL for selected state.
 func _apply_tile_style(btn: Button, face: Color, hover: Color,
 		border: Color = C_TILE_BORDER) -> void:
-	var shadow := Color(0.0, 0.0, 0.0, 0.42)
+	var shadow := Color(0.0, 0.0, 0.0, 0.45)
 
 	for n in ["normal", "focus"]:
 		var s := StyleBoxFlat.new()
-		s.bg_color    = C_TILE_BODY
+		s.bg_color     = C_TILE_BODY
 		s.border_color = border
-		s.set_border_width_all(3); s.set_corner_radius_all(8)
-		s.shadow_color = shadow; s.shadow_size = 4
+		s.set_border_width_all(4); s.set_corner_radius_all(12)
+		s.shadow_color = shadow; s.shadow_size = 6
 		btn.add_theme_stylebox_override(n, s)
 
 	var sh := StyleBoxFlat.new()
-	sh.bg_color    = C_TILE_BODY.lightened(0.08)
-	sh.border_color = border.lightened(0.28)
-	sh.set_border_width_all(3); sh.set_corner_radius_all(8)
-	sh.shadow_color = shadow; sh.shadow_size = 5
+	sh.bg_color     = C_TILE_BODY.lightened(0.09)
+	sh.border_color = border.lightened(0.30)
+	sh.set_border_width_all(4); sh.set_corner_radius_all(12)
+	sh.shadow_color = shadow; sh.shadow_size = 7
 	btn.add_theme_stylebox_override("hover", sh)
 
 	var sp := StyleBoxFlat.new()
-	sp.bg_color    = C_TILE_BODY.darkened(0.08)
+	sp.bg_color     = C_TILE_BODY.darkened(0.08)
 	sp.border_color = border
-	sp.set_border_width_all(3); sp.set_corner_radius_all(8)
+	sp.set_border_width_all(4); sp.set_corner_radius_all(12)
 	btn.add_theme_stylebox_override("pressed", sp)
 
 	# Update inner pip-half panels (hand tiles store refs in meta)
@@ -2837,9 +2859,9 @@ func _build_score_overlay(screen_pos: Vector2, tile_size: Vector2, tile: Domino)
 	var style := StyleBoxFlat.new()
 	style.bg_color     = C_TILE_BODY
 	style.border_color = C_TILE_BORDER
-	style.set_border_width_all(3); style.set_corner_radius_all(8)
-	style.shadow_color = Color(0, 0, 0, 0.40); style.shadow_size = 3
-	style.set_content_margin_all(4)
+	style.set_border_width_all(4); style.set_corner_radius_all(12)
+	style.shadow_color = Color(0, 0, 0, 0.42); style.shadow_size = 5
+	style.set_content_margin_all(11)
 	panel.add_theme_stylebox_override("panel", style)
 
 	var vbox := VBoxContainer.new()
@@ -2852,7 +2874,7 @@ func _build_score_overlay(screen_pos: Vector2, tile_size: Vector2, tile: Domino)
 	top_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_set_pip_panel_face(top_panel, C_TILE_FACE, true)
 	var top_dot := C_TITLE_GLOW if tile.left < 0 else C_PIP_DOT
-	top_panel.add_child(_make_pip_display(tile.left, 12, top_dot))
+	top_panel.add_child(_make_pip_display(tile.left, 13, top_dot))
 	vbox.add_child(top_panel)
 
 	vbox.add_child(_make_tile_hsep())
@@ -2862,7 +2884,7 @@ func _build_score_overlay(screen_pos: Vector2, tile_size: Vector2, tile: Domino)
 	bot_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_set_pip_panel_face(bot_panel, C_TILE_FACE, false)
 	var bot_dot := C_TITLE_GLOW if tile.right < 0 else C_PIP_DOT
-	bot_panel.add_child(_make_pip_display(tile.right, 12, bot_dot))
+	bot_panel.add_child(_make_pip_display(tile.right, 13, bot_dot))
 	vbox.add_child(bot_panel)
 
 	_ui_layer.add_child(panel)
