@@ -10,10 +10,17 @@ var chosen_protocol: int = 0   # index into Constants.PROTOCOL_*
 var box:             Box
 var modules:         Array = []   # Array[Module] — equipped Calibration Modules
 var module_slots:    int = Constants.BASE_MODULE_SLOTS
+# Consumables
+var reinforcements:  Array = []   # Array[Reinforcement] — up to MAX_REINFORCEMENTS
+const MAX_REINFORCEMENTS: int = 3
+# Mastery contracts
+var active_contracts:    Array = []   # Array[MasteryContract]
+var completed_contracts: Array = []   # Array[String] (ids)
 # Run stats (reset each run)
 var total_chronos:   int = 0   # cumulative Chronos across all rounds
 var best_hand:       int = 0   # highest single-hand Chronos this run
 var hands_played:    int = 0   # total hands played this run
+var doubles_played:  int = 0   # total doubles placed this run (for contracts)
 
 # ---------------------------------------------------------------------------
 # Run initialisation
@@ -26,11 +33,15 @@ func start_run(p_core: int = 0, p_protocol: int = 0,
 	chosen_core     = p_core
 	chosen_protocol = p_protocol
 	box             = Box.create_for_core(p_core)
-	modules         = []
-	module_slots    = Constants.BASE_MODULE_SLOTS
-	total_chronos   = 0
-	best_hand       = 0
-	hands_played    = 0
+	modules             = []
+	module_slots        = Constants.BASE_MODULE_SLOTS
+	reinforcements      = []
+	active_contracts    = []
+	completed_contracts = []
+	total_chronos       = 0
+	best_hand           = 0
+	hands_played        = 0
+	doubles_played      = 0
 	# Protocol starting bonus
 	monedas += Constants.PROTOCOL_BONUS_MONEDAS[p_protocol]
 
@@ -45,6 +56,10 @@ func award_monedas(unused_hands: int) -> int:
 	earned += unused_hands * Constants.MONEDAS_PER_UNUSED_HAND
 	if Constants.is_boss_round(round_index):
 		earned += Constants.BOSS_MONEDAS_BONUS
+	# COIN_PER_ROUND modules — included in the displayed total
+	for m in modules:
+		if m.effect_type == Module.EffectType.COIN_PER_ROUND:
+			earned += m.effect_value
 	monedas += earned
 	return earned
 
@@ -120,9 +135,10 @@ func total_rounds() -> int:
 func is_run_complete() -> bool:
 	return round_index >= total_rounds()
 
-func record_hand(score: int) -> void:
-	total_chronos += score
-	hands_played  += 1
+func record_hand(score: int, chain_doubles: int = 0) -> void:
+	total_chronos  += score
+	hands_played   += 1
+	doubles_played += chain_doubles
 	if score > best_hand:
 		best_hand = score
 
@@ -161,6 +177,56 @@ func module_discard_bonus() -> int:
 		if m.effect_type == Module.EffectType.DISCARD_BONUS:
 			b += m.effect_value
 	return b
+
+# ---------------------------------------------------------------------------
+# Adjusted target (core scales difficulty)
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Module economy helpers
+# ---------------------------------------------------------------------------
+func shop_discount_pct() -> int:
+	var total := 0
+	for m in modules:
+		if m.effect_type == Module.EffectType.SHOP_DISCOUNT:
+			total += m.effect_value
+	return clampi(total, 0, 80)
+
+func chain_coin_bonus(chain_length: int) -> int:
+	var total := 0
+	for m in modules:
+		if m.effect_type == Module.EffectType.CHAIN_COIN_BONUS:
+			if chain_length >= m.effect_param:
+				total += m.effect_value
+	return total
+
+# ---------------------------------------------------------------------------
+# Reinforcement helpers
+# ---------------------------------------------------------------------------
+func has_reinforcement_slot() -> bool:
+	return reinforcements.size() < MAX_REINFORCEMENTS
+
+func add_reinforcement(r: Reinforcement) -> bool:
+	if not has_reinforcement_slot():
+		return false
+	reinforcements.append(r)
+	return true
+
+func use_reinforcement(r: Reinforcement) -> bool:
+	if not reinforcements.has(r):
+		return false
+	reinforcements.erase(r)
+	return true
+
+# ---------------------------------------------------------------------------
+# Mastery contract helpers
+# ---------------------------------------------------------------------------
+func add_contract(c: MasteryContract) -> void:
+	active_contracts.append(c)
+
+func complete_contract(c: MasteryContract) -> void:
+	active_contracts.erase(c)
+	completed_contracts.append(c.id)
+	monedas += c.reward_monedas
 
 # ---------------------------------------------------------------------------
 # Adjusted target (core scales difficulty)

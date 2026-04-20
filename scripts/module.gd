@@ -23,6 +23,11 @@ enum EffectType {
 	LOW_PIP_TO_MULT,    # tiles with total_pips <= effect_param: 0 chips, +effect_value mult each (sacrifice)
 	BLANK_TO_CHIPS,     # each 0-pip face in chain: +effect_value chips (conversion)
 	ROUND_SCALING_MULT, # mult += effect_value × rounds_completed — compounds per round (scaling)
+	# ── Economy & utility ────────────────────────────────────────────────────
+	COIN_PER_ROUND,     # +effect_value Monedas added to round-end award
+	SHOP_DISCOUNT,      # shop item costs reduced by effect_value % (stacks, capped 80%)
+	DOUBLES_CONNECT_ANY,# double tiles can connect to any open pip value
+	CHAIN_COIN_BONUS,   # chain >= effect_param tiles: +effect_value Monedas per play
 }
 
 var id:           String
@@ -34,3 +39,4 @@ var effect_param: int = 0      # secondary parameter (e.g. chain length threshol
 var extra_slots:  int = 0      # additional module slots granted on equip
 var description:  String
 var lore_text:    String = ""
+var icon_path:    String = ""   # res://assets/modules/{id}.png — swap when art arrives

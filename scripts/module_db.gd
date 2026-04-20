@@ -220,6 +220,29 @@ static func all() -> Array[Module]:
 			Module.EffectType.ROUND_SCALING_MULT, 2, 0, 0,
 			"+2 Mult per round cleared. Stronger with every cycle.",
 			"The spiral has no end. Only acceleration."),
+
+		# ------------------------------------------------------------------
+		# ECONOMY & UTILITY — new archetypes
+		# ------------------------------------------------------------------
+		_make("coin_magnet", "Coin Magnet", Constants.Rarity.BONE,
+			Module.EffectType.COIN_PER_ROUND, 2, 0, 0,
+			"+2 Monedas at the end of every round.",
+			"Residual Chronos bleeds into the stipend. Small, but reliable."),
+
+		_make("accelerator_gem", "Accelerator Gem", Constants.Rarity.CARVED,
+			Module.EffectType.SHOP_DISCOUNT, 15, 0, 0,
+			"All shop items cost 15% less.",
+			"The market bends for those who know the right frequencies."),
+
+		_make("transmutation_amulet", "Transmutation Amulet", Constants.Rarity.IVORY,
+			Module.EffectType.DOUBLES_CONNECT_ANY, 0, 0, 0,
+			"Double tiles connect to any open pip value.",
+			"When both faces echo the same signal, the chain accepts them without question."),
+
+		_make("fortune_gauntlet", "Fortune Gauntlet", Constants.Rarity.CARVED,
+			Module.EffectType.CHAIN_COIN_BONUS, 1, 3, 0,
+			"Chains of 3+ tiles award +1 Moneda on play.",
+			"The longer the pulse, the greater the dividend."),
 	]
 
 static func get_by_rarity(rarity: int) -> Array[Module]:
@@ -245,6 +268,7 @@ static func _make(id: String, name: String, rarity: int,
 	m.extra_slots  = slots
 	m.description  = desc
 	m.lore_text    = lore
+	m.icon_path    = "res://assets/modules/%s.png" % id
 	return m
 
 static func _make_extra(id: String, name: String, rarity: int,

@@ -33,6 +33,8 @@ func can_add(domino: Domino) -> bool:
 		return true
 	if left_end == WILD or right_end == WILD:
 		return true
+	if domino.is_double() and _has_doubles_connect_any():
+		return true
 	return (domino.left  == left_end  or domino.right == left_end or
 			domino.left  == right_end or domino.right == right_end)
 
@@ -118,12 +120,29 @@ func display() -> String:
 func _fits_right(domino: Domino) -> bool:
 	if domino.is_wild or right_end == WILD:
 		return true
-	return domino.left == right_end or domino.right == right_end
+	if domino.left == right_end or domino.right == right_end:
+		return true
+	# DOUBLES_CONNECT_ANY: doubles attach to any open end
+	if domino.is_double() and _has_doubles_connect_any():
+		return true
+	return false
 
 func _fits_left(domino: Domino) -> bool:
 	if domino.is_wild or left_end == WILD:
 		return true
-	return domino.left == left_end or domino.right == left_end
+	if domino.left == left_end or domino.right == left_end:
+		return true
+	# DOUBLES_CONNECT_ANY: doubles attach to any open end
+	if domino.is_double() and _has_doubles_connect_any():
+		return true
+	return false
+
+## Returns true if any equipped module grants DOUBLES_CONNECT_ANY.
+func _has_doubles_connect_any() -> bool:
+	for m in GameState.modules:
+		if m.effect_type == Module.EffectType.DOUBLES_CONNECT_ANY:
+			return true
+	return false
 
 ## Append to the RIGHT end. Also records display orientation:
 ## the connecting side faces LEFT (into chain), the exposed side faces RIGHT.
@@ -141,10 +160,14 @@ func _append_right(domino: Domino) -> void:
 		# Left side connects → normal: display as [left | right], expose right
 		disp      = Vector2i(domino.left, domino.right)
 		right_end = domino.right
-	else:
+	elif domino.right == right_end:
 		# Right side connects → flip: display as [right | left], expose left
 		disp      = Vector2i(domino.right, domino.left)
 		right_end = domino.left
+	else:
+		# DOUBLES_CONNECT_ANY: no face matches — display naturally, expose right face
+		disp      = Vector2i(domino.left, domino.right)
+		right_end = domino.right
 	tile_displays.append(disp)
 
 ## Prepend to the LEFT end. Also records display orientation:
@@ -162,8 +185,12 @@ func _prepend_left(domino: Domino) -> void:
 		# Right side connects to chain → display as [left | right], expose left
 		disp     = Vector2i(domino.left, domino.right)
 		left_end = domino.left
-	else:
+	elif domino.left == left_end:
 		# Left side connects to chain → flip: display as [right | left], expose right
 		disp     = Vector2i(domino.right, domino.left)
 		left_end = domino.right
+	else:
+		# DOUBLES_CONNECT_ANY: no face matches — display naturally, expose left face
+		disp     = Vector2i(domino.left, domino.right)
+		left_end = domino.left
 	tile_displays.insert(0, disp)

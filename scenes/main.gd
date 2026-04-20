@@ -133,6 +133,11 @@ var _hand_container:  HBoxContainer
 var _btn_play:        Button
 var _btn_discard:     Button
 var _btn_undo:        Button
+# Reinforcement tray
+var _reinforcement_tray: HBoxContainer
+# Contract indicator
+var _contract_bar:   Control
+var _lbl_contract:   Label
 
 # UI references — result overlay
 var _result_overlay:    Control
@@ -506,10 +511,14 @@ func _on_hand_changed() -> void:
 func _on_hand_scored(result: Dictionary) -> void:
 	_lbl_last_hand.text = "%d chips  ×  %d  =  %d Chronos" % [
 		result["chips"], result["mult"], result["total"]]
-	GameState.record_hand(result["total"])
+	GameState.record_hand(result["total"], result.get("doubles", 0))
 	var dir_bonus: int = _dm.check_play(result)
 	if dir_bonus > 0:
 		GameState.monedas += dir_bonus
+	# CHAIN_COIN_BONUS modules — award Monedas for long-enough chains
+	var coin_bonus: int = GameState.chain_coin_bonus(result.get("length", 0))
+	if coin_bonus > 0:
+		GameState.monedas += coin_bonus
 
 	# Pre-scan modules for display-side chip calculation
 	# (scoring.gd is the source of truth; this is only for the "+N chips" pop-up labels)
@@ -984,6 +993,10 @@ func _populate_artisan_tiles() -> void:
 func _build_shop_item_card(entry: Dictionary) -> Control:
 	var m: Module  = entry["item"]
 	var cost: int  = entry["cost"]
+	# Apply SHOP_DISCOUNT modules
+	var disc: int = GameState.shop_discount_pct()
+	if disc > 0:
+		cost = maxi(1, int(cost * (100 - disc) / 100.0))
 	var bought: bool = m.id in _shop_bought or GameState.owns_module(m.id)
 
 	var panel := PanelContainer.new()
@@ -998,6 +1011,9 @@ func _build_shop_item_card(entry: Dictionary) -> Control:
 	var vbox := VBoxContainer.new()
 	vbox.add_theme_constant_override("separation", 6)
 	panel.add_child(vbox)
+
+	# Module icon — 64×64, loads from assets/modules/{id}.png or shows placeholder
+	vbox.add_child(_build_item_icon(m.icon_path, m.display_name, C_RARITY[m.rarity], Vector2(64, 64)))
 
 	vbox.add_child(_make_label(Constants.RARITY_NAMES[m.rarity].to_upper(), C_RARITY[m.rarity], 11))
 	vbox.add_child(_make_label(m.display_name, C_TEXT, 18))
@@ -1020,7 +1036,10 @@ func _build_shop_item_card(entry: Dictionary) -> Control:
 	var bottom_row := HBoxContainer.new()
 	vbox.add_child(bottom_row)
 
-	var cost_lbl := _make_label("%d Monedas" % cost, C_MONEDAS, 14)
+	var cost_text: String = "%d Monedas" % cost
+	if disc > 0:
+		cost_text += "  (-%d%%)" % disc
+	var cost_lbl := _make_label(cost_text, C_MONEDAS, 14)
 	cost_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	bottom_row.add_child(cost_lbl)
 
@@ -1788,6 +1807,11 @@ func _build_table_area() -> Control:
 	_lbl_table_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(_lbl_table_title)
 
+	# Contract bar — shows active mastery contract + progress (hidden when none)
+	_contract_bar = _build_contract_bar()
+	_contract_bar.hide()
+	vbox.add_child(_contract_bar)
+
 	# Spacer pushes chain to vertical centre
 	var top_spacer := Control.new()
 	top_spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -1854,18 +1878,87 @@ func _build_hand_zone() -> Control:
 	_hand_container = HBoxContainer.new()
 	_hand_container.alignment = BoxContainer.ALIGNMENT_CENTER
 	_hand_container.add_theme_constant_override("separation", 10)
-	_hand_container.custom_minimum_size = Vector2(0, 152)
+	_hand_container.custom_minimum_size = Vector2(0, 210)
 	inner.add_child(_hand_container)
+
+	# Reinforcement tray — 3 consumable slots, hidden until player has any
+	_reinforcement_tray = _build_reinforcement_tray()
+	inner.add_child(_reinforcement_tray)
 
 	inner.add_child(_build_action_bar())
 
 	var hint := _make_label(
-		"Click → chain   Right-click → discard   Space → play   U → undo   Esc → clear",
+		"Click to select   Space → play   U → undo   D → discard   Esc → clear",
 		C_DIM, 11)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	inner.add_child(hint)
 
 	return outer
+
+# ---- Contract bar (active mastery objective indicator) ----
+func _build_contract_bar() -> Control:
+	var hbox := HBoxContainer.new()
+	hbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	hbox.add_theme_constant_override("separation", 10)
+
+	var icon_lbl := _make_label("◈", C_TITLE_GLOW, 14)
+	hbox.add_child(icon_lbl)
+
+	_lbl_contract = _make_label("", C_TEXT, 12)
+	_lbl_contract.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hbox.add_child(_lbl_contract)
+
+	return hbox
+
+## Refresh contract bar visibility and text from GameState.active_contracts.
+func _refresh_contract_bar() -> void:
+	if _contract_bar == null or _lbl_contract == null:
+		return
+	if GameState.active_contracts.is_empty():
+		_contract_bar.hide()
+		return
+	var c: MasteryContract = GameState.active_contracts[0]
+	_lbl_contract.text = "CONTRACT: %s  —  %s" % [c.display_name, c.progress_text()]
+	_contract_bar.show()
+
+# ---- Reinforcement tray (3 consumable slots) ----
+func _build_reinforcement_tray() -> Control:
+	var hbox := HBoxContainer.new()
+	hbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	hbox.add_theme_constant_override("separation", 8)
+	hbox.custom_minimum_size = Vector2(0, 56)
+	# Tray label
+	var lbl := _make_label("REINFORCEMENTS", C_DIM, 10)
+	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	lbl.custom_minimum_size = Vector2(100, 0)
+	hbox.add_child(lbl)
+	# 3 empty slots
+	for i in range(GameState.MAX_REINFORCEMENTS):
+		var slot := _build_reinforcement_slot(null, i)
+		hbox.add_child(slot)
+	return hbox
+
+## Build one reinforcement slot. r = null → empty placeholder.
+func _build_reinforcement_slot(r, slot_index: int) -> Control:
+	var accent: Color = C_DIM if r == null else Color(0.80, 0.65, 0.30)
+	var slot_name: String = "—" if r == null else r.display_name
+	var icon_path: String = "" if r == null else r.icon_path
+	var slot_box := _build_item_icon(icon_path, slot_name, accent, Vector2(48, 48))
+	if r == null:
+		# Dimmed empty slot
+		slot_box.modulate.a = 0.35
+	return slot_box
+
+## Refresh the reinforcement tray to reflect current GameState.reinforcements.
+func _refresh_reinforcement_tray() -> void:
+	if _reinforcement_tray == null:
+		return
+	# Remove old slots (keep the label at index 0)
+	while _reinforcement_tray.get_child_count() > 1:
+		_reinforcement_tray.get_child(1).queue_free()
+	for i in range(GameState.MAX_REINFORCEMENTS):
+		var r = GameState.reinforcements[i] if i < GameState.reinforcements.size() else null
+		_reinforcement_tray.add_child(_build_reinforcement_slot(r, i))
 
 # ---- Action bar ----
 func _build_action_bar() -> Control:
@@ -3255,6 +3348,51 @@ func _make_hsep() -> Control:
 	style.bg_color = Color(0.3, 0.28, 0.22)
 	sep.add_theme_stylebox_override("separator", style)
 	return sep
+
+## Build a square icon box for modules / reinforcements.
+## Tries to load icon_path; if missing, shows a rarity-coloured box with initials.
+func _build_item_icon(icon_path: String, item_name: String,
+		accent: Color, size: Vector2) -> Control:
+	var box := Panel.new()
+	box.custom_minimum_size = size
+	box.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var box_style := StyleBoxFlat.new()
+	box_style.bg_color = accent.darkened(0.55)
+	box_style.set_corner_radius_all(6)
+	box_style.set_border_width_all(1)
+	box_style.border_color = accent.darkened(0.15)
+	box.add_theme_stylebox_override("panel", box_style)
+
+	if icon_path != "" and ResourceLoader.exists(icon_path):
+		var tex_rect := TextureRect.new()
+		tex_rect.texture = load(icon_path)
+		tex_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		tex_rect.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
+		tex_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		tex_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		box.add_child(tex_rect)
+	else:
+		# Placeholder: initials in accent colour
+		var lbl := Label.new()
+		lbl.text = _item_initials(item_name)
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+		lbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		lbl.add_theme_font_size_override("font_size", int(size.y * 0.38))
+		lbl.add_theme_color_override("font_color", accent)
+		lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		box.add_child(lbl)
+
+	return box
+
+## Returns up to 3 uppercase initials from an item's display name.
+func _item_initials(name: String) -> String:
+	var words := name.split(" ")
+	var result := ""
+	for w in words:
+		if w.length() > 0:
+			result += w[0].to_upper()
+	return result.left(3)
 
 # ===========================================================================
 # Run-end cinematic overlay (build)
