@@ -16,18 +16,23 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 config/name="Domination"
 config/description="A domino roguelike — Recalibrate the Perpetual Chronometer"
-run/main_scene="res://scenes/main.tscn"
+run/main_scene="res://scenes/splash.tscn"
 config/features=PackedStringArray("4.6", "GL Compatibility")
 
 [autoload]
 
 Constants="*res://scripts/constants.gd"
 GameState="*res://scripts/game_state.gd"
+AudioManager="*res://scripts/audio_manager.gd"
+SaveManager="*res://scripts/save_manager.gd"
+AdManager="*res://scripts/ad_manager.gd"
 
 [display]
 
 window/size/viewport_width=1280
 window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
 
 [rendering]
 

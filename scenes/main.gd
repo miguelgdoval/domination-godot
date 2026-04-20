@@ -261,6 +261,8 @@ var _tile_face_tex: Texture2D = null
 var _title_overlay:        Control
 var _core_select_overlay:  Control
 var _proto_select_overlay: Control
+var _btn_continue_run:     Button   # shown only when SaveManager has a saved run
+var _settings_overlay:     Control  # volume / mute panel, accessible anywhere
 
 # ===========================================================================
 # Lifecycle
@@ -283,6 +285,15 @@ func _show_title() -> void:
 	_result_overlay.hide()
 	_shop_overlay.hide()
 	_run_end_overlay.hide()
+	# Restore saved audio settings
+	var _s: Dictionary = SaveManager.load_settings()
+	AudioManager.set_sfx_volume(_s.get("sfx_volume", 1.0))
+	AudioManager.set_music_volume(_s.get("music_volume", 0.70))
+	AudioManager.set_mute(_s.get("muted", false))
+	AudioManager.play_music("menu_theme")
+	# Show "Continue" button only when a mid-run save exists
+	if _btn_continue_run != null:
+		_btn_continue_run.visible = SaveManager.has_saved_run()
 
 func _on_title_start_pressed() -> void:
 	_pending_core     = 0
@@ -290,6 +301,17 @@ func _on_title_start_pressed() -> void:
 	_title_overlay.hide()
 	_refresh_core_cards()
 	_core_select_overlay.show()
+
+func _on_continue_run_pressed() -> void:
+	if not SaveManager.has_saved_run():
+		return
+	_title_overlay.hide()
+	SaveManager.load_run()
+	_start_round()
+
+func _on_settings_btn_pressed() -> void:
+	_refresh_settings_overlay()
+	_settings_overlay.show()
 
 func _on_core_card_pressed(index: int) -> void:
 	_pending_core = index
@@ -447,6 +469,9 @@ func _begin_round_play() -> void:
 	_result_overlay.hide()
 	_shop_overlay.hide()
 	_refresh_hud()
+	# Music: boss rounds get the heavier track
+	var track := "boss_ambient" if GameState.is_boss_round() else "game_ambient"
+	AudioManager.play_music(track)
 	_rebuild_hand()
 	_refresh_chain_display()
 	_refresh_directives()
@@ -455,6 +480,7 @@ func _begin_round_play() -> void:
 
 func _end_round(won: bool) -> void:
 	if won:
+		AudioManager.play_sfx("round_clear")
 		_phase = Phase.ROUND_RESULT
 		# Check round-end directives before awarding monedas
 		var dir_bonus: int = _dm.check_round_win()
@@ -645,8 +671,10 @@ func _on_tile_left_click(index: int) -> void:
 	# Normal Balatro-style selection toggle
 	if index in _selected_tiles:
 		_selected_tiles.erase(index)
+		AudioManager.play_sfx("tile_deselect")
 	else:
 		_selected_tiles.append(index)
+		AudioManager.play_sfx("tile_click")
 	_refresh_tile_visuals()
 	_refresh_chain_display()
 	_refresh_action_buttons()
@@ -657,6 +685,7 @@ func _on_play_pressed() -> void:
 	if _rm.hands_remaining <= 0:
 		return
 
+	AudioManager.play_sfx("chain_play")
 	# Validate: preview chain must include all selected tiles in a legal sequence
 	var preview := Chain.new()
 	var tiles_to_play: Array = []
@@ -687,6 +716,7 @@ func _on_play_pressed() -> void:
 func _on_discard_pressed() -> void:
 	if _phase == Phase.PLAYING and not _scoring_active \
 			and not _selected_tiles.is_empty() and _rm.can_discard():
+		AudioManager.play_sfx("discard")
 		_rm.discard(_selected_tiles)
 		_selected_tiles.clear()
 
@@ -976,6 +1006,7 @@ func _on_buy_pressed(entry: Dictionary) -> void:
 		return
 
 	GameState.add_module(m)
+	AudioManager.play_sfx("module_equip")
 	_shop_bought.append(m.id)
 	_populate_shop()
 
@@ -1027,6 +1058,7 @@ func _on_shop_continue_pressed() -> void:
 		_shop_overlay.modulate.a = 1.0
 		_shop_overlay.scale      = Vector2.ONE
 		GameState.advance_round()
+		SaveManager.save_run()
 		if GameState.is_run_complete():
 			_show_run_end(true)
 			return
@@ -1038,6 +1070,21 @@ func _show_run_end(victory: bool) -> void:
 	_ambient_active = false
 	_shop_overlay.hide()
 	_result_overlay.hide()
+	# Persist result + clear mid-run save
+	var improved: bool = SaveManager.record_run_result(
+		GameState.difficulty,
+		GameState.round_index,
+		GameState.total_chronos,
+		GameState.modules.size()
+	)
+	SaveManager.clear_run()
+	_ = improved   # used later for "new personal best" badge (TODO)
+	# Music cue
+	AudioManager.play_music("menu_theme")
+	# Interstitial ad on defeat (fires before stats reveal — 1.5s delay)
+	if not victory:
+		get_tree().create_timer(1.5).timeout.connect(
+			AdManager.show_interstitial, CONNECT_ONE_SHOT)
 
 	# ── Overlay tint: warm dark for victory, blood red for defeat ────────────
 	(_run_end_overlay as ColorRect).color = \
@@ -2001,6 +2048,10 @@ func _build_ui() -> void:
 	_title_overlay = _build_title_overlay()
 	ui.add_child(_title_overlay)
 
+	_settings_overlay = _build_settings_overlay()
+	ui.add_child(_settings_overlay)
+	_settings_overlay.hide()
+
 	# Etapa transition — added LAST so it renders over everything
 	_etapa_transition_overlay = _build_etapa_transition_overlay()
 	ui.add_child(_etapa_transition_overlay)
@@ -2601,6 +2652,32 @@ func _build_title_overlay() -> Control:
 	btn_row.add_child(_make_button(
 		"INITIATE TRIAL CYCLE  →", _on_title_start_pressed, Vector2(280, 54)))
 
+	# "Continue Run" — hidden until SaveManager confirms a mid-run save exists
+	_btn_continue_run = _make_button(
+		"CONTINUE RUN  ↩", _on_continue_run_pressed, Vector2(200, 54))
+	_btn_continue_run.visible = false   # updated in _show_title()
+	# Style it distinctly (teal/cyan)
+	var cs := StyleBoxFlat.new()
+	cs.bg_color     = Color(0.08, 0.22, 0.22)
+	cs.border_color = Color(0.30, 0.80, 0.75)
+	cs.set_border_width_all(2)
+	cs.set_corner_radius_all(6)
+	cs.set_content_margin_all(10)
+	_btn_continue_run.add_theme_stylebox_override("normal", cs)
+	var cs_hov := cs.duplicate() as StyleBoxFlat
+	cs_hov.bg_color = Color(0.10, 0.30, 0.30)
+	_btn_continue_run.add_theme_stylebox_override("hover", cs_hov)
+	btn_row.add_child(_btn_continue_run)
+
+	# Settings gear button — always visible, bottom-right of the overlay
+	var settings_btn := _make_button("⚙", _on_settings_btn_pressed, Vector2(48, 48))
+	settings_btn.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
+	settings_btn.offset_right  = -16
+	settings_btn.offset_bottom = -16
+	settings_btn.offset_left   = settings_btn.offset_right  - 48
+	settings_btn.offset_top    = settings_btn.offset_bottom - 48
+	overlay.add_child(settings_btn)
+
 	return overlay
 
 # ---- Generic selection overlay (used for both Core and Protocol) ----
@@ -3083,7 +3160,7 @@ func _pop_monedas_delta(delta: int) -> void:
 	if _lbl_monedas == null or not is_instance_valid(_lbl_monedas):
 		return
 	var pos := _lbl_monedas.global_position + Vector2(_lbl_monedas.size.x * 0.5, 0)
-	_animate_pop_at(pos, "+%d" % delta, C_MONEDAS, 15, 0.90)
+	_do_tile_pop("+%d" % delta, C_MONEDAS, pos, 15, 0.90)
 
 func _set_chronos_bar(c: int, t: int) -> void:
 	_chronos_bar.max_value = t
@@ -3864,6 +3941,128 @@ func _item_initials(name: String) -> String:
 # ===========================================================================
 ## Constructs the full-screen victory / defeat overlay.
 ## _show_run_end() populates and animates it; this just wires up the nodes.
+## Settings overlay — volume sliders, mute toggle.
+## Accessible from title screen and (in future) from the pause button in-game.
+func _build_settings_overlay() -> Control:
+	var overlay := ColorRect.new()
+	overlay.color = Color(0, 0, 0, 0.82)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.gui_input.connect(func(_e): pass)  # swallow background clicks
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(420, 0)
+	var pstyle := StyleBoxFlat.new()
+	pstyle.bg_color     = Color(0.10, 0.09, 0.07)
+	pstyle.border_color = Color(0.50, 0.45, 0.35)
+	pstyle.set_border_width_all(2)
+	pstyle.set_corner_radius_all(10)
+	pstyle.set_content_margin_all(28)
+	panel.add_theme_stylebox_override("panel", pstyle)
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 20)
+	panel.add_child(vbox)
+
+	# Header
+	var hdr := _make_label("SETTINGS", C_TITLE_GLOW, 22)
+	hdr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(hdr)
+	vbox.add_child(_make_hsep())
+
+	# Music volume
+	var music_row := HBoxContainer.new()
+	music_row.add_theme_constant_override("separation", 12)
+	var music_lbl := _make_label("Music", C_TEXT, 14)
+	music_lbl.custom_minimum_size = Vector2(80, 0)
+	music_row.add_child(music_lbl)
+	var music_slider := HSlider.new()
+	music_slider.min_value   = 0.0
+	music_slider.max_value   = 1.0
+	music_slider.step        = 0.05
+	music_slider.value       = AudioManager.get_music_volume()
+	music_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	music_slider.set_meta("type", "music")
+	music_slider.value_changed.connect(_on_settings_slider_changed.bind(music_slider))
+	music_row.add_child(music_slider)
+	overlay.set_meta("music_slider", music_slider)
+	vbox.add_child(music_row)
+
+	# SFX volume
+	var sfx_row := HBoxContainer.new()
+	sfx_row.add_theme_constant_override("separation", 12)
+	var sfx_lbl := _make_label("SFX", C_TEXT, 14)
+	sfx_lbl.custom_minimum_size = Vector2(80, 0)
+	sfx_row.add_child(sfx_lbl)
+	var sfx_slider := HSlider.new()
+	sfx_slider.min_value   = 0.0
+	sfx_slider.max_value   = 1.0
+	sfx_slider.step        = 0.05
+	sfx_slider.value       = AudioManager.get_sfx_volume()
+	sfx_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sfx_slider.set_meta("type", "sfx")
+	sfx_slider.value_changed.connect(_on_settings_slider_changed.bind(sfx_slider))
+	sfx_row.add_child(sfx_slider)
+	overlay.set_meta("sfx_slider", sfx_slider)
+	vbox.add_child(sfx_row)
+
+	# Mute toggle
+	var mute_row := HBoxContainer.new()
+	mute_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	mute_row.add_theme_constant_override("separation", 12)
+	var mute_lbl := _make_label("Mute All", C_TEXT, 14)
+	mute_row.add_child(mute_lbl)
+	var mute_btn := CheckButton.new()
+	mute_btn.button_pressed = AudioManager.is_muted()
+	mute_btn.toggled.connect(func(b: bool):
+		AudioManager.set_mute(b)
+		_save_audio_settings()
+	)
+	overlay.set_meta("mute_btn", mute_btn)
+	mute_row.add_child(mute_btn)
+	vbox.add_child(mute_row)
+
+	vbox.add_child(_make_hsep())
+
+	# Close button
+	vbox.add_child(_make_button("CLOSE", func():
+		_settings_overlay.hide()
+	, Vector2(160, 44)))
+
+	return overlay
+
+func _refresh_settings_overlay() -> void:
+	if _settings_overlay == null:
+		return
+	var music_sl = _settings_overlay.get_meta("music_slider", null)
+	if music_sl != null:
+		music_sl.value = AudioManager.get_music_volume()
+	var sfx_sl = _settings_overlay.get_meta("sfx_slider", null)
+	if sfx_sl != null:
+		sfx_sl.value = AudioManager.get_sfx_volume()
+	var mute_b = _settings_overlay.get_meta("mute_btn", null)
+	if mute_b != null:
+		mute_b.button_pressed = AudioManager.is_muted()
+
+func _on_settings_slider_changed(value: float, slider: HSlider) -> void:
+	var t: String = slider.get_meta("type", "")
+	if t == "music":
+		AudioManager.set_music_volume(value)
+	elif t == "sfx":
+		AudioManager.set_sfx_volume(value)
+	_save_audio_settings()
+
+func _save_audio_settings() -> void:
+	SaveManager.save_settings(
+		AudioManager.get_sfx_volume(),
+		AudioManager.get_music_volume(),
+		AudioManager.is_muted()
+	)
+
 func _build_run_end_overlay() -> Control:
 	# Root is a ColorRect so _show_run_end() can tint it per outcome
 	var overlay := ColorRect.new()
@@ -4100,7 +4299,7 @@ func _ambient_tick(etapa: int) -> void:
 			if randf() > 0.45:
 				_flicker_label(_lbl_table_title, 0.18)
 			else:
-				_flicker_label(_lbl_chain_bonus, 0.22)
+				_flicker_label(_lbl_preview_total, 0.22)
 
 		2:
 			# Obsidian — more labels affected + occasional amber flash
@@ -4110,7 +4309,7 @@ func _ambient_tick(etapa: int) -> void:
 					_flicker_label(_lbl_etapa,        0.22)
 				1:
 					_flicker_label(_lbl_round,        0.20)
-					_flicker_label(_lbl_chain_bonus,  0.30)
+					_flicker_label(_lbl_preview_total,  0.30)
 				2:
 					_ambient_glitch_flash(Color(1.00, 0.60, 0.10, 0.045))
 
@@ -4128,7 +4327,7 @@ func _ambient_tick(etapa: int) -> void:
 					_flicker_label(_lbl_preview, 0.40)
 				3:
 					_flicker_label(_lbl_table_title, 0.45)
-					_flicker_label(_lbl_chain_bonus,  0.40)
+					_flicker_label(_lbl_preview_total,  0.40)
 					_ambient_glitch_flash(Color(0.20, 0.80, 0.80, 0.05))
 
 	get_tree().create_timer(next).timeout.connect(
