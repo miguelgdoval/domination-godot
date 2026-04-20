@@ -162,11 +162,11 @@ func _update_music_bus_volume() -> void:
 
 func _get_sfx(sfx_name: String) -> AudioStream:
 	if sfx_name in _sfx_cache:
-		return _sfx_cache[sfx_name]
+		return _sfx_cache[sfx_name] as AudioStream
 	for ext in ["ogg", "mp3", "wav"]:
 		var path := SFX_PATH + sfx_name + "." + ext
 		if ResourceLoader.exists(path):
-			var s: AudioStream = load(path)
+			var s := load(path) as AudioStream
 			_sfx_cache[sfx_name] = s
 			return s
 	# File not found — return null silently
@@ -177,7 +177,7 @@ func _load_music(track_name: String) -> AudioStream:
 	for ext in ["ogg", "mp3", "wav"]:
 		var path := MUSIC_PATH + track_name + "." + ext
 		if ResourceLoader.exists(path):
-			return load(path)
+			return load(path) as AudioStream
 	return null
 
 func _ensure_buses() -> void:

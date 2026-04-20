@@ -194,7 +194,7 @@ func _load_from_disk() -> void:
 	file.close()
 	var parsed = JSON.parse_string(text)
 	if parsed is Dictionary:
-		_data = parsed
+		_data = parsed as Dictionary
 	else:
 		push_warning("SaveManager: corrupt save file — resetting")
 		_data = {}
