@@ -137,9 +137,14 @@ var _chronos_bar_fill_style: StyleBoxFlat
 var _hands_dot_row:    HBoxContainer
 var _discards_dot_row: HBoxContainer
 var _chain_container:  HBoxContainer
-var _lbl_preview:      Label
-var _lbl_chain_bonus:  Label   # "N more for +1 Mult" threshold hint
-var _lbl_last_hand:    Label
+var _lbl_preview:          Label   # equation line: "N chips × M"
+var _lbl_preview_total:    Label   # big total line: "= TOTAL" (dominant)
+var _chain_milestone_row:  HBoxContainer   # visual dot-progress bar for chain bonuses
+var _lbl_last_hand:        Label
+# Play button pulse tween (looping amber glow when valid chain ready)
+var _play_pulse_tween: Tween = null
+# Monedas delta tracking (for "+N" pop animation)
+var _last_monedas: int = 0
 var _hand_container:  HBoxContainer
 var _btn_play:        Button
 var _btn_discard:     Button
@@ -1373,9 +1378,15 @@ func _build_equipped_module_card(m: Module) -> Control:
 # Gameplay UI refresh
 # ===========================================================================
 func _refresh_hud() -> void:
-	_lbl_round.text   = GameState.round_display()
-	_lbl_etapa.text   = GameState.etapa_name()
-	_lbl_monedas.text = "Monedas: %d" % GameState.monedas
+	_lbl_round.text = GameState.round_display()
+	_lbl_etapa.text = GameState.etapa_name()
+
+	# Monedas: pop "+N" if value increased during play
+	var new_m := GameState.monedas
+	if new_m > _last_monedas and _phase == Phase.PLAYING and not _scoring_active:
+		call_deferred("_pop_monedas_delta", new_m - _last_monedas)
+	_last_monedas = new_m
+	_lbl_monedas.text = "Monedas: %d" % new_m
 
 	# Chronos bar — skipped during scoring animation (animation drives the fill)
 	if not _scoring_active:
@@ -1445,12 +1456,19 @@ func _refresh_chain_display() -> void:
 
 	if not preview.is_empty():
 		var r: Dictionary = Scoring.calculate(preview, GameState.modules)
-		_lbl_preview.text = "%d chips  ×  %d  =  %d Chronos" % [
-			r["chips"], r["mult"], r["total"]]
-		_refresh_chain_bonus_label(preview.length())
+		# Equation line: dim, small — sets the context
+		_lbl_preview.text = "%d chips  ×  %d" % [r["chips"], r["mult"]]
+		_lbl_preview.add_theme_color_override("font_color", C_DIM)
+		# Total line: large, green — the number the player wants to see
+		_lbl_preview_total.text = "= %d" % r["total"]
+		_lbl_preview_total.add_theme_color_override("font_color", C_CHRONOS)
+		_refresh_chain_milestone(preview.length())
+		_update_chronos_ghost(r["total"])
 	else:
 		_lbl_preview.text = ""
-		_lbl_chain_bonus.text = ""
+		_lbl_preview_total.text = ""
+		_update_chronos_ghost(0)
+		_refresh_chain_milestone(0)
 
 func _refresh_action_buttons() -> void:
 	# Preview must be fully valid (all selected tiles connected) to enable Play
@@ -1462,6 +1480,20 @@ func _refresh_action_buttons() -> void:
 	_btn_undo.disabled    = _selected_tiles.is_empty()
 	_btn_discard.text     = "Discard (%d)" % _selected_tiles.size()
 
+	# Play button glow pulse — looping amber oscillation when a valid chain is ready
+	if not _btn_play.disabled:
+		if _play_pulse_tween == null or not _play_pulse_tween.is_valid():
+			_play_pulse_tween = create_tween().set_loops()
+			_play_pulse_tween.tween_property(_btn_play, "modulate",
+				Color(1.18, 1.08, 0.78), 0.65).set_trans(Tween.TRANS_SINE)
+			_play_pulse_tween.tween_property(_btn_play, "modulate",
+				Color.WHITE, 0.65).set_trans(Tween.TRANS_SINE)
+	else:
+		if _play_pulse_tween != null:
+			_play_pulse_tween.kill()
+			_play_pulse_tween = null
+		_btn_play.modulate = Color.WHITE
+
 func _rebuild_hand() -> void:
 	_selected_tiles.clear()
 	for child in _hand_container.get_children():
@@ -1472,6 +1504,17 @@ func _rebuild_hand() -> void:
 		var btn := _create_hand_tile(_rm.hand[i], i)
 		_hand_container.add_child(btn)
 		_tile_btns.append(btn)
+		# Slide-in animation: pop up from below with fade + scale, staggered per tile
+		if not _scoring_active:
+			btn.modulate.a = 0.0
+			btn.scale      = Vector2(0.88, 0.88)
+			var tw := btn.create_tween().set_parallel(true)
+			tw.tween_property(btn, "modulate:a", 1.0, 0.20) \
+				.set_delay(i * 0.055) \
+				.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+			tw.tween_property(btn, "scale", Vector2.ONE, 0.22) \
+				.set_delay(i * 0.055) \
+				.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	_refresh_tile_visuals()
 	_refresh_action_buttons()
 
@@ -1518,6 +1561,7 @@ func _refresh_tile_visuals() -> void:
 			if conn:
 				conn.text   = "✓" if is_tgt else "?"
 				conn.add_theme_color_override("font_color", C_TARGETING_SEL if is_tgt else C_TARGETING)
+			_apply_tile_lift(btn, false)   # no lift in targeting mode
 			continue
 
 		var sel_order: int = _selected_tiles.find(i)
@@ -1527,9 +1571,11 @@ func _refresh_tile_visuals() -> void:
 			if conn:
 				conn.text = str(sel_order + 1)
 				conn.add_theme_color_override("font_color", C_TILE_BORDER_SEL)
+			_apply_tile_lift(btn, true)    # lift selected tile
 			continue
 
 		# Unselected: show connection arrow relative to current preview end
+		_apply_tile_lift(btn, false)   # ensure tile is at rest
 		if preview.can_add(tile):
 			_apply_tile_style(btn, C_TILE_FACE, C_TILE_FACE_HOVER, base_border)
 			if conn:
@@ -1764,6 +1810,29 @@ func _unhandled_input(event: InputEvent) -> void:
 				_refresh_tile_visuals()
 				_refresh_chain_display()
 				_refresh_action_buttons()
+
+## Animate a hand-tile button lifting (selected) or returning to rest (deselected).
+## State-guarded so tweens don't stack on rapid clicks.
+func _apply_tile_lift(btn: Button, lift: bool) -> void:
+	var was_lifted: bool = btn.get_meta("_lifted", false)
+	if was_lifted == lift:
+		return
+	btn.set_meta("_lifted", lift)
+	var prev: Tween = btn.get_meta("_lt", null)
+	if prev != null and is_instance_valid(prev):
+		prev.kill()
+	var lt := btn.create_tween().set_parallel(true)
+	btn.set_meta("_lt", lt)
+	if lift:
+		lt.tween_property(btn, "position:y", -9.0, 0.12) \
+			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		lt.tween_property(btn, "scale", Vector2(1.04, 1.04), 0.12) \
+			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	else:
+		lt.tween_property(btn, "position:y", 0.0, 0.10) \
+			.set_trans(Tween.TRANS_SPRING).set_ease(Tween.EASE_OUT)
+		lt.tween_property(btn, "scale", Vector2.ONE, 0.10) \
+			.set_trans(Tween.TRANS_SPRING).set_ease(Tween.EASE_OUT)
 
 ## Recursively set MOUSE_FILTER_IGNORE on a node and all its Control children,
 ## so mouse events pass through to the parent Button unobstructed.
@@ -2114,15 +2183,20 @@ func _build_table_area() -> Control:
 	_chain_container.add_theme_constant_override("separation", 10)
 	vbox.add_child(_chain_container)
 
-	# Score preview sits just below the chain
-	_lbl_preview = _make_label("", C_PREVIEW, 16)
+	# Score preview — two lines: equation (dim, small) + total (green, large)
+	_lbl_preview = _make_label("", C_DIM, 13)
 	_lbl_preview.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(_lbl_preview)
 
-	# Chain-length milestone hint  e.g. "2 more for +1 Mult  ·  5 more for +2 Mult"
-	_lbl_chain_bonus = _make_label("", C_DIM, 12)
-	_lbl_chain_bonus.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(_lbl_chain_bonus)
+	_lbl_preview_total = _make_label("", C_CHRONOS, 26)
+	_lbl_preview_total.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(_lbl_preview_total)
+
+	# Chain-length milestone — dot row: ● ● ● ● ┊+1 ○ ○ ○ ┊+2 ○
+	_chain_milestone_row = HBoxContainer.new()
+	_chain_milestone_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	_chain_milestone_row.add_theme_constant_override("separation", 4)
+	vbox.add_child(_chain_milestone_row)
 
 	# Spacer below keeps last-hand result pinned to the bottom
 	var bot_spacer := Control.new()
@@ -2991,6 +3065,26 @@ func _glitch_text(src: String) -> String:
 # ===========================================================================
 # Chronos bar helper
 # ===========================================================================
+## Show projected Chronos total on the bar label when a chain is selected.
+## extra = 0 clears the ghost and shows plain "current / target".
+func _update_chronos_ghost(extra: int) -> void:
+	if _rm == null or _scoring_active:
+		return
+	var c := _rm.chronos
+	var t := _rm.target
+	if extra > 0:
+		var proj := c + extra
+		_chronos_bar_lbl.text = "%d + %d → %d / %d" % [c, extra, proj, t]
+	else:
+		_chronos_bar_lbl.text = "%d / %d" % [c, t]
+
+## Pop a "+N" gold label from the Monedas display whenever coins increase.
+func _pop_monedas_delta(delta: int) -> void:
+	if _lbl_monedas == null or not is_instance_valid(_lbl_monedas):
+		return
+	var pos := _lbl_monedas.global_position + Vector2(_lbl_monedas.size.x * 0.5, 0)
+	_animate_pop_at(pos, "+%d" % delta, C_MONEDAS, 15, 0.90)
+
 func _set_chronos_bar(c: int, t: int) -> void:
 	_chronos_bar.max_value = t
 	_chronos_bar.value     = float(c)
@@ -3007,25 +3101,60 @@ func _set_chronos_bar(c: int, t: int) -> void:
 # ===========================================================================
 # Chain length milestone hint
 # ===========================================================================
-func _refresh_chain_bonus_label(length: int) -> void:
-	var sm := Constants.CHAIN_BONUS_SMALL
-	var lg := Constants.CHAIN_BONUS_LARGE
+## Rebuild the chain milestone dot-row. Shows filled/empty dots up to the
+## large threshold, with milestone flags at each bonus breakpoint.
+func _refresh_chain_milestone(length: int) -> void:
+	for ch in _chain_milestone_row.get_children():
+		ch.queue_free()
 
-	if length >= lg:
-		_lbl_chain_bonus.text = "Chain bonus: +2 Mult  ✓"
-		_lbl_chain_bonus.add_theme_color_override("font_color", C_WIN)
-	elif length >= sm:
-		var need := lg - length
-		_lbl_chain_bonus.text = "+1 Mult  ✓    %d more tile%s for +2 Mult" % \
-			[need, "" if need == 1 else "s"]
-		_lbl_chain_bonus.add_theme_color_override("font_color", C_MONEDAS)
-	else:
-		var ns := sm - length
-		var nl := lg - length
-		_lbl_chain_bonus.text = "%d more for +1 Mult  ·  %d more for +2 Mult" % [ns, nl]
-		# Brighten as player approaches the first threshold
-		var urgency := clampf(float(length) / float(sm), 0.0, 1.0)
-		_lbl_chain_bonus.add_theme_color_override("font_color", C_DIM.lerp(C_TEXT, urgency))
+	var sm := Constants.CHAIN_BONUS_SMALL   # 4 → +1 Mult
+	var lg := Constants.CHAIN_BONUS_LARGE   # 7 → +2 Mult
+	var show := lg + 1                       # show one dot past the large threshold
+
+	for i in range(1, show + 1):
+		# Milestone flag BEFORE each threshold position
+		if i == sm or i == lg:
+			var bonus_str := "+1M" if i == sm else "+2M"
+			var achieved  := length >= i
+			var flag_col  := C_WIN if achieved else C_DIM
+
+			var flag := VBoxContainer.new()
+			flag.alignment = BoxContainer.ALIGNMENT_CENTER
+			flag.add_theme_constant_override("separation", 1)
+			flag.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+
+			var flag_lbl := Label.new()
+			flag_lbl.text = bonus_str
+			flag_lbl.add_theme_font_size_override("font_size", 8)
+			flag_lbl.add_theme_color_override("font_color", flag_col)
+			flag_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			flag.add_child(flag_lbl)
+
+			var flag_bar := ColorRect.new()
+			flag_bar.custom_minimum_size = Vector2(1, 9)
+			flag_bar.color = flag_col
+			flag_bar.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			flag.add_child(flag_bar)
+
+			_chain_milestone_row.add_child(flag)
+
+		# Pip dot for this position
+		var filled     := i <= length
+		var dot_color: Color
+		if filled:
+			dot_color = C_MONEDAS if i >= lg else C_CHRONOS.lerp(C_WIN, 0.4)
+		else:
+			dot_color = Color(0.22, 0.20, 0.17)
+
+		var dp := PanelContainer.new()
+		dp.custom_minimum_size    = Vector2(9, 9)
+		dp.size_flags_vertical    = Control.SIZE_SHRINK_CENTER
+		dp.mouse_filter           = Control.MOUSE_FILTER_IGNORE
+		var ds := StyleBoxFlat.new()
+		ds.bg_color = dot_color
+		ds.set_corner_radius_all(5)
+		dp.add_theme_stylebox_override("panel", ds)
+		_chain_milestone_row.add_child(dp)
 
 # ===========================================================================
 # Module rack (shown during play)
@@ -3184,9 +3313,17 @@ func _run_scoring_sequence(overlay_infos: Array, result: Dictionary,
 		cum_chips.append(running)
 	var total_chips: int = running
 
-	# Initialise the accumulating counter (written to _lbl_preview which is cleared
-	# by _refresh_chain_display on the same frame; this callback runs next frame)
+	# Initialise scoring display: stop play-button pulse, clear total, start counter
 	seq.tween_callback(func():
+		# Kill play button glow — scoring is starting
+		if _play_pulse_tween != null:
+			_play_pulse_tween.kill()
+			_play_pulse_tween = null
+		_btn_play.modulate = Color.WHITE
+		# Clear ghost projection and total label
+		_lbl_preview_total.text = ""
+		_update_chronos_ghost(0)
+		# Start chip accumulation counter
 		_lbl_preview.text = "0  chips"
 		_lbl_preview.add_theme_color_override("font_color", C_DIM)
 		_lbl_preview.add_theme_font_size_override("font_size", 18)
@@ -3262,8 +3399,9 @@ func _run_scoring_sequence(overlay_infos: Array, result: Dictionary,
 	seq.tween_interval(0.28)
 	seq.tween_callback(func():
 		_scoring_active = false
-		_lbl_preview.add_theme_font_size_override("font_size", 16)
-		_lbl_preview.add_theme_color_override("font_color", C_PREVIEW)
+		_lbl_preview.add_theme_font_size_override("font_size", 13)
+		_lbl_preview.add_theme_color_override("font_color", C_DIM)
+		_lbl_preview_total.text = ""   # will repopulate when player makes next selection
 		if _rm != null:
 			_set_chronos_bar(_rm.chronos, _rm.target)
 	)
