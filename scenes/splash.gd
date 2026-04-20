@@ -68,6 +68,7 @@ func _build_ui() -> void:
 	_lbl_title.add_theme_color_override("font_color", C_ACCENT)
 	_lbl_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_lbl_title.modulate.a = 0.0
+	FontManager.apply_display(_lbl_title)
 	vbox.add_child(_lbl_title)
 
 	# Separator line
@@ -84,6 +85,7 @@ func _build_ui() -> void:
 	_lbl_tag.add_theme_color_override("font_color", C_DIM)
 	_lbl_tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_lbl_tag.modulate.a = 0.0
+	FontManager.apply_body(_lbl_tag)
 	vbox.add_child(_lbl_tag)
 
 	# Spacer
@@ -98,6 +100,7 @@ func _build_ui() -> void:
 	_lbl_lore.add_theme_color_override("font_color", C_DIM.darkened(0.2))
 	_lbl_lore.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_lbl_lore.modulate.a = 0.0
+	FontManager.apply_body(_lbl_lore)
 	vbox.add_child(_lbl_lore)
 
 	# "Tap to continue" hint (appears last)
@@ -107,6 +110,7 @@ func _build_ui() -> void:
 	_lbl_tap.add_theme_color_override("font_color", C_DIM.darkened(0.4))
 	_lbl_tap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_lbl_tap.modulate.a = 0.0
+	FontManager.apply_body(_lbl_tap)
 	# Anchor bottom-centre
 	_lbl_tap.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	_lbl_tap.offset_bottom = -28

@@ -2176,6 +2176,7 @@ func _build_hud() -> Control:
 	_chronos_bar_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_chronos_bar_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 	_chronos_bar_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	FontManager.apply_mono(_chronos_bar_lbl)
 	bar_wrap.add_child(_chronos_bar_lbl)
 
 	hbox.add_child(_make_vdiv())
@@ -2212,6 +2213,7 @@ func _build_hud() -> Control:
 	_lbl_monedas.custom_minimum_size = Vector2(120, 0)
 	_lbl_monedas.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_lbl_monedas.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	FontManager.apply_mono(_lbl_monedas)
 	hbox.add_child(_lbl_monedas)
 
 	return panel
@@ -2257,10 +2259,12 @@ func _build_table_area() -> Control:
 	# Score preview — two lines: equation (dim, small) + total (green, large)
 	_lbl_preview = _make_label("", C_DIM, 13)
 	_lbl_preview.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	FontManager.apply_mono(_lbl_preview)
 	vbox.add_child(_lbl_preview)
 
 	_lbl_preview_total = _make_label("", C_CHRONOS, 26)
 	_lbl_preview_total.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	FontManager.apply_mono(_lbl_preview_total)
 	vbox.add_child(_lbl_preview_total)
 
 	# Chain-length milestone — dot row: ● ● ● ● ┊+1 ○ ○ ○ ┊+2 ○
@@ -2277,6 +2281,7 @@ func _build_table_area() -> Control:
 	# Last-hand result — pinned at bottom of table
 	_lbl_last_hand = _make_label("", C_LAST_HAND, 14)
 	_lbl_last_hand.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	FontManager.apply_mono(_lbl_last_hand)
 	vbox.add_child(_lbl_last_hand)
 
 	return panel
@@ -3894,6 +3899,7 @@ func _make_label(text: String, color: Color, size: int = 14) -> Label:
 	lbl.text = text
 	lbl.add_theme_font_size_override("font_size", size)
 	lbl.add_theme_color_override("font_color", color)
+	FontManager.apply_for_size(lbl, size)
 	return lbl
 
 func _make_button(label: String, callback: Callable,
@@ -3902,6 +3908,7 @@ func _make_button(label: String, callback: Callable,
 	btn.text = label
 	btn.custom_minimum_size = min_size
 	btn.pressed.connect(callback)
+	FontManager.apply_semibold(btn)
 	return btn
 
 func _make_hsep() -> Control:

@@ -215,13 +215,14 @@ Hook AudioManager.play_sfx() into:
 ## Phase 4 — Visual Polish
 **Status:** 🔲 Pending
 
-### 4.1 Custom Fonts (highest ROI visual change)
-Download from Google Fonts (all SIL OFL licensed):
-- **Rajdhani Bold** (`assets/fonts/Rajdhani-Bold.ttf`) — titles, round header, HUD labels
-- **Rajdhani Regular** (`assets/fonts/Rajdhani-Regular.ttf`) — body text, descriptions
-- **JetBrains Mono** (`assets/fonts/JetBrainsMono-Regular.ttf`) — pip numbers on tiles
+### 4.1 Custom Fonts ✅ SYSTEM BUILT — awaiting font files
+`scripts/font_manager.gd` autoload is live. Download from Google Fonts (SIL OFL):
+- **Rajdhani-Bold.ttf** → `assets/fonts/` — auto-applies to all labels ≥ 20px
+- **Rajdhani-SemiBold.ttf** → `assets/fonts/` — auto-applies to all buttons
+- **Rajdhani-Regular.ttf** → `assets/fonts/` — auto-applies to all labels < 20px
+- **JetBrainsMono-Regular.ttf** → `assets/fonts/` — auto-applies to score/Chronos/monedas labels
 
-Apply via `theme.tres` resource shared across all labels.
+Drop files in, relaunch — fonts apply everywhere automatically. No code changes needed.
 
 ### 4.2 Tile Art Upgrade
 - Current: procedural styled panels (works, clean)
