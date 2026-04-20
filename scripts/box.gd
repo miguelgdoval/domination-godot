@@ -115,3 +115,27 @@ func all_tiles() -> Array[Domino]:
 	var copy: Array[Domino] = []
 	copy.append_array(_all_tiles)
 	return copy
+
+## Peek at the top N tiles without drawing them (for Compass).
+func peek(count: int) -> Array[Domino]:
+	var result: Array[Domino] = []
+	var n: int = mini(count, _draw_pile.size())
+	for i in range(n):
+		result.append(_draw_pile[_draw_pile.size() - 1 - i])
+	return result
+
+## Return a tile to the draw pile at a random position (for Recycler).
+func return_tile(domino: Domino) -> void:
+	if _draw_pile.is_empty():
+		_draw_pile.append(domino)
+	else:
+		var pos: int = randi() % (_draw_pile.size() + 1)
+		_draw_pile.insert(pos, domino)
+
+## Move a specific tile to the top of the draw pile (for Compass pick).
+func promote_to_top(domino: Domino) -> void:
+	for i in range(_draw_pile.size()):
+		if _draw_pile[i] == domino:
+			_draw_pile.remove_at(i)
+			break
+	_draw_pile.append(domino)  # push_back = top of pile (draw pops from back)

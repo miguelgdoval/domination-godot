@@ -28,6 +28,8 @@ const C_TITLE_GLOW      := Color(0.85, 0.70, 0.30)
 const C_SELECTED_BORDER := Color(0.85, 0.75, 0.30)
 const C_PIP_DOT         := Color(0.09, 0.07, 0.04)   # very dark crisp pip dots
 const C_PIP_DOT_TILE    := Color(0.92, 0.88, 0.80)
+const C_TARGETING       := Color(0.30, 0.90, 0.85)   # teal — reinforcement targeting mode
+const C_TARGETING_SEL   := Color(0.20, 1.00, 0.90)   # bright teal — tile selected for targeting
 
 # ---------------------------------------------------------------------------
 # Artisan / Emporium greeting lines (indexed by etapa 0–3)
@@ -94,6 +96,15 @@ var _rm: RoundManager
 var _dm: DirectiveManager
 var _selected_tiles: Array = []
 var _building_chain: bool  = false   # suppresses intermediate UI refreshes during batch-add
+# Reinforcement targeting state
+var _reinforcement_pending           = null   # Reinforcement being activated (or null)
+var _reinforcement_targets: Array    = []     # hand indices picked during targeting
+var _reinforcement_needs: int        = 0      # how many tiles the pending effect needs
+# Deferred one-shot effect flags
+var _fortune_essence_active: bool    = false  # next chain: +2 bonus Monedas
+var _talisman_active: bool           = false  # next chain: +10 bonus chips
+# Compass modal reference (built on demand)
+var _compass_overlay: Control        = null
 var _tile_btns: Array = []
 var _tile_conn_lbls: Array = []   # connection-arrow labels, parallel to _tile_btns
 var _scoring_active: bool = false # input locked while scoring animation plays
@@ -519,6 +530,15 @@ func _on_hand_scored(result: Dictionary) -> void:
 	var coin_bonus: int = GameState.chain_coin_bonus(result.get("length", 0))
 	if coin_bonus > 0:
 		GameState.monedas += coin_bonus
+	# FORTUNE_ESSENCE — one-shot: +2 bonus Monedas (or 2× module bonus, whichever is larger)
+	if _fortune_essence_active:
+		_fortune_essence_active = false
+		GameState.monedas += maxi(2, coin_bonus)   # guaranteed at least 2 even with no module
+	# GOLD_TALISMAN — one-shot: +10 bonus chips fed back as Chronos
+	if _talisman_active:
+		_talisman_active = false
+		var talisman_chronos: int = 10 * result.get("mult", 1)
+		_rm.chronos += talisman_chronos
 
 	# Pre-scan modules for display-side chip calculation
 	# (scoring.gd is the source of truth; this is only for the "+N chips" pop-up labels)
@@ -613,7 +633,11 @@ func _on_round_ended(won: bool) -> void:
 func _on_tile_left_click(index: int) -> void:
 	if _phase != Phase.PLAYING or _scoring_active:
 		return
-	# Toggle selection (Balatro-style: click to select/deselect, Play acts on selection)
+	# If a reinforcement is waiting for a tile target, route there instead
+	if _reinforcement_pending != null:
+		_on_tile_targeting_click(index)
+		return
+	# Normal Balatro-style selection toggle
 	if index in _selected_tiles:
 		_selected_tiles.erase(index)
 	else:
@@ -670,6 +694,256 @@ func _on_undo_pressed() -> void:
 		_refresh_tile_visuals()
 		_refresh_chain_display()
 		_refresh_action_buttons()
+
+# ===========================================================================
+# Reinforcement tile activation
+# ===========================================================================
+
+## Called when the player clicks a filled reinforcement slot.
+func _on_reinforcement_slot_pressed(r: Reinforcement) -> void:
+	if _phase != Phase.PLAYING or _scoring_active:
+		return
+	_activate_reinforcement(r)
+
+## Dispatch: immediate effects fire now; targeting effects enter picking mode.
+func _activate_reinforcement(r: Reinforcement) -> void:
+	match r.effect_type:
+		# ── Immediate effects ─────────────────────────────────────────────
+		Reinforcement.EffectType.HOURGLASS:
+			_rm.hands_remaining += r.effect_value
+			_rm.max_hands       += r.effect_value
+			GameState.use_reinforcement(r)
+			_refresh_reinforcement_tray()
+			_refresh_hud()
+
+		Reinforcement.EffectType.FORTUNE_ESSENCE:
+			_fortune_essence_active = true
+			GameState.use_reinforcement(r)
+			_refresh_reinforcement_tray()
+
+		Reinforcement.EffectType.GOLD_TALISMAN:
+			_talisman_active = true
+			GameState.use_reinforcement(r)
+			_refresh_reinforcement_tray()
+
+		Reinforcement.EffectType.WILDCARD:
+			# Add a real wild domino to the hand — uses the existing wild-tile system
+			var wild := Domino.new(Domino.WILD, Domino.WILD, 0, true)
+			wild.custom_name = "Comodín"
+			_rm.hand.append(wild)
+			_rm.hand_changed.emit()
+			GameState.use_reinforcement(r)
+			_refresh_reinforcement_tray()
+
+		# ── Targeting effects (1 tile) ────────────────────────────────────
+		Reinforcement.EffectType.BOMB, \
+		Reinforcement.EffectType.RECYCLER, \
+		Reinforcement.EffectType.COPY_MIRROR:
+			_start_reinforcement_targeting(r, 1)
+
+		# ── Targeting effects (2 tiles) ───────────────────────────────────
+		Reinforcement.EffectType.FUSION_HAMMER:
+			_start_reinforcement_targeting(r, 2)
+
+		# ── Special modal ─────────────────────────────────────────────────
+		Reinforcement.EffectType.COMPASS:
+			_show_compass_modal(r)
+
+## Enter tile-targeting mode: hand tiles show teal highlight, next click picks a target.
+func _start_reinforcement_targeting(r: Reinforcement, needs: int) -> void:
+	_reinforcement_pending  = r
+	_reinforcement_needs    = needs
+	_reinforcement_targets.clear()
+	_selected_tiles.clear()          # clear any existing play-selection
+	_refresh_chain_display()
+	_refresh_action_buttons()
+	_refresh_tile_visuals()
+
+## Cancel targeting mode (Esc key or player clicks elsewhere).
+func _cancel_reinforcement_targeting() -> void:
+	_reinforcement_pending = null
+	_reinforcement_targets.clear()
+	_reinforcement_needs   = 0
+	_refresh_tile_visuals()
+	_refresh_action_buttons()
+
+## Handle a tile click while in targeting mode.
+func _on_tile_targeting_click(index: int) -> void:
+	if index >= _rm.hand.size():
+		return
+	# FUSION_HAMMER: disallow picking the same tile twice
+	if _reinforcement_targets.has(index):
+		_reinforcement_targets.erase(index)
+	else:
+		_reinforcement_targets.append(index)
+	_refresh_tile_visuals()
+	if _reinforcement_targets.size() >= _reinforcement_needs:
+		_execute_reinforcement_effect()
+
+## Fire the targeting effect, then clean up targeting state.
+func _execute_reinforcement_effect() -> void:
+	var r: Reinforcement = _reinforcement_pending
+	# Sort descending so removal indices don't shift each other
+	var indices: Array = _reinforcement_targets.duplicate()
+	indices.sort()
+	indices.reverse()
+
+	_cancel_reinforcement_targeting()
+
+	match r.effect_type:
+		Reinforcement.EffectType.BOMB:
+			var idx: int = indices[0]
+			if idx < _rm.hand.size():
+				var t: Domino = _rm.hand[idx]
+				_rm.hand.remove_at(idx)
+				GameState.box.remove_tile(t)
+				_rm.hand_changed.emit()
+
+		Reinforcement.EffectType.RECYCLER:
+			var idx: int = indices[0]
+			if idx < _rm.hand.size():
+				var t: Domino = _rm.hand[idx]
+				_rm.hand.remove_at(idx)
+				GameState.box.return_tile(t)   # put back in draw pile at random position
+				var replacements := _rm.box.draw(1)
+				_rm.hand.append_array(replacements)
+				_rm.hand_changed.emit()
+
+		Reinforcement.EffectType.COPY_MIRROR:
+			var idx: int = indices[0]
+			if idx < _rm.hand.size():
+				var t: Domino = _rm.hand[idx]
+				var copy := Domino.new(t.left, t.right, t.rarity, t.is_wild)
+				copy.custom_name = t.custom_name
+				copy.bonus_chips = t.bonus_chips
+				_rm.hand.append(copy)
+				_rm.hand_changed.emit()
+
+		Reinforcement.EffectType.FUSION_HAMMER:
+			if indices.size() >= 2:
+				var i1: int = indices[0]
+				var i2: int = indices[1]
+				if i1 < _rm.hand.size() and i2 < _rm.hand.size():
+					var t1: Domino = _rm.hand[i1]
+					var t2: Domino = _rm.hand[i2]
+					var max_face: int = maxi(maxi(t1.left, t1.right), maxi(t2.left, t2.right))
+					_rm.hand.remove_at(i1)
+					_rm.hand.remove_at(i2)
+					var fused := Domino.new(max_face, max_face, Constants.Rarity.CARVED)
+					fused.custom_name = "Fused"
+					_rm.hand.append(fused)
+					_rm.hand_changed.emit()
+
+	GameState.use_reinforcement(r)
+	_refresh_reinforcement_tray()
+
+# ---------------------------------------------------------------------------
+# Compass modal — peek top 3, promote one to top of draw pile
+# ---------------------------------------------------------------------------
+func _show_compass_modal(r: Reinforcement) -> void:
+	if _compass_overlay != null:
+		_compass_overlay.queue_free()
+		_compass_overlay = null
+
+	var peeked: Array[Domino] = _rm.box.peek(3)
+	if peeked.is_empty():
+		# Nothing to peek — use immediately with no effect
+		GameState.use_reinforcement(r)
+		_refresh_reinforcement_tray()
+		return
+
+	_compass_overlay = _build_compass_modal(r, peeked)
+	_ui_layer.add_child(_compass_overlay)
+
+func _build_compass_modal(r: Reinforcement, tiles: Array[Domino]) -> Control:
+	var overlay := ColorRect.new()
+	overlay.color = Color(0, 0, 0, 0.65)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(500, 0)
+	var ps := StyleBoxFlat.new()
+	ps.bg_color     = Color(0.10, 0.09, 0.07, 0.98)
+	ps.border_color = C_TARGETING
+	ps.set_border_width_all(2)
+	ps.set_corner_radius_all(8)
+	panel.add_theme_stylebox_override("panel", ps)
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 14)
+	panel.add_child(vbox)
+
+	vbox.add_child(_make_label("BRÚJULA — Next draw", C_TARGETING, 16))
+	vbox.add_child(_make_label("Choose which tile comes next from the box.", C_DIM, 12))
+
+	var tile_row := HBoxContainer.new()
+	tile_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	tile_row.add_theme_constant_override("separation", 14)
+	vbox.add_child(tile_row)
+
+	for i in range(tiles.size()):
+		var t: Domino = tiles[i]
+		var tile_btn := Button.new()
+		tile_btn.text = ""
+		tile_btn.custom_minimum_size = Vector2(88, 176)
+		tile_btn.clip_contents = true
+		var sn := StyleBoxFlat.new()
+		sn.bg_color = C_TILE_BODY; sn.border_color = C_TARGETING
+		sn.set_border_width_all(2); sn.set_corner_radius_all(12)
+		tile_btn.add_theme_stylebox_override("normal", sn)
+		tile_btn.add_theme_stylebox_override("focus",  sn)
+		var sh := StyleBoxFlat.new()
+		sh.bg_color = C_TILE_BODY.lightened(0.12); sh.border_color = C_TARGETING_SEL
+		sh.set_border_width_all(3); sh.set_corner_radius_all(12)
+		tile_btn.add_theme_stylebox_override("hover", sh)
+		# Pip display inside — VBox with top/bot pip halves + divider
+		var inner := VBoxContainer.new()
+		inner.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		inner.offset_left = 11; inner.offset_top = 11
+		inner.offset_right = -11; inner.offset_bottom = -11
+		inner.add_theme_constant_override("separation", 0)
+		inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var tp := PanelContainer.new()
+		tp.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		tp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_set_pip_panel_face(tp, C_TILE_FACE, true)
+		tp.add_child(_make_pip_display(t.left, 14, C_PIP_DOT))
+		inner.add_child(tp)
+		inner.add_child(_make_tile_hsep())
+		var bp := PanelContainer.new()
+		bp.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		bp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_set_pip_panel_face(bp, C_TILE_FACE, false)
+		bp.add_child(_make_pip_display(t.right, 14, C_PIP_DOT))
+		inner.add_child(bp)
+		tile_btn.add_child(inner)
+		tile_btn.pressed.connect(_on_compass_pick.bind(r, t))
+		tile_row.add_child(tile_btn)
+
+	var cancel_btn := _make_button("Cancel (Esc)", _on_compass_cancel, Vector2(140, 40))
+	cancel_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	vbox.add_child(cancel_btn)
+
+	return overlay
+
+func _on_compass_cancel() -> void:
+	if _compass_overlay:
+		_compass_overlay.queue_free()
+		_compass_overlay = null
+
+func _on_compass_pick(r: Reinforcement, chosen: Domino) -> void:
+	_rm.box.promote_to_top(chosen)
+	if _compass_overlay:
+		_compass_overlay.queue_free()
+		_compass_overlay = null
+	GameState.use_reinforcement(r)
+	_refresh_reinforcement_tray()
 
 # ===========================================================================
 # Signal handlers — result overlay
@@ -1235,6 +1509,17 @@ func _refresh_tile_visuals() -> void:
 		if btn.has_meta("base_border"):
 			base_border = btn.get_meta("base_border")
 
+		# Reinforcement targeting mode — teal highlight, replaces normal selection
+		if _reinforcement_pending != null:
+			var is_tgt: bool = _reinforcement_targets.has(i)
+			var tgt_face  := C_TILE_FACE_SEL.lerp(C_TARGETING, 0.55) if is_tgt else C_TILE_FACE
+			var tgt_border := C_TARGETING_SEL if is_tgt else C_TARGETING.darkened(0.25)
+			_apply_tile_style(btn, tgt_face, C_TILE_FACE_HOVER, tgt_border)
+			if conn:
+				conn.text   = "✓" if is_tgt else "?"
+				conn.add_theme_color_override("font_color", C_TARGETING_SEL if is_tgt else C_TARGETING)
+			continue
+
 		var sel_order: int = _selected_tiles.find(i)
 		if sel_order >= 0:
 			# Selected: amber face + bright gold border + order number
@@ -1470,7 +1755,11 @@ func _unhandled_input(event: InputEvent) -> void:
 				_rm.discard(_selected_tiles)
 				_selected_tiles.clear()
 		KEY_ESCAPE:
-			if not _selected_tiles.is_empty():
+			if _compass_overlay != null:
+				_on_compass_cancel()
+			elif _reinforcement_pending != null:
+				_cancel_reinforcement_targeting()
+			elif not _selected_tiles.is_empty():
 				_selected_tiles.clear()
 				_refresh_tile_visuals()
 				_refresh_chain_display()
@@ -1938,16 +2227,54 @@ func _build_reinforcement_tray() -> Control:
 		hbox.add_child(slot)
 	return hbox
 
-## Build one reinforcement slot. r = null → empty placeholder.
-func _build_reinforcement_slot(r, slot_index: int) -> Control:
-	var accent: Color = C_DIM if r == null else Color(0.80, 0.65, 0.30)
-	var slot_name: String = "—" if r == null else r.display_name
-	var icon_path: String = "" if r == null else r.icon_path
-	var slot_box := _build_item_icon(icon_path, slot_name, accent, Vector2(48, 48))
-	if r == null:
-		# Dimmed empty slot
-		slot_box.modulate.a = 0.35
-	return slot_box
+## Build one reinforcement slot button. r = null → empty/disabled placeholder.
+func _build_reinforcement_slot(r, _slot_index: int) -> Control:
+	var btn := Button.new()
+	btn.custom_minimum_size = Vector2(52, 52)
+	btn.text = ""
+	btn.clip_contents = true
+
+	var has_item: bool = r != null
+	var accent: Color = Color(0.80, 0.65, 0.30) if has_item else C_DIM
+
+	# Normal style
+	var sn := StyleBoxFlat.new()
+	sn.bg_color     = C_TILE_BODY if has_item else Color(0.10, 0.09, 0.07)
+	sn.border_color = accent
+	sn.set_border_width_all(2)
+	sn.set_corner_radius_all(6)
+	btn.add_theme_stylebox_override("normal", sn)
+	btn.add_theme_stylebox_override("focus",  sn)
+
+	# Hover style (only matters if enabled)
+	var sh := StyleBoxFlat.new()
+	sh.bg_color     = C_TILE_BODY.lightened(0.12)
+	sh.border_color = accent.lightened(0.25)
+	sh.set_border_width_all(2)
+	sh.set_corner_radius_all(6)
+	btn.add_theme_stylebox_override("hover", sh)
+
+	if has_item:
+		var icon := _build_item_icon(r.icon_path, r.display_name, accent, Vector2(44, 44))
+		icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		btn.add_child(icon)
+		btn.disabled = (_phase != Phase.PLAYING or _scoring_active)
+		btn.tooltip_text = "%s\n%s" % [r.display_name, r.description]
+		btn.pressed.connect(_on_reinforcement_slot_pressed.bind(r))
+	else:
+		btn.disabled = true
+		var lbl := Label.new()
+		lbl.text = "·"
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+		lbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		lbl.add_theme_color_override("font_color", C_DIM)
+		lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		btn.add_child(lbl)
+		btn.modulate.a = 0.35
+
+	return btn
 
 ## Refresh the reinforcement tray to reflect current GameState.reinforcements.
 func _refresh_reinforcement_tray() -> void:
