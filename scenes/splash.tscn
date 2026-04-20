@@ -1,4 +1,4 @@
-[gd_scene load_steps=2 format=3 uid="uid://splash"]
+[gd_scene format=3 uid="uid://splash"]
 
 [ext_resource type="Script" path="res://scenes/splash.gd" id="1_splash"]
 
