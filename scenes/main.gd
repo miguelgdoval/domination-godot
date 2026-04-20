@@ -155,6 +155,20 @@ var _reinforcement_tray: HBoxContainer
 var _contract_bar:   Control
 var _lbl_contract:   Label
 
+# ---------------------------------------------------------------------------
+# Tutorial overlay
+# ---------------------------------------------------------------------------
+var _tutorial_overlay:   Control   # root node (fullscreen)
+var _tut_dim:            ColorRect  # semi-transparent backdrop
+var _tut_spotlight:      Control    # glowing border around target
+var _tut_hint_box:       PanelContainer
+var _tut_hint_title:     Label
+var _tut_hint_body:      Label
+var _tut_next_btn:       Button
+var _tut_step_lbl:       Label      # "1 / 5"
+var _tutorial_step:      int  = 0
+var _tutorial_active:    bool = false
+
 # UI references — result overlay
 var _result_overlay:    Control
 var _lbl_result:        Label
@@ -477,6 +491,9 @@ func _begin_round_play() -> void:
 	_refresh_directives()
 	_refresh_module_rack()
 	_start_ambient_effects(GameState.current_etapa())
+	# Tutorial: show on the very first round of a brand-new run
+	if GameState.round_index == 0 and not SaveManager.is_tutorial_seen():
+		get_tree().create_timer(0.55).timeout.connect(_start_tutorial, CONNECT_ONE_SHOT)
 
 func _end_round(won: bool) -> void:
 	if won:
@@ -2050,6 +2067,10 @@ func _build_ui() -> void:
 	_settings_overlay = _build_settings_overlay()
 	ui.add_child(_settings_overlay)
 	_settings_overlay.hide()
+
+	_tutorial_overlay = _build_tutorial_overlay()
+	ui.add_child(_tutorial_overlay)
+	_tutorial_overlay.hide()
 
 	# Etapa transition — added LAST so it renders over everything
 	_etapa_transition_overlay = _build_etapa_transition_overlay()
@@ -4061,6 +4082,250 @@ func _save_audio_settings() -> void:
 		AudioManager.get_music_volume(),
 		AudioManager.is_muted()
 	)
+
+# ===========================================================================
+# Tutorial overlay
+# ===========================================================================
+
+## Step definitions. Each entry: { title, body, target: Callable→Control, side }
+## side: "below" | "above" | "left" | "right"  — where the hint box appears.
+func _tutorial_steps() -> Array[Dictionary]:
+	var steps: Array[Dictionary] = []
+	steps.append({
+		"title": "Your Isolation Chamber",
+		"body":  "These are your tiles for this hand.\nClick any tile to select it.",
+		"target": func() -> Control: return _hand_container,
+		"side":  "above",
+	})
+	steps.append({
+		"title": "Building the Chain",
+		"body":  "Selected tiles form a Cohesion Pulse.\nTiles connect when a pip value matches\nthe open end of the chain.",
+		"target": func() -> Control: return _chain_container,
+		"side":  "below",
+	})
+	steps.append({
+		"title": "Score Preview",
+		"body":  "See your Chronos before committing.\nChips × Mult = total score.\nLonger chains earn bonus Multiplier.",
+		"target": func() -> Control: return _lbl_preview_total,
+		"side":  "above",
+	})
+	steps.append({
+		"title": "Play Your Chain",
+		"body":  "Press PLAY to score your chain\nand add Chronos to this round.\nYou have a limited number of plays.",
+		"target": func() -> Control: return _btn_play,
+		"side":  "above",
+	})
+	steps.append({
+		"title": "The Chronos Target",
+		"body":  "Reach the target Chronos to clear\nthe round and visit the shop.\nRun out of plays and the run ends.",
+		"target": func() -> Control: return _chronos_bar,
+		"side":  "below",
+	})
+	return steps
+
+func _build_tutorial_overlay() -> Control:
+	var root := Control.new()
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE   # pass clicks through to game
+
+	# Dim backdrop — lets the game stay visible underneath
+	_tut_dim = ColorRect.new()
+	_tut_dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_tut_dim.color = Color(0, 0, 0, 0.62)
+	_tut_dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(_tut_dim)
+
+	# Spotlight — glowing border drawn around the target control
+	_tut_spotlight = Control.new()
+	_tut_spotlight.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(_tut_spotlight)
+	# We draw the spotlight as four thin ColorRects forming a border
+	for side in ["top", "bottom", "left", "right"]:
+		var bar := ColorRect.new()
+		bar.color = C_TITLE_GLOW
+		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		bar.set_meta("side", side)
+		_tut_spotlight.add_child(bar)
+
+	# Hint box — floating card with title, body, next button
+	_tut_hint_box = PanelContainer.new()
+	_tut_hint_box.custom_minimum_size = Vector2(310, 0)
+	var hstyle := StyleBoxFlat.new()
+	hstyle.bg_color     = Color(0.09, 0.08, 0.06, 0.97)
+	hstyle.border_color = C_TITLE_GLOW
+	hstyle.set_border_width_all(2)
+	hstyle.set_corner_radius_all(8)
+	hstyle.set_content_margin_all(16)
+	_tut_hint_box.add_theme_stylebox_override("panel", hstyle)
+	root.add_child(_tut_hint_box)
+
+	var hint_vbox := VBoxContainer.new()
+	hint_vbox.add_theme_constant_override("separation", 10)
+	_tut_hint_box.add_child(hint_vbox)
+
+	_tut_hint_title = _make_label("", C_TITLE_GLOW, 16)
+	hint_vbox.add_child(_tut_hint_title)
+
+	_tut_hint_body = _make_label("", C_TEXT, 13)
+	_tut_hint_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_tut_hint_body.custom_minimum_size = Vector2(278, 0)
+	hint_vbox.add_child(_tut_hint_body)
+
+	var btn_row := HBoxContainer.new()
+	btn_row.alignment = BoxContainer.ALIGNMENT_END
+	btn_row.add_theme_constant_override("separation", 10)
+	hint_vbox.add_child(btn_row)
+
+	_tut_step_lbl = _make_label("1 / 5", C_DIM, 11)
+	_tut_step_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_row.add_child(_tut_step_lbl)
+
+	_tut_next_btn = _make_button("Got it  →", _on_tutorial_next, Vector2(100, 36))
+	btn_row.add_child(_tut_next_btn)
+
+	# Skip button — top-right corner, always visible during tutorial
+	var skip_btn := _make_button("Skip Tutorial", _on_tutorial_skip, Vector2(130, 34))
+	skip_btn.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	skip_btn.offset_right  = -12
+	skip_btn.offset_top    = 12
+	skip_btn.offset_left   = skip_btn.offset_right - 130
+	skip_btn.offset_bottom = skip_btn.offset_top   + 34
+	# Dim style
+	var ss := StyleBoxFlat.new()
+	ss.bg_color     = Color(0.15, 0.14, 0.11)
+	ss.border_color = C_DIM
+	ss.set_border_width_all(1)
+	ss.set_corner_radius_all(5)
+	ss.set_content_margin_all(8)
+	skip_btn.add_theme_stylebox_override("normal", ss)
+	skip_btn.add_theme_color_override("font_color", C_DIM)
+	root.add_child(skip_btn)
+
+	return root
+
+func _start_tutorial() -> void:
+	if _tutorial_active:
+		return
+	_tutorial_active = true
+	_tutorial_step   = 0
+	_tutorial_overlay.show()
+	_show_tutorial_step(_tutorial_step)
+
+func _show_tutorial_step(step: int) -> void:
+	var steps := _tutorial_steps()
+	if step >= steps.size():
+		_finish_tutorial()
+		return
+
+	var data: Dictionary = steps[step]
+	_tut_hint_title.text = data["title"]
+	_tut_hint_body.text  = data["body"]
+	_tut_step_lbl.text   = "%d / %d" % [step + 1, steps.size()]
+	_tut_next_btn.text   = "Got it  →" if step < steps.size() - 1 else "Let's go!"
+
+	# Resolve target control and position spotlight + hint box next frame
+	# (needs layout to be settled)
+	var getter: Callable = data["target"]
+	var side:   String   = data["side"]
+	_tutorial_overlay.modulate.a = 0.0
+	_tutorial_overlay.show()
+	# Wait one frame for layout, then position
+	await get_tree().process_frame
+	var target: Control = getter.call()
+	if not is_instance_valid(target):
+		_on_tutorial_next()
+		return
+	await _position_tutorial_elements(target, side)
+
+	# Fade in
+	var tw := create_tween()
+	tw.tween_property(_tutorial_overlay, "modulate:a", 1.0, 0.22) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+
+func _position_tutorial_elements(target: Control, side: String) -> void:
+	const PAD:    float = 8.0   # gap between spotlight border and target
+	const THICK:  float = 2.5   # spotlight border thickness
+	const MARGIN: float = 12.0  # gap between spotlight and hint box
+
+	var tr: Rect2 = target.get_global_rect()
+	# Expand spotlight slightly beyond the target
+	var sr := tr.grow(PAD)
+
+	# Rebuild spotlight bars to match sr
+	for bar in _tut_spotlight.get_children():
+		var s: String = bar.get_meta("side", "")
+		match s:
+			"top":
+				bar.position = sr.position - Vector2(0, THICK)
+				bar.size     = Vector2(sr.size.x, THICK)
+			"bottom":
+				bar.position = sr.position + Vector2(0, sr.size.y)
+				bar.size     = Vector2(sr.size.x, THICK)
+			"left":
+				bar.position = sr.position - Vector2(THICK, 0)
+				bar.size     = Vector2(THICK, sr.size.y + THICK * 2)
+			"right":
+				bar.position = sr.position + Vector2(sr.size.x, -THICK)
+				bar.size     = Vector2(THICK, sr.size.y + THICK * 2)
+
+	# Force hint box to lay out so we can read its size
+	_tut_hint_box.reset_size()
+	await get_tree().process_frame
+	var hb_size: Vector2 = _tut_hint_box.size
+
+	var vp_size: Vector2 = get_viewport().get_visible_rect().size
+	var hb_pos:  Vector2
+
+	match side:
+		"below":
+			hb_pos = Vector2(
+				clampf(sr.position.x, 8.0, vp_size.x - hb_size.x - 8.0),
+				sr.position.y + sr.size.y + MARGIN
+			)
+		"above":
+			hb_pos = Vector2(
+				clampf(sr.position.x, 8.0, vp_size.x - hb_size.x - 8.0),
+				sr.position.y - hb_size.y - MARGIN
+			)
+		"right":
+			hb_pos = Vector2(
+				sr.position.x + sr.size.x + MARGIN,
+				clampf(sr.position.y, 8.0, vp_size.y - hb_size.y - 8.0)
+			)
+		"left":
+			hb_pos = Vector2(
+				sr.position.x - hb_size.x - MARGIN,
+				clampf(sr.position.y, 8.0, vp_size.y - hb_size.y - 8.0)
+			)
+
+	# Clamp to viewport
+	hb_pos.x = clampf(hb_pos.x, 8.0, vp_size.x - hb_size.x - 8.0)
+	hb_pos.y = clampf(hb_pos.y, 8.0, vp_size.y - hb_size.y - 8.0)
+	_tut_hint_box.position = hb_pos
+
+func _on_tutorial_next() -> void:
+	_tutorial_step += 1
+	var steps := _tutorial_steps()
+	if _tutorial_step >= steps.size():
+		_finish_tutorial()
+		return
+	# Slide hint box out, then show next step
+	var tw := create_tween()
+	tw.tween_property(_tut_hint_box, "modulate:a", 0.0, 0.14)
+	tw.tween_callback(func():
+		_tut_hint_box.modulate.a = 1.0
+		_show_tutorial_step(_tutorial_step)
+	)
+
+func _on_tutorial_skip() -> void:
+	_finish_tutorial()
+
+func _finish_tutorial() -> void:
+	_tutorial_active = false
+	SaveManager.set_tutorial_seen(true)
+	var tw := create_tween()
+	tw.tween_property(_tutorial_overlay, "modulate:a", 0.0, 0.30)
+	tw.tween_callback(_tutorial_overlay.hide)
 
 func _build_run_end_overlay() -> Control:
 	# Root is a ColorRect so _show_run_end() can tint it per outcome
