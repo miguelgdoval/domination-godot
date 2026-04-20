@@ -59,10 +59,10 @@ func _make_music_player() -> AudioStreamPlayer:
 
 ## Play a one-shot sound effect by name (no extension).
 ## e.g. AudioManager.play_sfx("tile_click")
-func play_sfx(name: String, pitch: float = 1.0) -> void:
+func play_sfx(sfx_name: String, pitch: float = 1.0) -> void:
 	if _muted:
 		return
-	var stream := _get_sfx(name)
+	var stream := _get_sfx(sfx_name)
 	if stream == null:
 		return
 	var p := AudioStreamPlayer.new()
@@ -87,13 +87,13 @@ func play_ui_hover() -> void:
 # ---------------------------------------------------------------------------
 
 ## Crossfade to a new music track. Safe to call even if track is already playing.
-func play_music(name: String, fade_time: float = 0.50) -> void:
-	if name == _current_track:
+func play_music(track_name: String, fade_time: float = 0.50) -> void:
+	if track_name == _current_track:
 		return
-	var stream := _load_music(name)
+	var stream := _load_music(track_name)
 	if stream == null:
 		return  # file missing — stay silent
-	_current_track = name
+	_current_track = track_name
 
 	var incoming := _music_player_b if _active_player == _music_player_a else _music_player_a
 	incoming.stream      = stream
@@ -160,22 +160,22 @@ func _update_music_bus_volume() -> void:
 	_music_player_a.volume_db = linear_to_db(vol)
 	_music_player_b.volume_db = linear_to_db(vol)
 
-func _get_sfx(name: String) -> AudioStream:
-	if name in _sfx_cache:
-		return _sfx_cache[name]
+func _get_sfx(sfx_name: String) -> AudioStream:
+	if sfx_name in _sfx_cache:
+		return _sfx_cache[sfx_name]
 	for ext in ["ogg", "mp3", "wav"]:
-		var path := SFX_PATH + name + "." + ext
+		var path := SFX_PATH + sfx_name + "." + ext
 		if ResourceLoader.exists(path):
 			var s: AudioStream = load(path)
-			_sfx_cache[name] = s
+			_sfx_cache[sfx_name] = s
 			return s
 	# File not found — return null silently
-	_sfx_cache[name] = null
+	_sfx_cache[sfx_name] = null
 	return null
 
-func _load_music(name: String) -> AudioStream:
+func _load_music(track_name: String) -> AudioStream:
 	for ext in ["ogg", "mp3", "wav"]:
-		var path := MUSIC_PATH + name + "." + ext
+		var path := MUSIC_PATH + track_name + "." + ext
 		if ResourceLoader.exists(path):
 			return load(path)
 	return null

@@ -1071,14 +1071,13 @@ func _show_run_end(victory: bool) -> void:
 	_shop_overlay.hide()
 	_result_overlay.hide()
 	# Persist result + clear mid-run save
-	var improved: bool = SaveManager.record_run_result(
+	SaveManager.record_run_result(
 		GameState.difficulty,
 		GameState.round_index,
 		GameState.total_chronos,
 		GameState.modules.size()
 	)
 	SaveManager.clear_run()
-	_ = improved   # used later for "new personal best" badge (TODO)
 	# Music cue
 	AudioManager.play_music("menu_theme")
 	# Interstitial ad on defeat (fires before stats reveal — 1.5s delay)
