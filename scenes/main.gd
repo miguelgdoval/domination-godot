@@ -1725,7 +1725,7 @@ func _create_hand_tile(tile: Domino, index: int) -> Button:
 	# Real domino proportions: 2:1 (98 × 196). 11px inset ensures the ivory face
 	# never intrudes into the 12px rounded corners of the outer ebony frame.
 	var btn := Button.new()
-	btn.custom_minimum_size = Vector2(98, 196)
+	btn.custom_minimum_size = Vector2(88, 180)
 	btn.text = ""
 	btn.clip_contents = true
 
@@ -1741,7 +1741,7 @@ func _create_hand_tile(tile: Domino, index: int) -> Button:
 	var top_panel := PanelContainer.new()
 	top_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var top_dot := C_TITLE_GLOW if tile.left < 0 else C_PIP_DOT
-	top_panel.add_child(_make_pip_display(tile.left, 17, top_dot))
+	top_panel.add_child(_make_pip_display(tile.left, 15, top_dot))
 	vbox.add_child(top_panel)
 	btn.set_meta("top_panel", top_panel)
 
@@ -1762,7 +1762,7 @@ func _create_hand_tile(tile: Domino, index: int) -> Button:
 	var bot_panel := PanelContainer.new()
 	bot_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var bot_dot := C_TITLE_GLOW if tile.right < 0 else C_PIP_DOT
-	bot_panel.add_child(_make_pip_display(tile.right, 17, bot_dot))
+	bot_panel.add_child(_make_pip_display(tile.right, 15, bot_dot))
 	vbox.add_child(bot_panel)
 	btn.set_meta("bot_panel", bot_panel)
 
@@ -1791,7 +1791,7 @@ func _create_hand_tile(tile: Domino, index: int) -> Button:
 
 func _build_chain_tile(disp_left: int, disp_right: int) -> Control:
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(88, 176)
+	panel.custom_minimum_size = Vector2(76, 140)
 
 	# Dark ebony outer frame — 11px content_margin keeps pip panels
 	# safely inside the 12px rounded corners (distance at corner = √(11²+11²) ≈ 15.6px)
@@ -1818,7 +1818,7 @@ func _build_chain_tile(disp_left: int, disp_right: int) -> Control:
 	top_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_set_pip_panel_face(top_panel, C_TILE_FACE, true)
 	var top_dot := C_TITLE_GLOW if disp_left < 0 else C_PIP_DOT
-	top_panel.add_child(_make_pip_display(disp_left, 14, top_dot))
+	top_panel.add_child(_make_pip_display(disp_left, 11, top_dot))
 	vbox.add_child(top_panel)
 
 	vbox.add_child(_make_tile_hsep())
@@ -1829,7 +1829,7 @@ func _build_chain_tile(disp_left: int, disp_right: int) -> Control:
 	bot_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_set_pip_panel_face(bot_panel, C_TILE_FACE, false)
 	var bot_dot := C_TITLE_GLOW if disp_right < 0 else C_PIP_DOT
-	bot_panel.add_child(_make_pip_display(disp_right, 14, bot_dot))
+	bot_panel.add_child(_make_pip_display(disp_right, 11, bot_dot))
 	vbox.add_child(bot_panel)
 
 	return panel
@@ -2098,6 +2098,7 @@ func _build_ui() -> void:
 	# Mid row: contracts | center(table+chain bar) | artifacts
 	var mid_hbox := HBoxContainer.new()
 	mid_hbox.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	mid_hbox.custom_minimum_size = Vector2(0, 220)
 	mid_hbox.add_theme_constant_override("separation", 0)
 	root.add_child(mid_hbox)
 
@@ -2113,8 +2114,9 @@ func _build_ui() -> void:
 
 	mid_hbox.add_child(_build_artifacts_panel())
 
-	# Bottom row: tile box | hand zone | usables
+	# Bottom row: tile box | hand zone | usables (shrinks to minimum, never steals mid space)
 	var bottom_hbox := HBoxContainer.new()
+	bottom_hbox.size_flags_vertical = Control.SIZE_SHRINK_END
 	bottom_hbox.add_theme_constant_override("separation", 0)
 	root.add_child(bottom_hbox)
 
@@ -2809,7 +2811,7 @@ func _build_hand_zone() -> Control:
 	_hand_container = HBoxContainer.new()
 	_hand_container.alignment = BoxContainer.ALIGNMENT_CENTER
 	_hand_container.add_theme_constant_override("separation", 10)
-	_hand_container.custom_minimum_size = Vector2(0, 210)
+	_hand_container.custom_minimum_size = Vector2(0, 188)
 	inner.add_child(_hand_container)
 
 	# Reinforcement tray — 3 consumable slots, hidden until player has any
@@ -2817,12 +2819,6 @@ func _build_hand_zone() -> Control:
 	inner.add_child(_reinforcement_tray)
 
 	inner.add_child(_build_action_bar())
-
-	var hint := _make_label(
-		"Click to select   Space → play   U → undo   D → discard   Esc → clear",
-		C_DIM, 11)
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	inner.add_child(hint)
 
 	return outer
 
@@ -2887,7 +2883,7 @@ func _build_reinforcement_tray() -> Control:
 	var hbox := HBoxContainer.new()
 	hbox.alignment = BoxContainer.ALIGNMENT_CENTER
 	hbox.add_theme_constant_override("separation", 8)
-	hbox.custom_minimum_size = Vector2(0, 56)
+	hbox.custom_minimum_size = Vector2(0, 44)
 	# Tray label
 	var lbl := _make_label("REINFORCEMENTS", C_DIM, 10)
 	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -2966,10 +2962,10 @@ func _build_action_bar() -> Control:
 	var hbox := HBoxContainer.new()
 	hbox.alignment = BoxContainer.ALIGNMENT_CENTER
 	hbox.add_theme_constant_override("separation", 16)
-	hbox.custom_minimum_size = Vector2(0, 58)
-	_btn_undo    = _make_button("↩ Undo",       _on_undo_pressed,    Vector2(120, 50))
-	_btn_discard = _make_button("Discard (0)",   _on_discard_pressed, Vector2(160, 50))
-	_btn_play    = _make_button("▶  Play Pulse", _on_play_pressed,    Vector2(180, 50))
+	hbox.custom_minimum_size = Vector2(0, 48)
+	_btn_undo    = _make_button("↩ Undo",       _on_undo_pressed,    Vector2(110, 42))
+	_btn_discard = _make_button("Discard (0)",   _on_discard_pressed, Vector2(148, 42))
+	_btn_play    = _make_button("▶  Play Pulse", _on_play_pressed,    Vector2(166, 42))
 	hbox.add_child(_btn_undo)
 	hbox.add_child(_btn_discard)
 	hbox.add_child(_btn_play)
