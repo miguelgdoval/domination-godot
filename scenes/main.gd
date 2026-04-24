@@ -32,6 +32,23 @@ const C_TARGETING       := Color(0.30, 0.90, 0.85)   # teal — reinforcement ta
 const C_TARGETING_SEL   := Color(0.20, 1.00, 0.90)   # bright teal — tile selected for targeting
 
 # ---------------------------------------------------------------------------
+# Design-image palette additions
+# ---------------------------------------------------------------------------
+const C_WOOD         := Color(0.09, 0.06, 0.03)
+const C_FELT         := Color(0.07, 0.16, 0.09)
+const C_FELT_BORDER  := Color(0.18, 0.32, 0.18)
+const C_PANEL_DARK   := Color(0.08, 0.06, 0.04, 0.97)
+const C_PARCHMENT    := Color(0.18, 0.15, 0.10, 0.95)
+const C_GOLD_RIM     := Color(0.52, 0.40, 0.16)
+const C_GOLD_TITLE   := Color(0.85, 0.72, 0.30)
+const C_MANOS_BG     := Color(0.10, 0.16, 0.28, 0.92)
+const C_DISC_BG      := Color(0.28, 0.08, 0.08, 0.92)
+const C_ARTIFACT_HDR := Color(0.18, 0.08, 0.30, 0.95)
+const C_CHAIN_BAR_BG := Color(0.06, 0.14, 0.14, 0.90)
+const C_SCORE_BIG    := Color(0.90, 0.76, 0.22)
+const C_MULT         := Color(0.72, 0.30, 0.90)
+
+# ---------------------------------------------------------------------------
 # Artisan / Emporium greeting lines (indexed by etapa 0–3)
 # ---------------------------------------------------------------------------
 const EMPORIUM_GREETINGS: Array = [
@@ -277,6 +294,20 @@ var _core_select_overlay:  Control
 var _proto_select_overlay: Control
 var _btn_continue_run:     Button   # shown only when SaveManager has a saved run
 var _settings_overlay:     Control  # volume / mute panel, accessible anywhere
+
+# ---------------------------------------------------------------------------
+# Design-image layout refs
+# ---------------------------------------------------------------------------
+var _lbl_score_big:       Label
+var _lbl_score_label:     Label
+var _lbl_manos_count:     Label
+var _lbl_descartes_count: Label
+var _contracts_vbox:      VBoxContainer
+var _artifacts_vbox:      VBoxContainer
+var _usables_hbox:        HBoxContainer
+var _lbl_tile_box_count:  Label
+var _chain_info_lbl:      Label
+var _chain_bonus_lbl:     Label
 
 # ===========================================================================
 # Lifecycle
@@ -1457,7 +1488,18 @@ func _refresh_hud() -> void:
 		var c: int = _rm.chronos if _rm != null else 0
 		_set_chronos_bar(c, t)
 
-	# Hands dots
+	# Big score label (shows chronos / score accumulated)
+	if _lbl_score_big != null:
+		var score_val: int = _rm.chronos if _rm != null else 0
+		_lbl_score_big.text = "%d" % score_val
+
+	# Manos / Descartes pill counts
+	if _lbl_manos_count != null and _rm != null:
+		_lbl_manos_count.text = "%d/%d" % [_rm.hands_remaining, _rm.max_hands]
+	if _lbl_descartes_count != null and _rm != null:
+		_lbl_descartes_count.text = "%d/%d" % [_rm.discards_remaining, _rm.max_discards]
+
+	# Hands dots — hidden HBoxContainers kept for compatibility; still update them
 	for ch in _hands_dot_row.get_children(): ch.queue_free()
 	var hands_color := Color(0.7, 0.8, 1.0)
 	var last_hand := _rm.hands_remaining == 1 and not _rm.did_win()
@@ -1466,11 +1508,16 @@ func _refresh_hud() -> void:
 		_hands_dot_row.add_child(_make_hud_dot(
 			filled, C_LOSE if (last_hand and filled) else hands_color))
 
-	# Discards dots
+	# Discards dots — hidden HBoxContainers kept for compatibility; still update them
 	for ch in _discards_dot_row.get_children(): ch.queue_free()
 	for i in range(_rm.max_discards):
 		_discards_dot_row.add_child(
 			_make_hud_dot(i < _rm.discards_remaining, Color(0.8, 0.7, 1.0)))
+
+	# Refresh side panels and tile box
+	_refresh_contracts_panel()
+	_refresh_artifacts_panel()
+	_refresh_tile_box()
 
 ## Build a preview Chain from the current selection (in click order).
 ## Stops at the first tile that fails to connect — partial chains are valid previews.
@@ -1527,11 +1574,20 @@ func _refresh_chain_display() -> void:
 		_lbl_preview_total.add_theme_color_override("font_color", C_CHRONOS)
 		_refresh_chain_milestone(preview.length())
 		_update_chronos_ghost(r["total"])
+		# Chain info bar update
+		if _chain_info_lbl != null:
+			_chain_info_lbl.text = "CADENA: %d" % preview.length()
+		if _chain_bonus_lbl != null:
+			_chain_bonus_lbl.text = "+%d" % r["total"]
 	else:
 		_lbl_preview.text = ""
 		_lbl_preview_total.text = ""
 		_update_chronos_ghost(0)
 		_refresh_chain_milestone(0)
+		if _chain_info_lbl != null:
+			_chain_info_lbl.text = "CADENA: 0"
+		if _chain_bonus_lbl != null:
+			_chain_bonus_lbl.text = ""
 
 func _refresh_action_buttons() -> void:
 	# Preview must be fully valid (all selected tiles connected) to enable Play
@@ -2033,13 +2089,40 @@ func _build_ui() -> void:
 
 	var root := VBoxContainer.new()
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	root.add_theme_constant_override("separation", 8)
+	root.add_theme_constant_override("separation", 0)
 	ui.add_child(root)
 
-	root.add_theme_constant_override("separation", 0)
+	# Top HUD bar
 	root.add_child(_build_hud())
-	root.add_child(_build_table_area())
-	root.add_child(_build_hand_zone())
+
+	# Mid row: contracts | center(table+chain bar) | artifacts
+	var mid_hbox := HBoxContainer.new()
+	mid_hbox.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	mid_hbox.add_theme_constant_override("separation", 0)
+	root.add_child(mid_hbox)
+
+	mid_hbox.add_child(_build_contracts_panel())
+
+	var center_vbox := VBoxContainer.new()
+	center_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	center_vbox.add_theme_constant_override("separation", 0)
+	mid_hbox.add_child(center_vbox)
+
+	center_vbox.add_child(_build_table_area())
+	center_vbox.add_child(_build_chain_info_bar())
+
+	mid_hbox.add_child(_build_artifacts_panel())
+
+	# Bottom row: tile box | hand zone | usables
+	var bottom_hbox := HBoxContainer.new()
+	bottom_hbox.add_theme_constant_override("separation", 0)
+	root.add_child(bottom_hbox)
+
+	bottom_hbox.add_child(_build_tile_box_panel())
+	var hand_zone := _build_hand_zone()
+	hand_zone.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bottom_hbox.add_child(hand_zone)
+	bottom_hbox.add_child(_build_usables_panel())
 
 	_result_overlay = _build_result_overlay()
 	ui.add_child(_result_overlay)
@@ -2116,44 +2199,79 @@ func _build_ui() -> void:
 
 # ---- HUD ----
 func _build_hud() -> Control:
+	# ASSET HOOK: swap StyleBoxFlat → StyleBoxTexture when hud_panel.png ready
 	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(0, 64)
 	_hud_style = StyleBoxFlat.new()
-	_hud_style.bg_color = C_PANEL
-	panel.add_theme_stylebox_override("panel", _hud_style)
+	_hud_style.bg_color = C_WOOD
+	_hud_style.border_color = C_GOLD_RIM
+	_hud_style.border_width_bottom = 2
+	panel.add_theme_stylebox_override("panel", _style_or_tex("res://assets/ui/hud_panel.png", _hud_style))
 
 	var hbox := HBoxContainer.new()
-	hbox.add_theme_constant_override("separation", 12)
+	hbox.add_theme_constant_override("separation", 8)
+	hbox.alignment = BoxContainer.ALIGNMENT_CENTER
 	panel.add_child(hbox)
 
-	# ── Section 1: Round + Etapa ──────────────────────────
-	var left_vbox := VBoxContainer.new()
-	left_vbox.add_theme_constant_override("separation", 2)
-	left_vbox.custom_minimum_size = Vector2(130, 0)
-	left_vbox.alignment = BoxContainer.ALIGNMENT_CENTER
-	hbox.add_child(left_vbox)
-	_lbl_round = _make_label("Round 1 / 15", C_TEXT, 13)
-	_lbl_etapa = _make_label("Mahogany", C_DIM, 11)
-	left_vbox.add_child(_lbl_round)
-	left_vbox.add_child(_lbl_etapa)
+	# ── MANOS pill (blue tint) ────────────────────────────
+	var manos_pc := PanelContainer.new()
+	manos_pc.custom_minimum_size = Vector2(120, 52)
+	var manos_style := StyleBoxFlat.new()
+	manos_style.bg_color = C_MANOS_BG
+	manos_style.set_corner_radius_all(8)
+	manos_style.set_border_width_all(1)
+	manos_style.border_color = C_GOLD_RIM
+	manos_pc.add_theme_stylebox_override("panel", manos_style)
+	hbox.add_child(manos_pc)
 
-	hbox.add_child(_make_vdiv())
+	var manos_vbox := VBoxContainer.new()
+	manos_vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	manos_vbox.add_theme_constant_override("separation", 2)
+	manos_pc.add_child(manos_vbox)
 
-	# ── Section 2: Chronos progress bar (dominant) ────────
-	var bar_col := VBoxContainer.new()
-	bar_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	bar_col.add_theme_constant_override("separation", 3)
-	bar_col.alignment = BoxContainer.ALIGNMENT_CENTER
-	hbox.add_child(bar_col)
+	var manos_lbl := _make_label("MANOS", C_DIM, 10)
+	manos_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	manos_vbox.add_child(manos_lbl)
 
-	var bar_title := _make_label("CHRONOS", C_DIM, 10)
-	bar_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	bar_col.add_child(bar_title)
+	var manos_count_row := HBoxContainer.new()
+	manos_count_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	manos_count_row.add_theme_constant_override("separation", 4)
+	manos_vbox.add_child(manos_count_row)
+	manos_count_row.add_child(_make_label("✋", C_TEXT, 14))
+	_lbl_manos_count = _make_label("0/0", C_TEXT, 22)
+	FontManager.apply_mono(_lbl_manos_count)
+	manos_count_row.add_child(_lbl_manos_count)
 
-	# Stacked: ProgressBar behind a centred label
+	# Hidden dot rows kept for _refresh_hud() compatibility
+	_hands_dot_row = HBoxContainer.new()
+	_hands_dot_row.visible = false
+	manos_vbox.add_child(_hands_dot_row)
+
+	# ── Left spacer ───────────────────────────────────────
+	var spacer_l := Control.new()
+	spacer_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hbox.add_child(spacer_l)
+
+	# ── Score block (center) ──────────────────────────────
+	var score_vbox := VBoxContainer.new()
+	score_vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	score_vbox.add_theme_constant_override("separation", 2)
+	hbox.add_child(score_vbox)
+
+	_lbl_score_label = _make_label("PUNTUACIÓN DE RONDA", C_DIM, 10)
+	_lbl_score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	score_vbox.add_child(_lbl_score_label)
+
+	_lbl_score_big = _make_label("0", C_SCORE_BIG, 42)
+	_lbl_score_big.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	FontManager.apply_mono(_lbl_score_big)
+	score_vbox.add_child(_lbl_score_big)
+
+	# Chronos bar — slim 6px, kept here for _apply_etapa_theme compatibility
 	var bar_wrap := Control.new()
-	bar_wrap.custom_minimum_size = Vector2(0, 22)
+	bar_wrap.custom_minimum_size = Vector2(180, 6)
 	bar_wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	bar_col.add_child(bar_wrap)
+	score_vbox.add_child(bar_wrap)
 
 	_chronos_bar = ProgressBar.new()
 	_chronos_bar.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -2163,70 +2281,96 @@ func _build_hud() -> Control:
 	_chronos_bar.show_percentage = false
 	var bar_bg := StyleBoxFlat.new()
 	bar_bg.bg_color = Color(0.08, 0.07, 0.05)
-	bar_bg.set_corner_radius_all(4)
+	bar_bg.set_corner_radius_all(3)
 	_chronos_bar.add_theme_stylebox_override("background", bar_bg)
 	_chronos_bar_fill_style = StyleBoxFlat.new()
 	_chronos_bar_fill_style.bg_color = C_CHRONOS.darkened(0.3)
-	_chronos_bar_fill_style.set_corner_radius_all(4)
+	_chronos_bar_fill_style.set_corner_radius_all(3)
 	_chronos_bar.add_theme_stylebox_override("fill", _chronos_bar_fill_style)
 	bar_wrap.add_child(_chronos_bar)
 
-	_chronos_bar_lbl = _make_label("0 / 0", C_TEXT, 12)
-	_chronos_bar_lbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_chronos_bar_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_chronos_bar_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	_chronos_bar_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Invisible chronos label — still needed by _set_chronos_bar
+	_chronos_bar_lbl = _make_label("", C_TEXT, 12)
+	_chronos_bar_lbl.visible = false
 	FontManager.apply_mono(_chronos_bar_lbl)
-	bar_wrap.add_child(_chronos_bar_lbl)
+	score_vbox.add_child(_chronos_bar_lbl)
 
-	hbox.add_child(_make_vdiv())
+	# Round / Etapa / Monedas — kept for _refresh_hud + _apply_etapa_theme
+	_lbl_round   = _make_label("Round 1 / 15", C_DIM, 10)
+	_lbl_etapa   = _make_label("Mahogany", C_DIM, 10)
+	_lbl_monedas = _make_label("Monedas: 0", C_MONEDAS, 10)
+	_lbl_round.visible   = false
+	_lbl_etapa.visible   = false
+	_lbl_monedas.visible = false
+	score_vbox.add_child(_lbl_round)
+	score_vbox.add_child(_lbl_etapa)
+	score_vbox.add_child(_lbl_monedas)
 
-	# ── Section 3: Hands + Discards dot indicators ────────
-	var counts_col := VBoxContainer.new()
-	counts_col.add_theme_constant_override("separation", 5)
-	counts_col.alignment = BoxContainer.ALIGNMENT_CENTER
-	counts_col.custom_minimum_size = Vector2(150, 0)
-	hbox.add_child(counts_col)
+	# ── Right spacer ──────────────────────────────────────
+	var spacer_r := Control.new()
+	spacer_r.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hbox.add_child(spacer_r)
 
-	var h_row := HBoxContainer.new()
-	h_row.add_theme_constant_override("separation", 6)
-	h_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	counts_col.add_child(h_row)
-	h_row.add_child(_make_label("HANDS", C_DIM, 10))
-	_hands_dot_row = HBoxContainer.new()
-	_hands_dot_row.add_theme_constant_override("separation", 4)
-	h_row.add_child(_hands_dot_row)
+	# ── DESCARTES pill (red tint) ─────────────────────────
+	var disc_pc := PanelContainer.new()
+	disc_pc.custom_minimum_size = Vector2(120, 52)
+	var disc_style := StyleBoxFlat.new()
+	disc_style.bg_color = C_DISC_BG
+	disc_style.set_corner_radius_all(8)
+	disc_style.set_border_width_all(1)
+	disc_style.border_color = C_GOLD_RIM
+	disc_pc.add_theme_stylebox_override("panel", disc_style)
+	hbox.add_child(disc_pc)
 
-	var d_row := HBoxContainer.new()
-	d_row.add_theme_constant_override("separation", 6)
-	d_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	counts_col.add_child(d_row)
-	d_row.add_child(_make_label("DISC", C_DIM, 10))
+	var disc_vbox := VBoxContainer.new()
+	disc_vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	disc_vbox.add_theme_constant_override("separation", 2)
+	disc_pc.add_child(disc_vbox)
+
+	var disc_lbl := _make_label("DESCARTES", C_DIM, 10)
+	disc_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	disc_vbox.add_child(disc_lbl)
+
+	var disc_count_row := HBoxContainer.new()
+	disc_count_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	disc_count_row.add_theme_constant_override("separation", 4)
+	disc_vbox.add_child(disc_count_row)
+	disc_count_row.add_child(_make_label("🗑", C_TEXT, 14))
+	_lbl_descartes_count = _make_label("0/0", C_TEXT, 22)
+	FontManager.apply_mono(_lbl_descartes_count)
+	disc_count_row.add_child(_lbl_descartes_count)
+
+	# Hidden dot row kept for _refresh_hud() compatibility
 	_discards_dot_row = HBoxContainer.new()
-	_discards_dot_row.add_theme_constant_override("separation", 4)
-	d_row.add_child(_discards_dot_row)
+	_discards_dot_row.visible = false
+	disc_vbox.add_child(_discards_dot_row)
 
-	hbox.add_child(_make_vdiv())
-
-	# ── Section 4: Monedas ────────────────────────────────
-	_lbl_monedas = _make_label("Monedas: 0", C_MONEDAS, 14)
-	_lbl_monedas.custom_minimum_size = Vector2(120, 0)
-	_lbl_monedas.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_lbl_monedas.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	FontManager.apply_mono(_lbl_monedas)
-	hbox.add_child(_lbl_monedas)
+	# ── Gear button ───────────────────────────────────────
+	var gear_style := StyleBoxFlat.new()
+	gear_style.bg_color = Color(0, 0, 0, 0)
+	var gear_btn := Button.new()
+	gear_btn.text = "⚙"
+	gear_btn.custom_minimum_size = Vector2(36, 36)
+	gear_btn.add_theme_stylebox_override("normal", gear_style)
+	gear_btn.add_theme_stylebox_override("hover",  gear_style)
+	gear_btn.add_theme_stylebox_override("pressed", gear_style)
+	gear_btn.add_theme_font_size_override("font_size", 20)
+	gear_btn.add_theme_color_override("font_color", C_DIM)
+	gear_btn.pressed.connect(_on_settings_btn_pressed)
+	hbox.add_child(gear_btn)
 
 	return panel
 
 # ---- Table area (dominant game surface — expands to fill) ----
 func _build_table_area() -> Control:
+	# ASSET HOOK: swap StyleBoxFlat → StyleBoxTexture when felt_table.png ready
 	var panel := PanelContainer.new()
 	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_table_style = StyleBoxFlat.new()
-	_table_style.bg_color     = Color(0.07, 0.09, 0.06)
-	_table_style.border_color = Color(0.28, 0.24, 0.14)
-	_table_style.set_border_width_all(1)
-	panel.add_theme_stylebox_override("panel", _table_style)
+	_table_style.bg_color     = C_FELT
+	_table_style.border_color = C_FELT_BORDER
+	_table_style.set_border_width_all(2)
+	panel.add_theme_stylebox_override("panel", _style_or_tex("res://assets/ui/felt_table.png", _table_style))
 
 	var vbox := VBoxContainer.new()
 	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -2285,6 +2429,354 @@ func _build_table_area() -> Control:
 	vbox.add_child(_lbl_last_hand)
 
 	return panel
+
+# ---- Chain info bar (teal pill between table and hand) ----
+func _build_chain_info_bar() -> Control:
+	# ASSET HOOK: swap StyleBoxFlat → StyleBoxTexture when chain_bar.png ready
+	var outer := CenterContainer.new()
+	outer.custom_minimum_size = Vector2(0, 28)
+
+	var pill_style := StyleBoxFlat.new()
+	pill_style.bg_color = C_CHAIN_BAR_BG
+	pill_style.set_corner_radius_all(14)
+	pill_style.set_border_width_all(1)
+	pill_style.border_color = C_GOLD_RIM.darkened(0.4)
+
+	var pill := PanelContainer.new()
+	pill.custom_minimum_size = Vector2(320, 24)
+	pill.add_theme_stylebox_override("panel", pill_style)
+	outer.add_child(pill)
+
+	var hbox := HBoxContainer.new()
+	hbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	hbox.add_theme_constant_override("separation", 8)
+	pill.add_child(hbox)
+
+	hbox.add_child(_make_label("◆", C_CHRONOS.darkened(0.3), 10))
+
+	_chain_info_lbl = _make_label("CADENA: 0", C_DIM, 12)
+	hbox.add_child(_chain_info_lbl)
+
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hbox.add_child(spacer)
+
+	_chain_bonus_lbl = _make_label("", C_CHRONOS, 14)
+	FontManager.apply_mono(_chain_bonus_lbl)
+	hbox.add_child(_chain_bonus_lbl)
+
+	hbox.add_child(_make_label("◆", C_CHRONOS.darkened(0.3), 10))
+
+	return outer
+
+# ---- Contracts panel (left, ~220px) ----
+func _build_contracts_panel() -> Control:
+	# ASSET HOOK: swap StyleBoxFlat → StyleBoxTexture when contracts_panel.png ready
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color     = C_PANEL_DARK
+	panel_style.border_color = C_GOLD_RIM
+	panel_style.set_border_width_all(1)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(220, 0)
+	panel.add_theme_stylebox_override("panel", _style_or_tex("res://assets/ui/contracts_panel.png", panel_style))
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 6)
+	panel.add_child(vbox)
+
+	# Header
+	var header := HBoxContainer.new()
+	header.add_theme_constant_override("separation", 6)
+	vbox.add_child(header)
+	var hdr_diamond := _make_label("◆", C_CHRONOS, 12)
+	header.add_child(hdr_diamond)
+	var hdr_lbl := _make_label("CONTRATOS", C_GOLD_TITLE, 12)
+	header.add_child(hdr_lbl)
+
+	# Contract cards vbox
+	_contracts_vbox = VBoxContainer.new()
+	_contracts_vbox.add_theme_constant_override("separation", 4)
+	vbox.add_child(_contracts_vbox)
+
+	# Spacer
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(spacer)
+
+	# Footer: reward total
+	var footer := HBoxContainer.new()
+	footer.add_theme_constant_override("separation", 4)
+	vbox.add_child(footer)
+	footer.add_child(_make_label("RECOMPENSA:", C_DIM, 10))
+	footer.add_child(_make_label("◎", C_MONEDAS, 12))
+	footer.add_child(_make_label("—", C_MONEDAS, 12))
+
+	return panel
+
+func _build_contract_card(c: MasteryContract) -> Control:
+	# ASSET HOOK: swap StyleBoxFlat → StyleBoxTexture when contract_card.png ready
+	var card_style := StyleBoxFlat.new()
+	card_style.bg_color     = C_PARCHMENT
+	card_style.border_color = C_GOLD_RIM
+	card_style.set_border_width_all(1)
+	card_style.set_corner_radius_all(4)
+
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", card_style)
+
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 6)
+	card.add_child(hbox)
+
+	# Contract icon
+	var icon_style := StyleBoxFlat.new()
+	icon_style.bg_color     = C_PANEL_DARK
+	icon_style.border_color = C_GOLD_RIM
+	icon_style.set_border_width_all(1)
+	icon_style.set_corner_radius_all(4)
+	var icon_box := PanelContainer.new()
+	icon_box.custom_minimum_size = Vector2(36, 36)
+	icon_box.add_theme_stylebox_override("panel", icon_style)
+	var icon_lbl := _make_label("◈", C_GOLD_TITLE, 16)
+	icon_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	icon_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	icon_lbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	icon_box.add_child(icon_lbl)
+	hbox.add_child(icon_box)
+
+	# Info column
+	var info_vbox := VBoxContainer.new()
+	info_vbox.add_theme_constant_override("separation", 2)
+	info_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hbox.add_child(info_vbox)
+
+	var name_lbl := _make_label(c.display_name, C_TEXT, 13)
+	info_vbox.add_child(name_lbl)
+
+	if c.description != "":
+		var desc_lbl := _make_label(c.description, C_DIM, 10)
+		desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		desc_lbl.custom_minimum_size = Vector2(140, 0)
+		info_vbox.add_child(desc_lbl)
+
+	# Progress bar
+	var prog_bar := ProgressBar.new()
+	prog_bar.custom_minimum_size = Vector2(0, 8)
+	prog_bar.min_value = 0
+	prog_bar.max_value = maxi(c.target, 1)
+	prog_bar.value     = c.progress
+	prog_bar.show_percentage = false
+	var pb_bg := StyleBoxFlat.new()
+	pb_bg.bg_color = C_PANEL_DARK
+	pb_bg.set_corner_radius_all(4)
+	var pb_fill := StyleBoxFlat.new()
+	pb_fill.bg_color = C_CHRONOS
+	pb_fill.set_corner_radius_all(4)
+	prog_bar.add_theme_stylebox_override("background", pb_bg)
+	prog_bar.add_theme_stylebox_override("fill", pb_fill)
+	info_vbox.add_child(prog_bar)
+
+	var prog_lbl := _make_label(c.progress_text(), C_DIM, 10)
+	info_vbox.add_child(prog_lbl)
+
+	return card
+
+# ---- Artifacts panel (right, ~220px) ----
+func _build_artifacts_panel() -> Control:
+	# ASSET HOOK: swap StyleBoxFlat → StyleBoxTexture when artifacts_panel.png ready
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color     = C_PANEL_DARK
+	panel_style.border_color = C_GOLD_RIM
+	panel_style.set_border_width_all(1)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(220, 0)
+	panel.add_theme_stylebox_override("panel", _style_or_tex("res://assets/ui/artifacts_panel.png", panel_style))
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 6)
+	panel.add_child(vbox)
+
+	# Header (purple tint)
+	var hdr_style := StyleBoxFlat.new()
+	hdr_style.bg_color = C_ARTIFACT_HDR
+	var hdr_pc := PanelContainer.new()
+	hdr_pc.add_theme_stylebox_override("panel", hdr_style)
+	vbox.add_child(hdr_pc)
+
+	var header := HBoxContainer.new()
+	header.add_theme_constant_override("separation", 6)
+	hdr_pc.add_child(header)
+	header.add_child(_make_label("◆", C_MULT, 12))
+	header.add_child(_make_label("ARTEFACTOS", C_GOLD_TITLE, 12))
+
+	# Artifact cards vbox
+	_artifacts_vbox = VBoxContainer.new()
+	_artifacts_vbox.add_theme_constant_override("separation", 4)
+	vbox.add_child(_artifacts_vbox)
+
+	# Spacer
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(spacer)
+
+	return panel
+
+func _build_artifact_card(m: Module) -> Control:
+	# ASSET HOOK: swap StyleBoxFlat → StyleBoxTexture when artifact_card.png ready
+	var rarity_color: Color = C_RARITY[m.rarity]
+	var card_style := StyleBoxFlat.new()
+	card_style.bg_color     = C_PANEL_DARK
+	card_style.border_color = rarity_color
+	card_style.set_border_width_all(1)
+	card_style.set_corner_radius_all(4)
+
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", card_style)
+
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 6)
+	card.add_child(hbox)
+
+	hbox.add_child(_build_item_icon(m.icon_path, m.display_name, rarity_color, Vector2(40, 40)))
+
+	var info_vbox := VBoxContainer.new()
+	info_vbox.add_theme_constant_override("separation", 2)
+	info_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hbox.add_child(info_vbox)
+
+	var name_lbl := _make_label(m.display_name, rarity_color, 13)
+	info_vbox.add_child(name_lbl)
+
+	var desc_lbl := _make_label(m.description, C_DIM, 10)
+	desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	info_vbox.add_child(desc_lbl)
+
+	# Tier diamonds — use rarity as tier proxy (0–3 filled diamonds)
+	var tier: int = m.rarity
+	var diamonds_row := HBoxContainer.new()
+	diamonds_row.add_theme_constant_override("separation", 2)
+	info_vbox.add_child(diamonds_row)
+	for i in range(4):
+		var sym := "◆" if i < tier else "◇"
+		diamonds_row.add_child(_make_label(sym, rarity_color, 10))
+
+	return card
+
+# ---- Tile box panel (bottom-left, ~160px) ----
+func _build_tile_box_panel() -> Control:
+	# ASSET HOOK: swap StyleBoxFlat → StyleBoxTexture when tile_box_panel.png ready
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color     = C_PANEL_DARK
+	panel_style.border_color = C_GOLD_RIM
+	panel_style.set_border_width_all(1)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(160, 0)
+	panel.add_theme_stylebox_override("panel", _style_or_tex("res://assets/ui/tile_box_panel.png", panel_style))
+
+	var vbox := VBoxContainer.new()
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_theme_constant_override("separation", 6)
+	panel.add_child(vbox)
+
+	var hdr := _make_label("CAJA DE FICHAS", C_GOLD_TITLE, 11)
+	hdr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(hdr)
+
+	# Book icon placeholder — swappable TextureRect
+	var box_icon_style := StyleBoxFlat.new()
+	box_icon_style.bg_color     = C_PANEL_DARK.darkened(0.3)
+	box_icon_style.border_color = C_GOLD_RIM
+	box_icon_style.set_border_width_all(1)
+	box_icon_style.set_corner_radius_all(6)
+	var box_icon_pc := PanelContainer.new()
+	box_icon_pc.custom_minimum_size = Vector2(80, 80)
+	box_icon_pc.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	box_icon_pc.add_theme_stylebox_override("panel", box_icon_style)
+	vbox.add_child(box_icon_pc)
+	# ASSET HOOK: replace this Label with TextureRect when box_icon.png ready
+	var box_icon_lbl := _make_label("📦", C_GOLD_TITLE, 32)
+	box_icon_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box_icon_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	box_icon_lbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	box_icon_pc.add_child(box_icon_lbl)
+
+	_lbl_tile_box_count = _make_label("0", C_TEXT, 22)
+	_lbl_tile_box_count.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	FontManager.apply_mono(_lbl_tile_box_count)
+	vbox.add_child(_lbl_tile_box_count)
+
+	return panel
+
+# ---- Usables panel (bottom-right, ~200px) ----
+func _build_usables_panel() -> Control:
+	# ASSET HOOK: swap StyleBoxFlat → StyleBoxTexture when usables_panel.png ready
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color     = C_PANEL_DARK
+	panel_style.border_color = C_GOLD_RIM
+	panel_style.set_border_width_all(1)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(200, 0)
+	panel.add_theme_stylebox_override("panel", _style_or_tex("res://assets/ui/usables_panel.png", panel_style))
+
+	var vbox := VBoxContainer.new()
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_theme_constant_override("separation", 6)
+	panel.add_child(vbox)
+
+	var hdr := _make_label("OBJETOS USABLES", C_GOLD_TITLE, 11)
+	hdr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(hdr)
+
+	_usables_hbox = HBoxContainer.new()
+	_usables_hbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	_usables_hbox.add_theme_constant_override("separation", 8)
+	vbox.add_child(_usables_hbox)
+
+	return panel
+
+func _build_usable_slot(r) -> Control:
+	# ASSET HOOK: swap StyleBoxFlat → StyleBoxTexture when usable_slot.png ready
+	var slot_container := Control.new()
+	slot_container.custom_minimum_size = Vector2(72, 88)
+
+	var rarity_color: Color = C_RARITY[r.rarity] if r != null and r.get("rarity") != null else C_DIM
+
+	var slot_style := StyleBoxFlat.new()
+	slot_style.bg_color     = C_PANEL_DARK
+	slot_style.border_color = rarity_color
+	slot_style.set_border_width_all(2)
+	slot_style.set_corner_radius_all(36)
+
+	var slot_pc := PanelContainer.new()
+	slot_pc.custom_minimum_size = Vector2(72, 72)
+	slot_pc.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	slot_pc.add_theme_stylebox_override("panel", slot_style)
+	slot_container.add_child(slot_pc)
+
+	if r != null:
+		var icon := _build_item_icon(r.icon_path, r.display_name, rarity_color, Vector2(60, 60))
+		icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		slot_pc.add_child(icon)
+
+	# Badge (count)
+	var badge := _make_label("1", C_TEXT, 11)
+	badge.position = Vector2(54, 0)
+	badge.custom_minimum_size = Vector2(18, 18)
+	slot_container.add_child(badge)
+
+	# Name label below
+	var name_text: String = r.display_name if r != null else ""
+	var name_lbl := _make_label(name_text, C_DIM, 9)
+	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_lbl.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	name_lbl.offset_top = 74
+	slot_container.add_child(name_lbl)
+
+	return slot_container
 
 # ---- Hand zone (fixed at bottom, contains directives + tiles + controls) ----
 func _build_hand_zone() -> Control:
@@ -2359,6 +2851,36 @@ func _refresh_contract_bar() -> void:
 	var c: MasteryContract = GameState.active_contracts[0]
 	_lbl_contract.text = "CONTRACT: %s  —  %s" % [c.display_name, c.progress_text()]
 	_contract_bar.show()
+
+func _refresh_contracts_panel() -> void:
+	if _contracts_vbox == null:
+		return
+	for ch in _contracts_vbox.get_children():
+		ch.queue_free()
+	for c: MasteryContract in GameState.active_contracts:
+		_contracts_vbox.add_child(_build_contract_card(c))
+
+func _refresh_artifacts_panel() -> void:
+	if _artifacts_vbox == null:
+		return
+	for ch in _artifacts_vbox.get_children():
+		ch.queue_free()
+	for m in GameState.modules:
+		_artifacts_vbox.add_child(_build_artifact_card(m))
+
+func _refresh_tile_box() -> void:
+	if _lbl_tile_box_count == null:
+		return
+	_lbl_tile_box_count.text = "%d" % GameState.box.size()
+
+func _refresh_usables_panel() -> void:
+	if _usables_hbox == null:
+		return
+	for ch in _usables_hbox.get_children():
+		ch.queue_free()
+	var count := mini(GameState.reinforcements.size(), 3)
+	for i in range(count):
+		_usables_hbox.add_child(_build_usable_slot(GameState.reinforcements[i]))
 
 # ---- Reinforcement tray (3 consumable slots) ----
 func _build_reinforcement_tray() -> Control:
@@ -2436,6 +2958,8 @@ func _refresh_reinforcement_tray() -> void:
 	for i in range(GameState.MAX_REINFORCEMENTS):
 		var r = GameState.reinforcements[i] if i < GameState.reinforcements.size() else null
 		_reinforcement_tray.add_child(_build_reinforcement_slot(r, i))
+	# Also refresh the new usables panel on the right
+	_refresh_usables_panel()
 
 # ---- Action bar ----
 func _build_action_bar() -> Control:
@@ -3901,6 +4425,16 @@ func _make_label(text: String, color: Color, size: int = 14) -> Label:
 	lbl.add_theme_color_override("font_color", color)
 	FontManager.apply_for_size(lbl, size)
 	return lbl
+
+## Returns StyleBoxTexture if PNG exists at path, else returns the fallback StyleBoxFlat.
+## This is the single hook for swapping in assets later.
+func _style_or_tex(path: String, fallback: StyleBoxFlat) -> StyleBox:
+	if ResourceLoader.exists(path):
+		var s := StyleBoxTexture.new()
+		s.texture = load(path)
+		s.set_margin_all(12)
+		return s
+	return fallback
 
 func _make_button(label: String, callback: Callable,
 		min_size: Vector2 = Vector2(120, 48)) -> Button:
