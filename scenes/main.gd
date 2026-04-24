@@ -2871,7 +2871,7 @@ func _refresh_artifacts_panel() -> void:
 func _refresh_tile_box() -> void:
 	if _lbl_tile_box_count == null:
 		return
-	_lbl_tile_box_count.text = "%d" % GameState.box.size()
+	_lbl_tile_box_count.text = "%d" % GameState.box.draw_pile_size()
 
 func _refresh_usables_panel() -> void:
 	if _usables_hbox == null:
