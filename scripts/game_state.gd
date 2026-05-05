@@ -199,6 +199,17 @@ func chain_coin_bonus(chain_length: int) -> int:
 				total += m.effect_value
 	return total
 
+## Persistent-chain variant: only awards a module's bonus if its threshold
+## was crossed by THIS play (prev < threshold ≤ new). Prevents the chain
+## from re-triggering coin rewards on every subsequent play of the round.
+func chain_coin_bonus_crossed(prev_length: int, new_length: int) -> int:
+	var total := 0
+	for m in modules:
+		if m.effect_type == Module.EffectType.CHAIN_COIN_BONUS:
+			if prev_length < m.effect_param and new_length >= m.effect_param:
+				total += m.effect_value
+	return total
+
 # ---------------------------------------------------------------------------
 # Reinforcement helpers
 # ---------------------------------------------------------------------------

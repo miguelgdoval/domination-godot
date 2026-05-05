@@ -81,11 +81,11 @@ static func calculate(chain: Chain, modules: Array = []) -> Dictionary:
 	# Double resonance
 	mult += doubles * double_mult_per
 
-	# Chain length (cohesion) bonus
-	if length >= Constants.CHAIN_BONUS_LARGE:
-		mult += 2
-	elif length >= Constants.CHAIN_BONUS_SMALL:
-		mult += 1
+	# Chain length (cohesion) bonus — tiered. Apply only the highest tier reached.
+	for ti in range(Constants.CHAIN_TIER_MIN.size() - 1, -1, -1):
+		if length >= Constants.CHAIN_TIER_MIN[ti]:
+			mult += Constants.CHAIN_TIER_BONUS[ti]
+			break
 
 	# --- Module flat bonuses ---
 	for m in modules:

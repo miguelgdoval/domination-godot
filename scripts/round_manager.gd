@@ -20,12 +20,24 @@ var hand:              Array[Domino] = []
 var current_chain:     Chain
 var round_index:       int  # 0-based
 var target:            int
-var chronos:           int  # accumulated this round
+## Total Chronos credited this round.
+## Persistent chain model: this is `chain_score(current_chain) + extra_chronos`,
+## refreshed each play. It is NOT a sum of per-hand scores.
+var chronos:           int
+## One-shot bonuses (Gold Talisman, etc.) that survive across plays.
+## Added on top of the chain's computed score after each play.
+var extra_chronos:     int
 var hands_remaining:   int
 var discards_remaining: int
 var hand_size:         int
 var max_hands:         int
 var max_discards:      int
+
+## Snapshot of the chain state after the previous play. Used to compute
+## per-play deltas (delta_total, delta_length) for stats, ghost UI, and
+## threshold-crossing rewards (e.g. CHAIN_COIN_BONUS).
+var committed_chain_score:  int = 0
+var committed_chain_length: int = 0
 
 # ---------------------------------------------------------------------------
 # Setup
@@ -44,6 +56,9 @@ func setup(p_box: Box, p_round_index: int,
 	hands_remaining    = max_hands
 	discards_remaining = max_discards
 	chronos        = 0
+	extra_chronos  = 0
+	committed_chain_score  = 0
+	committed_chain_length = 0
 	hand           = []
 	current_chain  = Chain.new()
 
@@ -80,18 +95,37 @@ func undo_last_chain_tile() -> bool:
 	hand_changed.emit()
 	return true
 
-## Score the current chain, deduct one hand charge, draw new tiles.
-## Returns the scoring result dict (empty dict if no chain to play).
+## Score the current persistent chain, deduct one hand charge, draw new tiles.
+##
+## Persistent-chain model: the chain is NOT cleared between hands. Each call
+## re-scores the full chain; `chronos` is set to that score (plus any
+## one-shot extras) rather than accumulating. The result dict carries deltas
+## so the UI and stat layer can attribute "what this play earned".
+##
+## Returns the scoring result dict (empty if nothing to play).
 func play_chain() -> Dictionary:
 	if current_chain.is_empty() or hands_remaining <= 0:
 		return {}
 
 	var result: Dictionary = Scoring.calculate(current_chain, GameState.modules)
-	chronos += result["total"]
+
+	# Per-play deltas (what this placement contributed)
+	var delta_total:  int = result["total"] - committed_chain_score
+	var delta_length: int = result["length"] - committed_chain_length
+	result["delta_total"]  = delta_total
+	result["delta_length"] = delta_length
+	result["prev_length"]  = committed_chain_length
+
+	# Snapshot for next play and update round chronos
+	committed_chain_score  = result["total"]
+	committed_chain_length = result["length"]
+	chronos = result["total"] + extra_chronos
 	hands_remaining -= 1
 
 	hand_scored.emit(result)
-	current_chain.clear()
+	# NOTE: chain is NOT cleared — it persists for the rest of the round.
+	# We still emit chain_changed so the UI repaints (committed chain only,
+	# selection has been consumed by the caller).
 	chain_changed.emit()
 
 	_draw_to_full()

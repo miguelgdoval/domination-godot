@@ -153,7 +153,15 @@ var _chronos_bar_fill_style: StyleBoxFlat
 # Hands / discards dot indicators
 var _hands_dot_row:    HBoxContainer
 var _discards_dot_row: HBoxContainer
-var _chain_container:  HBoxContainer
+## Chain area: a VBoxContainer of HBoxContainer rows. Tiles wrap to multiple
+## rows (serpentine: even rows L→R, odd rows R→L) so 21+ tile chains fit.
+## Doubles render perpendicular to the row direction (vertical in a horizontal
+## row), matching physical-domino aesthetics.
+var _chain_container:  VBoxContainer
+## Ordered list of tile PanelContainers — index i maps to current_chain.tiles[i].
+## Used by the scoring sequence to find each tile's screen position regardless
+## of which row it landed in.
+var _chain_tile_panels: Array[Control] = []
 var _lbl_preview:          Label   # equation line: "N chips × M"
 var _lbl_preview_total:    Label   # big total line: "= TOTAL" (dominant)
 var _chain_milestone_row:  HBoxContainer   # visual dot-progress bar for chain bonuses
@@ -588,6 +596,11 @@ func _show_shop() -> void:
 func _on_chain_changed() -> void:
 	if _building_chain:
 		return
+	# Don't tear down the chain panels mid-scoring — the in-place glow/scale
+	# animation runs on those exact nodes and would end up animating dead
+	# references. A final refresh fires from the scoring sequence's last step.
+	if _scoring_active:
+		return
 	_refresh_chain_display()
 	_refresh_action_buttons()
 	_refresh_tile_visuals()
@@ -599,25 +612,35 @@ func _on_hand_changed() -> void:
 	_refresh_hud()
 
 func _on_hand_scored(result: Dictionary) -> void:
+	# In the persistent-chain model, `result` describes the FULL chain after
+	# this play. `delta_total` is what this placement actually contributed.
+	var delta_total: int = result.get("delta_total", result["total"])
+	var prev_length: int = result.get("prev_length", 0)
+	var new_length:  int = result.get("length", 0)
+
 	_lbl_last_hand.text = "%d chips  ×  %d  =  %d Chronos" % [
 		result["chips"], result["mult"], result["total"]]
-	GameState.record_hand(result["total"], result.get("doubles", 0))
+	GameState.record_hand(delta_total, result.get("doubles", 0))
 	var dir_bonus: int = _dm.check_play(result)
 	if dir_bonus > 0:
 		GameState.monedas += dir_bonus
-	# CHAIN_COIN_BONUS modules — award Monedas for long-enough chains
-	var coin_bonus: int = GameState.chain_coin_bonus(result.get("length", 0))
+	# CHAIN_COIN_BONUS — only fire when this play crosses a threshold,
+	# otherwise the same chain would re-trigger every subsequent play.
+	var coin_bonus: int = GameState.chain_coin_bonus_crossed(prev_length, new_length)
 	if coin_bonus > 0:
 		GameState.monedas += coin_bonus
 	# FORTUNE_ESSENCE — one-shot: +2 bonus Monedas (or 2× module bonus, whichever is larger)
 	if _fortune_essence_active:
 		_fortune_essence_active = false
 		GameState.monedas += maxi(2, coin_bonus)   # guaranteed at least 2 even with no module
-	# GOLD_TALISMAN — one-shot: +10 bonus chips fed back as Chronos
+	# GOLD_TALISMAN — one-shot: +10 bonus chips fed back as Chronos.
+	# Routed through `extra_chronos` so it survives the chain re-score on
+	# the next play (which would otherwise overwrite a direct chronos bump).
 	if _talisman_active:
 		_talisman_active = false
 		var talisman_chronos: int = 10 * result.get("mult", 1)
-		_rm.chronos += talisman_chronos
+		_rm.extra_chronos += talisman_chronos
+		_rm.chronos       += talisman_chronos
 
 	# Pre-scan modules for display-side chip calculation
 	# (scoring.gd is the source of truth; this is only for the "+N chips" pop-up labels)
@@ -636,13 +659,15 @@ func _on_hand_scored(result: Dictionary) -> void:
 			Module.EffectType.BLANK_TO_CHIPS:
 				blank_pip_val_ui  = maxi(blank_pip_val_ui,  m.effect_value)
 
-	# Snapshot every chain tile while they are still on screen.
-	# Direct PanelContainer children = tile panels (VBoxContainer = end indicators, Label = arrows).
+	# Snapshot every chain tile while it's still on screen. Tiles are now
+	# distributed across multiple serpentine rows, so we iterate the ordered
+	# `_chain_tile_panels` list (chain-index → panel) rather than scanning
+	# direct container children.
 	var overlay_infos: Array = []
 	var chain_tiles: Array = _rm.current_chain.tiles.duplicate()
-	var idx: int = 0
-	for child in _chain_container.get_children():
-		if child is PanelContainer and idx < chain_tiles.size():
+	for idx in range(chain_tiles.size()):
+		if idx < _chain_tile_panels.size() and is_instance_valid(_chain_tile_panels[idx]):
+			var child: Control = _chain_tile_panels[idx]
 			var tile: Domino = chain_tiles[idx]
 			var pips: int = tile.total_pips()
 			var dw: int = tile.double_weight if tile.double_weight >= 0 \
@@ -669,8 +694,10 @@ func _on_hand_scored(result: Dictionary) -> void:
 					if tile.left  == 0: chips += blank_pip_val_ui
 					if tile.right == 0: chips += blank_pip_val_ui
 
+			# `panel` is the actual chain tile, animated in place. No overlay
+			# duplicate is built any more — the tile itself glows and scales.
 			overlay_infos.append({
-				"overlay":    _build_score_overlay(child.global_position, child.size, tile),
+				"panel":      child,
 				"center":     child.global_position + child.size * 0.5,
 				"chips":      chips,
 				"is_double":  dw > 0,
@@ -679,7 +706,6 @@ func _on_hand_scored(result: Dictionary) -> void:
 				"has_blank":  not tile.is_wild and (tile.left == 0 or tile.right == 0),
 				"total_pips": pips if not tile.is_wild else 999,
 			})
-			idx += 1
 
 	# Determine which modules fired so the rack can pulse them
 	var has_doubles:      bool = false
@@ -734,8 +760,13 @@ func _on_play_pressed() -> void:
 		return
 
 	AudioManager.play_sfx("chain_play")
-	# Validate: preview chain must include all selected tiles in a legal sequence
+	# Validate: the selected tiles must extend the PERSISTENT chain legally.
+	# Seed the validator with the committed chain so the first selected tile
+	# is checked against the real open ends, not against an empty chain.
 	var preview := Chain.new()
+	for tile in _rm.current_chain.tiles:
+		preview.add(tile)
+	var seeded_len: int = preview.length()
 	var tiles_to_play: Array = []
 	for idx in _selected_tiles:
 		if idx < _rm.hand.size():
@@ -743,8 +774,8 @@ func _on_play_pressed() -> void:
 			if not preview.add(t):
 				return   # invalid sequence — shouldn't normally happen if visuals are right
 			tiles_to_play.append(t)
-	if preview.is_empty():
-		return
+	if preview.length() == seeded_len:
+		return  # nothing was actually added
 
 	# Batch-add to real chain (guards suppress intermediate chain_changed / hand_changed)
 	_building_chain = true
@@ -1521,8 +1552,15 @@ func _refresh_hud() -> void:
 
 ## Build a preview Chain from the current selection (in click order).
 ## Stops at the first tile that fails to connect — partial chains are valid previews.
+## Builds the chain that would result from playing the current selection
+## on top of the persistent chain. Used for both visual rendering and
+## live score projection. The committed portion is seeded first so the
+## preview reflects the actual chain state, not just the selection.
 func _build_preview_chain() -> Chain:
 	var preview := Chain.new()
+	if _rm != null and _rm.current_chain != null:
+		for tile in _rm.current_chain.tiles:
+			preview.add(tile)
 	for idx in _selected_tiles:
 		if idx < _rm.hand.size():
 			if not preview.add(_rm.hand[idx]):
@@ -1533,6 +1571,7 @@ func _refresh_chain_display() -> void:
 	_kill_chain_idle_tweens()
 	for child in _chain_container.get_children():
 		child.queue_free()
+	_chain_tile_panels.clear()
 
 	var preview := _build_preview_chain()
 
@@ -1541,28 +1580,12 @@ func _refresh_chain_display() -> void:
 		lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		_chain_container.add_child(lbl)
 	else:
-		# Left connection port
-		_chain_container.add_child(
-			_build_chain_end_indicator(preview.left_end, true))
-
-		for i in range(preview.tile_displays.size()):
-			if i > 0:
-				var arr := _make_label("→", C_DIM, 16)
-				arr.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-				_chain_container.add_child(arr)
-			var d: Vector2i = preview.tile_displays[i]
-			_chain_container.add_child(_build_chain_tile(d.x, d.y))
-
-		# Right connection port
-		_chain_container.add_child(
-			_build_chain_end_indicator(preview.right_end, false))
-
-		# Start idle breathing on each tile panel (random phase so they're independent)
-		for child in _chain_container.get_children():
-			if child is PanelContainer:
-				var idle := _start_tile_breathe(child)
-				if idle != null:
-					_chain_idle_tweens.append(idle)
+		_layout_chain_serpentine(preview)
+		# Idle breathing on every tile (random phase per tile for organic feel)
+		for tile_panel in _chain_tile_panels:
+			var idle := _start_tile_breathe(tile_panel)
+			if idle != null:
+				_chain_idle_tweens.append(idle)
 
 	if not preview.is_empty():
 		var r: Dictionary = Scoring.calculate(preview, GameState.modules)
@@ -1573,7 +1596,10 @@ func _refresh_chain_display() -> void:
 		_lbl_preview_total.text = "= %d" % r["total"]
 		_lbl_preview_total.add_theme_color_override("font_color", C_CHRONOS)
 		_refresh_chain_milestone(preview.length())
-		_update_chronos_ghost(r["total"])
+		# Persistent-chain ghost: show only the score the new selection would
+		# add on top of the already-committed chain.
+		var delta_proj: int = r["total"] - _rm.committed_chain_score
+		_update_chronos_ghost(maxi(0, delta_proj))
 		# Chain info bar update
 		if _chain_info_lbl != null:
 			_chain_info_lbl.text = "CADENA: %d" % preview.length()
@@ -1590,10 +1616,12 @@ func _refresh_chain_display() -> void:
 			_chain_bonus_lbl.text = ""
 
 func _refresh_action_buttons() -> void:
-	# Preview must be fully valid (all selected tiles connected) to enable Play
+	# Preview must be fully valid (all selected tiles connected) to enable Play.
+	# Preview length = committed chain + every selected tile that legally fit.
 	var preview := _build_preview_chain()
+	var committed_len: int = _rm.current_chain.length() if _rm != null else 0
 	var all_connected: bool = not _selected_tiles.is_empty() \
-		and preview.length() == _selected_tiles.size()
+		and preview.length() == committed_len + _selected_tiles.size()
 	_btn_play.disabled    = not (all_connected and _rm.hands_remaining > 0)
 	_btn_discard.disabled = not _rm.can_discard() or _selected_tiles.is_empty()
 	_btn_undo.disabled    = _selected_tiles.is_empty()
@@ -1789,50 +1817,205 @@ func _create_hand_tile(tile: Domino, index: int) -> Button:
 	btn.pressed.connect(_on_tile_left_click.bind(index))
 	return btn
 
-func _build_chain_tile(disp_left: int, disp_right: int) -> Control:
+## Lay out the chain into one or more rows with serpentine direction:
+##   row 0 → left-to-right, row 1 → right-to-left, row 2 → left-to-right, …
+## Doubles render perpendicular to the row (vertical when chain is horizontal),
+## matching how physical dominoes are placed on a table.
+##
+## Tile size scales down for longer chains so 21+ tile chains still fit
+## comfortably inside the table panel without horizontal overflow.
+##
+## Populates `_chain_tile_panels` so the scoring sequence can locate each
+## tile by chain index regardless of which row it ended up in.
+func _layout_chain_serpentine(chain: Chain) -> void:
+	var n: int = chain.length()
+
+	# Adaptive sizing — half = one pip face's edge length.
+	# Each tile is a SQUARE slot of (2*half + sep) on each side. With no
+	# outer padding, slots in a row sit flush against each other, so the
+	# pip halves touch neighbours edge-to-edge.
+	var half_size: int
+	var per_row:   int
+	if n <= 8:
+		half_size = 36 ; per_row = 8
+	elif n <= 14:
+		half_size = 30 ; per_row = 9
+	elif n <= 22:
+		half_size = 24 ; per_row = 11
+	elif n <= 30:
+		half_size = 20 ; per_row = 13
+	else:
+		half_size = 16 ; per_row = 16
+
+	# Group indices into rows (serpentine direction handled at render time).
+	var rows: Array = []
+	var current: Array = []
+	for i in range(n):
+		current.append(i)
+		if current.size() >= per_row and i < n - 1:
+			rows.append(current)
+			current = []
+	if current.size() > 0:
+		rows.append(current)
+
+	# Pre-allocate tile panels so we can fill _chain_tile_panels in chain order
+	# even when odd rows render right-to-left.
+	_chain_tile_panels.resize(n)
+
+	for r_idx in range(rows.size()):
+		var row := HBoxContainer.new()
+		row.alignment = BoxContainer.ALIGNMENT_CENTER
+		row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		# Slots abut directly — no row gap. Each tile's faint outline (set
+		# in _build_chain_tile) provides the visible seam between adjacent
+		# pieces, so they read as touching but distinct.
+		row.add_theme_constant_override("separation", 0)
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+		var indices: Array = rows[r_idx].duplicate()
+		var reverse: bool = (r_idx % 2) == 1
+		if reverse:
+			indices.reverse()
+
+		for tile_idx in indices:
+			var d: Vector2i = chain.tile_displays[tile_idx]
+			var is_double: bool = (d.x == d.y)
+			# Double  → render perpendicular (vertical) in this horizontal row.
+			# Single  → render along the row (horizontal).
+			# When the row is reversed (right-to-left), swap left/right faces
+			# so the connecting edges still meet correctly visually.
+			var left_pip:  int = d.y if reverse else d.x
+			var right_pip: int = d.x if reverse else d.y
+			var tile_panel: Control = _build_chain_tile(
+				left_pip, right_pip, half_size, is_double)
+			row.add_child(tile_panel)
+			_chain_tile_panels[tile_idx] = tile_panel
+
+		_chain_container.add_child(row)
+
+## Build a chain tile in either orientation.
+##   vertical=true  → double tile, halves stacked top/bottom (perpendicular).
+##                    Rendered as a SQUARE so it matches the row's vertical
+##                    rhythm without protruding above/below the non-doubles.
+##                    Pip halves are compressed to fit the square footprint.
+##   vertical=false → non-double tile, halves laid out left/right (along row).
+##                    Standard 2:1 wide rectangle.
+##
+## Both orientations share the same total HEIGHT, keeping rows uniform when
+## doubles and non-doubles are mixed. Doubles' "perpendicular" identity is
+## preserved by the stacked-halves layout, just within a square frame.
+##
+## `half_size` is the edge length of one pip face on a non-double tile. Pip
+## dot size, border, corner, and padding all scale from it.
+func _build_chain_tile(disp_left: int, disp_right: int,
+		half_size: int = 60, vertical: bool = true) -> Control:
+	var sep_thickness: int = 2
+	var dot_size: int = maxi(4, int(half_size * 0.18))
+
+	# Slot height is identical for every tile (2*half + sep) so all tiles
+	# share the row baseline. Slot WIDTH depends on orientation:
+	#   - Non-double: full square (2*half + sep) — two halves side-by-side.
+	#   - Vertical double: only as wide as its stacked halves (half_size),
+	#     so there are no empty lateral bands. The double's halves butt
+	#     directly against the neighbouring tiles' halves.
+	var slot: int = half_size * 2 + sep_thickness
+	var slot_w: int = half_size if vertical else slot
+
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(76, 140)
+	panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	panel.size_flags_vertical   = Control.SIZE_SHRINK_CENTER
+	panel.custom_minimum_size = Vector2(slot_w, slot)
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	# Dark ebony outer frame — 11px content_margin keeps pip panels
-	# safely inside the 12px rounded corners (distance at corner = √(11²+11²) ≈ 15.6px)
+	# Faint outline only — no fill, no shadow. This is enough to give each
+	# tile a visible silhouette so adjacent tiles don't read as one blob,
+	# without bringing back the heavy ebony frame.
 	var style := StyleBoxFlat.new()
-	style.bg_color     = C_TILE_BODY
-	style.border_color = C_TILE_BORDER
-	style.set_border_width_all(4)
-	style.set_corner_radius_all(12)
-	style.shadow_color = Color(0, 0, 0, 0.42); style.shadow_size = 5
-	style.set_content_margin_all(11)
+	style.bg_color     = Color(0, 0, 0, 0)
+	style.border_color = Color(0.05, 0.04, 0.03, 0.55)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(2)
+	style.set_content_margin_all(0)
 	panel.add_theme_stylebox_override("panel", style)
-	# Store style ref so _start_tile_breathe can animate the border
 	panel.set_meta("border_style",      style)
-	panel.set_meta("base_border_color", C_TILE_BORDER)
+	panel.set_meta("base_border_color", style.border_color)
 
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 0)
-	vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(vbox)
+	# Centered content keeps every face exactly half_size × half_size square,
+	# regardless of orientation. The inner box sits at its natural minimum
+	# size in the centre of the slot — content doesn't stretch to fill, so
+	# horizontal and vertical tiles render at identical visual proportions.
+	#
+	# Tiles still "touch" their neighbours in the row because the SLOT
+	# edges abut (row separation = 0) and each slot has a faint outline
+	# defining the seam between adjacent pieces.
+	var center := CenterContainer.new()
+	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	center.size_flags_vertical   = Control.SIZE_EXPAND_FILL
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(center)
 
-	# Top pip-half panel
-	var top_panel := PanelContainer.new()
-	top_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	top_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_set_pip_panel_face(top_panel, C_TILE_FACE, true)
-	var top_dot := C_TITLE_GLOW if disp_left < 0 else C_PIP_DOT
-	top_panel.add_child(_make_pip_display(disp_left, 11, top_dot))
-	vbox.add_child(top_panel)
+	var box: BoxContainer = VBoxContainer.new() if vertical else HBoxContainer.new()
+	box.add_theme_constant_override("separation", 0)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	center.add_child(box)
 
-	vbox.add_child(_make_tile_hsep())
+	var face_min := Vector2(half_size, half_size)
+	var face_h_flag: int = Control.SIZE_SHRINK_CENTER
+	var face_v_flag: int = Control.SIZE_SHRINK_CENTER
 
-	# Bottom pip-half panel
-	var bot_panel := PanelContainer.new()
-	bot_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	bot_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_set_pip_panel_face(bot_panel, C_TILE_FACE, false)
-	var bot_dot := C_TITLE_GLOW if disp_right < 0 else C_PIP_DOT
-	bot_panel.add_child(_make_pip_display(disp_right, 11, bot_dot))
-	vbox.add_child(bot_panel)
+	var first_panel := PanelContainer.new()
+	first_panel.size_flags_horizontal = face_h_flag
+	first_panel.size_flags_vertical   = face_v_flag
+	first_panel.custom_minimum_size = face_min
+	first_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_set_pip_panel_face(first_panel, C_TILE_FACE, true)
+	_compact_face_panel(first_panel)
+	var first_dot_color := C_TITLE_GLOW if disp_left < 0 else C_PIP_DOT
+	first_panel.add_child(_make_pip_display(disp_left, dot_size, first_dot_color))
+	box.add_child(first_panel)
+
+	# Divider between the two halves — perpendicular to the box axis.
+	box.add_child(_make_tile_separator(vertical, sep_thickness))
+
+	var second_panel := PanelContainer.new()
+	second_panel.size_flags_horizontal = face_h_flag
+	second_panel.size_flags_vertical   = face_v_flag
+	second_panel.custom_minimum_size = face_min
+	second_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_set_pip_panel_face(second_panel, C_TILE_FACE, false)
+	_compact_face_panel(second_panel)
+	var second_dot_color := C_TITLE_GLOW if disp_right < 0 else C_PIP_DOT
+	second_panel.add_child(_make_pip_display(disp_right, dot_size, second_dot_color))
+	box.add_child(second_panel)
 
 	return panel
+
+## Override the face panel's stylebox content margin to a small value so the
+## panel's own minimum size is dominated by the pip-display content rather
+## than its texture padding. Used by the chain tile builder so vertical
+## doubles don't end up much taller than horizontal tiles.
+func _compact_face_panel(face: PanelContainer) -> void:
+	var sb: StyleBox = face.get_theme_stylebox("panel")
+	if sb == null:
+		return
+	# StyleBoxTexture and StyleBoxFlat both expose set_content_margin_all.
+	if sb is StyleBoxTexture or sb is StyleBoxFlat:
+		sb.set_content_margin_all(1.0)
+
+## Tile-half divider. Vertical tile gets a horizontal line; horizontal tile
+## gets a vertical line. Falls back to ColorRect to avoid pulling in the
+## existing `_make_tile_hsep` helper which only does the horizontal flavour.
+func _make_tile_separator(vertical: bool, thickness: int) -> Control:
+	var sep := ColorRect.new()
+	sep.color = C_TILE_BORDER.darkened(0.2)
+	sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if vertical:
+		sep.custom_minimum_size = Vector2(0, thickness)
+		sep.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	else:
+		sep.custom_minimum_size = Vector2(thickness, 0)
+		sep.size_flags_vertical   = Control.SIZE_EXPAND_FILL
+	return sep
 
 ## Build a pip-dot display for one half of a domino.
 ## dot_size: diameter of each dot in pixels.
@@ -2394,12 +2577,12 @@ func _build_table_area() -> Control:
 	top_spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	vbox.add_child(top_spacer)
 
-	# Chain tiles — centred horizontally, shrinks vertically to tile height
-	_chain_container = HBoxContainer.new()
+	# Chain tiles — VBox of rows. Each row is built fresh in _refresh_chain_display.
+	_chain_container = VBoxContainer.new()
 	_chain_container.alignment             = BoxContainer.ALIGNMENT_CENTER
 	_chain_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_chain_container.size_flags_vertical   = Control.SIZE_SHRINK_CENTER
-	_chain_container.add_theme_constant_override("separation", 10)
+	_chain_container.add_theme_constant_override("separation", 6)
 	vbox.add_child(_chain_container)
 
 	# Score preview — two lines: equation (dim, small) + total (green, large)
@@ -3723,60 +3906,127 @@ func _set_chronos_bar(c: int, t: int) -> void:
 # ===========================================================================
 # Chain length milestone hint
 # ===========================================================================
-## Rebuild the chain milestone dot-row. Shows filled/empty dots up to the
-## large threshold, with milestone flags at each bonus breakpoint.
+## Rebuild the chain milestone tier-bar. Shows one segment per scoring tier
+## (Fragment → Singularity). Each segment is one of three visual states:
+##   - LOCKED   (dim)   : chain hasn't reached this tier yet
+##   - CURRENT  (accent): chain is currently in this tier (between this
+##                       threshold and the next); the bonus is "live"
+##   - ACHIEVED (gold)  : chain has surpassed this tier — bonus banked,
+##                       a higher tier is now in play
+##
+## Replaces the old per-tile dot row, which capped at 8 tiles. Tier segments
+## scale visually to any chain length, including 21+ Singularity chains.
 func _refresh_chain_milestone(length: int) -> void:
 	for ch in _chain_milestone_row.get_children():
 		ch.queue_free()
 
-	var sm := Constants.CHAIN_BONUS_SMALL   # 4 → +1 Mult
-	var lg := Constants.CHAIN_BONUS_LARGE   # 7 → +2 Mult
-	var show := lg + 1                       # show one dot past the large threshold
+	# Build the tier list: Fragment (no bonus) + each scoring tier from constants.
+	# Each entry: { name, bonus, min, max } — max is exclusive upper bound (-1 = open).
+	var tiers: Array = [{"name": "FRAG", "bonus": 0, "min": 1, "max": Constants.CHAIN_TIER_MIN[0]}]
+	for i in range(Constants.CHAIN_TIER_MIN.size()):
+		var lo: int = Constants.CHAIN_TIER_MIN[i]
+		var hi: int = Constants.CHAIN_TIER_MIN[i + 1] if i + 1 < Constants.CHAIN_TIER_MIN.size() else -1
+		tiers.append({
+			"name":  Constants.CHAIN_TIER_NAMES[i].to_upper(),
+			"bonus": Constants.CHAIN_TIER_BONUS[i],
+			"min":   lo,
+			"max":   hi,
+		})
 
-	for i in range(1, show + 1):
-		# Milestone flag BEFORE each threshold position
-		if i == sm or i == lg:
-			var bonus_str := "+1M" if i == sm else "+2M"
-			var achieved  := length >= i
-			var flag_col  := C_WIN if achieved else C_DIM
+	# Determine which tier the current chain length sits in.
+	var current_idx: int = 0
+	for i in range(tiers.size()):
+		if length >= tiers[i]["min"]:
+			current_idx = i
 
-			var flag := VBoxContainer.new()
-			flag.alignment = BoxContainer.ALIGNMENT_CENTER
-			flag.add_theme_constant_override("separation", 1)
-			flag.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-
-			var flag_lbl := Label.new()
-			flag_lbl.text = bonus_str
-			flag_lbl.add_theme_font_size_override("font_size", 8)
-			flag_lbl.add_theme_color_override("font_color", flag_col)
-			flag_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-			flag.add_child(flag_lbl)
-
-			var flag_bar := ColorRect.new()
-			flag_bar.custom_minimum_size = Vector2(1, 9)
-			flag_bar.color = flag_col
-			flag_bar.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-			flag.add_child(flag_bar)
-
-			_chain_milestone_row.add_child(flag)
-
-		# Pip dot for this position
-		var filled     := i <= length
-		var dot_color: Color
-		if filled:
-			dot_color = C_MONEDAS if i >= lg else C_CHRONOS.lerp(C_WIN, 0.4)
+	for i in range(tiers.size()):
+		var tier: Dictionary = tiers[i]
+		var state: String
+		if i < current_idx:
+			state = "achieved"
+		elif i == current_idx and length >= tier["min"]:
+			state = "current"
 		else:
-			dot_color = Color(0.22, 0.20, 0.17)
+			state = "locked"
 
-		var dp := PanelContainer.new()
-		dp.custom_minimum_size    = Vector2(9, 9)
-		dp.size_flags_vertical    = Control.SIZE_SHRINK_CENTER
-		dp.mouse_filter           = Control.MOUSE_FILTER_IGNORE
-		var ds := StyleBoxFlat.new()
-		ds.bg_color = dot_color
-		ds.set_corner_radius_all(5)
-		dp.add_theme_stylebox_override("panel", ds)
-		_chain_milestone_row.add_child(dp)
+		_chain_milestone_row.add_child(_build_tier_segment(tier, state, length))
+
+func _build_tier_segment(tier: Dictionary, state: String, length: int) -> Control:
+	var bonus: int = tier["bonus"]
+	var label_text: String = tier["name"]
+	if bonus > 0:
+		label_text += "  +%d" % bonus
+
+	# Colour scheme per state
+	var fg: Color
+	var bg: Color
+	var border: Color
+	match state:
+		"achieved":
+			fg     = C_WIN
+			bg     = C_WIN.darkened(0.78)
+			border = C_WIN.darkened(0.45)
+		"current":
+			fg     = C_MONEDAS
+			bg     = C_CHRONOS.darkened(0.55)
+			border = C_MONEDAS
+		_: # locked
+			fg     = C_DIM
+			bg     = Color(0.10, 0.10, 0.10, 0.55)
+			border = Color(0.22, 0.20, 0.17)
+
+	var style := StyleBoxFlat.new()
+	style.bg_color     = bg
+	style.border_color = border
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(3)
+	style.content_margin_left   = 6
+	style.content_margin_right  = 6
+	style.content_margin_top    = 2
+	style.content_margin_bottom = 2
+
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", style)
+	panel.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	panel.mouse_filter        = Control.MOUSE_FILTER_IGNORE
+
+	var inner := VBoxContainer.new()
+	inner.alignment = BoxContainer.ALIGNMENT_CENTER
+	inner.add_theme_constant_override("separation", 0)
+	panel.add_child(inner)
+
+	var lbl := Label.new()
+	lbl.text = label_text
+	lbl.add_theme_font_size_override("font_size", 9)
+	lbl.add_theme_color_override("font_color", fg)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	FontManager.apply_mono(lbl)
+	inner.add_child(lbl)
+
+	# Range hint under the name (e.g. "7-10" or "21+"). Anchors the segment
+	# to a concrete tile count so players learn the thresholds in context.
+	var range_text: String
+	if tier["max"] == -1:
+		range_text = "%d+" % tier["min"]
+	else:
+		range_text = "%d-%d" % [tier["min"], int(tier["max"]) - 1]
+	# Append live tile count to the active tier so the player can see how
+	# close they are to the next threshold without hunting elsewhere.
+	if state == "current":
+		if tier["max"] == -1:
+			range_text = "%d  (%d)" % [tier["min"], length]
+		else:
+			range_text = "%d/%d" % [length, int(tier["max"]) - 1]
+
+	var sub := Label.new()
+	sub.text = range_text
+	sub.add_theme_font_size_override("font_size", 7)
+	sub.add_theme_color_override("font_color", fg.darkened(0.25) if state != "locked" else fg)
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	FontManager.apply_mono(sub)
+	inner.add_child(sub)
+
+	return panel
 
 # ===========================================================================
 # Module rack (shown during play)
@@ -3953,35 +4203,40 @@ func _run_scoring_sequence(overlay_infos: Array, result: Dictionary,
 
 	for ti in range(overlay_infos.size()):
 		var info:      Dictionary = overlay_infos[ti]
-		var overlay:   Control    = info["overlay"]
+		var panel:     Control    = info["panel"]
 		var center:    Vector2    = info["center"]
 		var chips:     int        = info["chips"]
 		var is_dbl:    bool       = info["is_double"]
-		var hl_color:  Color      = C_MONEDAS if is_dbl else C_CHRONOS
 		var pop_color: Color      = C_MONEDAS if is_dbl else C_TEXT
+		var glow:      Color      = C_MONEDAS if is_dbl else Color(1.45, 1.40, 1.10)
 		var chips_so_far: int     = cum_chips[ti]   # captured fresh per iteration ✓
 
-		# Step 1 — tile flashes (bright border + tinted background)
+		# Step 1 — tile brightens and pops up in place (no duplicate overlay).
 		seq.tween_callback(func():
-			var hl := StyleBoxFlat.new()
-			hl.bg_color     = hl_color.lerp(C_TILE_FACE, 0.45)
-			hl.border_color = hl_color
-			hl.set_border_width_all(3)
-			hl.set_corner_radius_all(6)
-			overlay.add_theme_stylebox_override("panel", hl)
+			if panel == null or not is_instance_valid(panel):
+				return
+			panel.pivot_offset = panel.size * 0.5
+			var pulse := create_tween().set_parallel(true)
+			pulse.tween_property(panel, "modulate", glow, 0.10) \
+				.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+			pulse.tween_property(panel, "scale", Vector2(1.18, 1.18), 0.12) \
+				.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		)
-		seq.tween_interval(0.07)
+		seq.tween_interval(0.10)
 
-		# Step 2 — chip pop rises; counter ticks up; overlay ghost fades out
+		# Step 2 — chip pop, counter tick, then the tile eases back to normal.
 		seq.tween_callback(func():
 			_lbl_preview.text = "%d  chips" % chips_so_far
 			_lbl_preview.add_theme_color_override("font_color",
 				C_MONEDAS if is_dbl else C_PREVIEW)
 			_do_tile_pop("+%d" % chips, pop_color, center, 21, 0.80)
-			var fade := create_tween()
-			fade.tween_interval(0.05)
-			fade.tween_property(overlay, "modulate:a", 0.0, 0.22)
-			fade.tween_callback(overlay.queue_free)
+			if panel == null or not is_instance_valid(panel):
+				return
+			var ret := create_tween().set_parallel(true)
+			ret.tween_property(panel, "modulate", Color.WHITE, 0.22) \
+				.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+			ret.tween_property(panel, "scale", Vector2.ONE, 0.22) \
+				.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
 		)
 		seq.tween_interval(0.13)
 
@@ -4017,7 +4272,9 @@ func _run_scoring_sequence(overlay_infos: Array, result: Dictionary,
 		_maybe_table_shake(result["total"])
 	)
 
-	# Step 6 — unlock input, finalise bar colour/label, restore preview style
+	# Step 6 — unlock input, finalise bar colour/label, restore preview style.
+	# Refresh chain display now (was deferred during scoring so the in-place
+	# animation could run on the actual tile nodes without them being freed).
 	seq.tween_interval(0.28)
 	seq.tween_callback(func():
 		_scoring_active = false
@@ -4026,6 +4283,9 @@ func _run_scoring_sequence(overlay_infos: Array, result: Dictionary,
 		_lbl_preview_total.text = ""   # will repopulate when player makes next selection
 		if _rm != null:
 			_set_chronos_bar(_rm.chronos, _rm.target)
+		_refresh_chain_display()
+		_refresh_action_buttons()
+		_refresh_tile_visuals()
 	)
 
 ## Build a ghost domino overlay at screen_pos, parented to the UI layer.
@@ -4073,16 +4333,14 @@ func _build_score_overlay(screen_pos: Vector2, tile_size: Vector2, tile: Domino)
 ## Called deferred after a successful tile placement so layout has settled.
 ## Finds the correct panel in the rebuilt chain and fires a connection spark.
 func _fire_chain_spark(added_left: bool, was_first: bool) -> void:
-	# Collect only tile PanelContainers (end indicators are VBoxContainers)
-	var tile_panels: Array = []
-	for child in _chain_container.get_children():
-		if child is PanelContainer:
-			tile_panels.append(child)
-	if tile_panels.is_empty():
+	# Tiles live in `_chain_tile_panels` in chain order (handles multi-row layout).
+	if _chain_tile_panels.is_empty():
 		return
 
 	# First tile → spark at centre; left add → leftmost panel; right add → rightmost
-	var panel: Control = tile_panels[0] if (was_first or added_left) else tile_panels[-1]
+	var panel: Control = _chain_tile_panels[0] if (was_first or added_left) else _chain_tile_panels[-1]
+	if panel == null or not is_instance_valid(panel):
+		return
 	var spark_pos: Vector2 = panel.global_position + panel.size * 0.5
 	var accent: Color = Constants.ETAPA_ACCENT[clampi(GameState.current_etapa(), 0, 3)]
 	_do_chain_spark(spark_pos, accent)

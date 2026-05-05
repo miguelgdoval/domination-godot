@@ -117,8 +117,15 @@ const BASE_MODULE_SLOTS: int = 4
 const MAX_MODULE_SLOTS:  int = 6
 
 # ---------------------------------------------------------------------------
-# Scoring thresholds for chain length bonus
+# Scoring thresholds for chain length bonus (persistent-chain tiers)
+# Highest tier whose threshold the chain meets is applied (not stacked).
+# Tiers in ascending order — names are surfaced to UX.
 # ---------------------------------------------------------------------------
+const CHAIN_TIER_MIN:    Array[int]    = [4,       7,          11,          16,         21          ]
+const CHAIN_TIER_BONUS:  Array[int]    = [1,       2,          4,           7,          12          ]
+const CHAIN_TIER_NAMES:  Array[String] = ["Pulse", "Cohesion", "Resonance", "Harmonic", "Singularity"]
+
+# Legacy aliases — kept so existing UI references still resolve.
 const CHAIN_BONUS_SMALL:    int = 4   # chain >= 4 tiles → +1 mult
 const CHAIN_BONUS_LARGE:    int = 7   # chain >= 7 tiles → +2 mult
 const DOUBLE_MULT_BONUS:    int = 1   # each double  → +1 mult
@@ -134,15 +141,19 @@ const BOSS_MONEDAS_BONUS:      int = 2
 # Chronos (score) targets — indexed from 0 (round 1 = index 0)
 # Normal: indices 0-14 (15 rounds)  Hard: indices 0-19 (20 rounds)
 # ---------------------------------------------------------------------------
+## Targets are calibrated for the persistent-chain mechanic: a single chain
+## grows across all hands of a round and is scored as one final structure.
+## Curve is roughly 2× the previous per-hand-scoring values, with steeper
+## late scaling because module compounding lands harder on a long chain.
 const SCORE_TARGETS: Array[int] = [
 	# Etapa 1 — The Mahogany Trial (rounds 1-4 + boss)
-	100, 200, 340, 520, 750,
+	200, 350, 550, 900, 1400,
 	# Etapa 2 — The Industrial Load (rounds 5-8 + boss)
-	1050, 1550, 2300, 3400, 5000,
+	2200, 3300, 5000, 8000, 12000,
 	# Etapa 3 — The Cold Singularity (rounds 9-12 + boss)
-	7200, 10500, 15000, 21000, 30000,
+	18000, 28000, 45000, 70000, 110000,
 	# Etapa 4 — The Archiver's Core — Hard mode only (rounds 13-16 + boss)
-	43000, 62000, 88000, 125000, 175000,
+	160000, 240000, 360000, 540000, 800000,
 ]
 
 # Boss rounds are index 4, 9, 14, 19 (every 5th, 0-indexed)
