@@ -187,6 +187,23 @@ func stand() -> bool:
 	round_ended.emit(true)
 	return true
 
+## Consume a hand without playing anything — used when the player has
+## no tile that can legally extend the chain and can't fix it via discard
+## (e.g. zero discards left, or the box is empty). Prevents softlock.
+##
+## Decrements hands_remaining, draws back to full, emits the same chain /
+## hand-change signals as a normal play, and ends the round if it was
+## the last hand.
+func pass_hand() -> bool:
+	if hands_remaining <= 0:
+		return false
+	hands_remaining -= 1
+	_draw_to_full()
+	hand_changed.emit()
+	if _is_over():
+		round_ended.emit(did_win())
+	return true
+
 # ---------------------------------------------------------------------------
 # Internal
 # ---------------------------------------------------------------------------

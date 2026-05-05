@@ -178,6 +178,7 @@ var _btn_play:        Button
 var _btn_discard:     Button
 var _btn_undo:        Button
 var _btn_stand:       Button   # appears only once chronos ≥ target
+var _btn_pass:        Button   # appears only when softlocked (no legal moves)
 # Reinforcement tray
 var _reinforcement_tray: HBoxContainer
 # Contract indicator
@@ -825,6 +826,37 @@ func _on_stand_pressed() -> void:
 		return
 	AudioManager.play_sfx("round_clear")
 	_rm.stand()
+
+## True when the player has no legal way to advance: no hand tile fits
+## the chain's open ends AND discarding wouldn't help (no discards left
+## or the box is empty so any draw would just reproduce the dead state).
+func _is_player_stuck() -> bool:
+	if _rm == null:
+		return false
+	if _rm.hands_remaining <= 0:
+		return false
+	# An empty chain accepts any tile — never stuck if hand isn't empty.
+	if not _rm.current_chain.is_empty():
+		for t in _rm.hand:
+			if _rm.current_chain.can_add(t):
+				return false
+	elif not _rm.hand.is_empty():
+		return false
+	# No tile fits. Discarding only helps if discards remain AND the box
+	# still has tiles left to draw replacements from.
+	if _rm.can_discard() and not _rm.box.is_empty():
+		return false
+	return true
+
+## Burn a hand without scoring — the anti-softlock escape hatch.
+func _on_pass_pressed() -> void:
+	if _phase != Phase.PLAYING or _scoring_active or _rm == null:
+		return
+	if not _is_player_stuck():
+		return
+	AudioManager.play_sfx("discard")
+	_selected_tiles.clear()
+	_rm.pass_hand()
 
 # ===========================================================================
 # Reinforcement tile activation
@@ -1648,6 +1680,12 @@ func _refresh_action_buttons() -> void:
 	if _btn_stand != null:
 		_btn_stand.visible  = _rm.chronos >= _rm.target and _rm.hands_remaining > 0
 		_btn_stand.disabled = not _btn_stand.visible
+
+	# Pass appears only when truly stuck (anti-softlock).
+	if _btn_pass != null:
+		var stuck: bool = _is_player_stuck()
+		_btn_pass.visible  = stuck
+		_btn_pass.disabled = not stuck
 
 	# Play button glow pulse — looping amber oscillation when a valid chain is ready
 	if not _btn_play.disabled:
@@ -3176,10 +3214,16 @@ func _build_action_bar() -> Control:
 	# until target is met; the action-bar refresh toggles its visibility.
 	_btn_stand   = _make_button("⏹  Stand",      _on_stand_pressed,   Vector2(132, 42))
 	_btn_stand.visible = false
+	# Pass: appears only when the player is truly stuck — no hand tile can
+	# extend the chain AND there's no productive discard available. Burns
+	# one hand without scoring so the round can drain to its natural end.
+	_btn_pass    = _make_button("⏭  Pass Hand",  _on_pass_pressed,    Vector2(150, 42))
+	_btn_pass.visible = false
 	hbox.add_child(_btn_undo)
 	hbox.add_child(_btn_discard)
 	hbox.add_child(_btn_play)
 	hbox.add_child(_btn_stand)
+	hbox.add_child(_btn_pass)
 	return hbox
 
 # ---- Result overlay ----
