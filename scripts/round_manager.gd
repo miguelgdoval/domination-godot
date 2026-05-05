@@ -176,6 +176,17 @@ func hands_used() -> int:
 func unused_hands() -> int:
 	return hands_remaining
 
+## Player explicitly locks in the current chain when target is already
+## reached, ending the round early and banking remaining hands as the
+## per-unused-hand Moneda bonus. No-op if the target hasn't been reached.
+func stand() -> bool:
+	if chronos < target:
+		return false
+	# End the round here; preserve hands_remaining so unused-hand monedas
+	# count correctly.
+	round_ended.emit(true)
+	return true
+
 # ---------------------------------------------------------------------------
 # Internal
 # ---------------------------------------------------------------------------
@@ -184,6 +195,9 @@ func _draw_to_full() -> void:
 	if needed > 0 and not box.is_empty():
 		hand.append_array(box.draw(needed))
 
+## Round naturally ends when the player runs out of hands. The win check
+## happens at that point (chronos vs target). The player can also choose
+## to stand early once the target is reached (see `stand()`).
 func _is_over() -> bool:
-	return hands_remaining <= 0 or chronos >= target
+	return hands_remaining <= 0
 

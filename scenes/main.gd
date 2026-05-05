@@ -165,6 +165,9 @@ var _chain_tile_panels: Array[Control] = []
 var _lbl_preview:          Label   # equation line: "N chips × M"
 var _lbl_preview_total:    Label   # big total line: "= TOTAL" (dominant)
 var _chain_milestone_row:  HBoxContainer   # visual dot-progress bar for chain bonuses
+## Highest tier index reached so far in the current round (-1 = none).
+## Used to detect tier crossings and fire a celebration animation.
+var _last_tier_reached: int = -1
 var _lbl_last_hand:        Label
 # Play button pulse tween (looping amber glow when valid chain ready)
 var _play_pulse_tween: Tween = null
@@ -174,6 +177,7 @@ var _hand_container:  HBoxContainer
 var _btn_play:        Button
 var _btn_discard:     Button
 var _btn_undo:        Button
+var _btn_stand:       Button   # appears only once chronos ≥ target
 # Reinforcement tray
 var _reinforcement_tray: HBoxContainer
 # Contract indicator
@@ -514,6 +518,9 @@ func _begin_round_play() -> void:
 	_rm.hand_changed.connect(_on_hand_changed)
 	_rm.hand_scored.connect(_on_hand_scored)
 	_rm.round_ended.connect(_on_round_ended)
+	# Reset tier-crossing tracker so each round can celebrate its tier
+	# milestones independently.
+	_last_tier_reached = -1
 
 	_dm = DirectiveManager.new()
 	_dm.setup(_rm, 2)
@@ -808,6 +815,16 @@ func _on_undo_pressed() -> void:
 		_refresh_tile_visuals()
 		_refresh_chain_display()
 		_refresh_action_buttons()
+
+## Player chooses to lock in the round once they've crossed the target.
+## Banks remaining hands for the unused-hand Moneda bonus.
+func _on_stand_pressed() -> void:
+	if _phase != Phase.PLAYING or _scoring_active or _rm == null:
+		return
+	if _rm.chronos < _rm.target:
+		return
+	AudioManager.play_sfx("round_clear")
+	_rm.stand()
 
 # ===========================================================================
 # Reinforcement tile activation
@@ -1626,6 +1643,11 @@ func _refresh_action_buttons() -> void:
 	_btn_discard.disabled = not _rm.can_discard() or _selected_tiles.is_empty()
 	_btn_undo.disabled    = _selected_tiles.is_empty()
 	_btn_discard.text     = "Discard (%d)" % _selected_tiles.size()
+	# Stand becomes available the moment the round target is met. Player
+	# can keep extending for tier bonuses / directives, or lock in here.
+	if _btn_stand != null:
+		_btn_stand.visible  = _rm.chronos >= _rm.target and _rm.hands_remaining > 0
+		_btn_stand.disabled = not _btn_stand.visible
 
 	# Play button glow pulse — looping amber oscillation when a valid chain is ready
 	if not _btn_play.disabled:
@@ -3149,9 +3171,15 @@ func _build_action_bar() -> Control:
 	_btn_undo    = _make_button("↩ Undo",       _on_undo_pressed,    Vector2(110, 42))
 	_btn_discard = _make_button("Discard (0)",   _on_discard_pressed, Vector2(148, 42))
 	_btn_play    = _make_button("▶  Play Pulse", _on_play_pressed,    Vector2(166, 42))
+	# Stand: once the chronos target is reached, the player can lock in
+	# the current chain instead of being forced to keep extending. Hidden
+	# until target is met; the action-bar refresh toggles its visibility.
+	_btn_stand   = _make_button("⏹  Stand",      _on_stand_pressed,   Vector2(132, 42))
+	_btn_stand.visible = false
 	hbox.add_child(_btn_undo)
 	hbox.add_child(_btn_discard)
 	hbox.add_child(_btn_play)
+	hbox.add_child(_btn_stand)
 	return hbox
 
 # ---- Result overlay ----
@@ -3939,6 +3967,9 @@ func _refresh_chain_milestone(length: int) -> void:
 		if length >= tiers[i]["min"]:
 			current_idx = i
 
+	# Build segments and remember each one's screen target so we can fire a
+	# celebration if we cross into a new tier.
+	var current_segment: Control = null
 	for i in range(tiers.size()):
 		var tier: Dictionary = tiers[i]
 		var state: String
@@ -3949,7 +3980,44 @@ func _refresh_chain_milestone(length: int) -> void:
 		else:
 			state = "locked"
 
-		_chain_milestone_row.add_child(_build_tier_segment(tier, state, length))
+		var seg := _build_tier_segment(tier, state, length)
+		_chain_milestone_row.add_child(seg)
+		if state == "current":
+			current_segment = seg
+
+	# Tier-crossing celebration: only when the player's chain enters a tier
+	# strictly higher than any seen this round (so undo / partial selection
+	# doesn't spam the animation). Only fires for the bonus tiers — entering
+	# Fragment from nothing isn't a milestone.
+	if current_idx > _last_tier_reached and current_idx > 0 and current_segment != null:
+		_last_tier_reached = current_idx
+		_celebrate_tier_segment(current_segment, tiers[current_idx])
+
+## Plays a celebration on the just-crossed tier segment: the segment scales
+## up with a back-ease, flashes bright, and pops a "+N MULT" label above it.
+## Pairs with a sound sting so the player viscerally feels the milestone.
+func _celebrate_tier_segment(seg: Control, tier: Dictionary) -> void:
+	if seg == null or not is_instance_valid(seg):
+		return
+	seg.pivot_offset = seg.size * 0.5
+	var pop := create_tween().set_parallel(true)
+	pop.tween_property(seg, "scale", Vector2(1.30, 1.30), 0.16) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	pop.tween_property(seg, "modulate", Color(1.5, 1.4, 0.9), 0.16) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	var rest := create_tween().set_parallel(true)
+	rest.tween_interval(0.16)
+	rest.tween_property(seg, "scale", Vector2.ONE, 0.32) \
+		.set_trans(Tween.TRANS_SPRING).set_ease(Tween.EASE_OUT)
+	rest.tween_property(seg, "modulate", Color.WHITE, 0.32) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+
+	# Floating label above the segment: "PULSE +1", "RESONANCE +4", etc.
+	var center := seg.global_position + seg.size * 0.5
+	var label_text: String = "%s  +%d MULT" % [tier["name"], tier["bonus"]]
+	_do_tile_pop(label_text, C_MONEDAS, center + Vector2(0, -seg.size.y * 0.6), 18, 1.10)
+
+	AudioManager.play_sfx("round_clear")
 
 func _build_tier_segment(tier: Dictionary, state: String, length: int) -> Control:
 	var bonus: int = tier["bonus"]

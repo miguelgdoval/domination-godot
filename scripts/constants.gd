@@ -129,6 +129,10 @@ const CHAIN_TIER_NAMES:  Array[String] = ["Pulse", "Cohesion", "Resonance", "Har
 const CHAIN_BONUS_SMALL:    int = 4   # chain >= 4 tiles → +1 mult
 const CHAIN_BONUS_LARGE:    int = 7   # chain >= 7 tiles → +2 mult
 const DOUBLE_MULT_BONUS:    int = 1   # each double  → +1 mult
+## Doubles past this threshold contribute half the per-double mult bonus.
+## Keeps doubles strong without letting all-doubles chains exponentially
+## outscale every other build under the persistent-chain mechanic.
+const DOUBLES_FULL_THRESHOLD: int = 5
 
 # ---------------------------------------------------------------------------
 # Economy
@@ -201,13 +205,20 @@ const BOSS_NAMES: Array[String] = [
 ]
 const BOSS_DESCS: Array[String] = [
 	"Your Isolation Chamber is compressed.\nHand size –1 for this round.",
-	"Discharge relays compromised.\nMaximum discards –2 for this round.",
-	"The signal stutters under load.\nMaximum plays –1 for this round.",
-	"All systems failing at once.\nHand size –1 and plays –1 for this round.",
+	"Discharge relays compromised.\nMaximum discards –1 for this round.",
+	"The signal stutters under load.\nHand size –1 and plays –1 for this round.",
+	"All systems failing at once.\nHand –1, plays –1, discards –1.",
 ]
+## Persistent-chain rebalance:
+##   • Boss 2: was discards –2 (often → 0 with default protocol, near auto-fail
+##     because shaping one round-long chain depends on discards). Now –1.
+##   • Boss 3: was plays –1 only — too soft against a multi-hand chain. Now
+##     also –1 hand size to actually constrain the build.
+##   • Boss 4: now compounds all three pressures (was only hand & plays).
+##
 ## Delta applied to hand_size on boss rounds.
-const BOSS_HAND_DELTA:    Array[int] = [-1,  0,  0, -1]
+const BOSS_HAND_DELTA:    Array[int] = [-1,  0, -1, -1]
 ## Delta applied to max_discards on boss rounds (clamped to min 0).
-const BOSS_DISCARD_DELTA: Array[int] = [ 0, -2,  0,  0]
+const BOSS_DISCARD_DELTA: Array[int] = [ 0, -1,  0, -1]
 ## Delta applied to max_hands on boss rounds (clamped to min 1).
 const BOSS_HANDS_DELTA:   Array[int] = [ 0,  0, -1, -1]

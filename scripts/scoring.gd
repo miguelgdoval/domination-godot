@@ -78,8 +78,15 @@ static func calculate(chain: Chain, modules: Array = []) -> Dictionary:
 				chips += hpb["v"]
 
 	# --- Base multiplier bonuses ---
-	# Double resonance
-	mult += doubles * double_mult_per
+	# Double resonance — diminishing returns. The first DOUBLES_FULL_THRESHOLD
+	# doubles each grant the full per-double mult bonus; further doubles only
+	# grant half (rounded down). Prevents all-doubles builds from running away
+	# under persistent-chain compounding (a 12-tile pure-double chain used to
+	# produce mult > 12 from doubles alone).
+	var full_d:    int = mini(doubles, Constants.DOUBLES_FULL_THRESHOLD)
+	var bonus_d:   int = maxi(0, doubles - Constants.DOUBLES_FULL_THRESHOLD)
+	mult += full_d * double_mult_per
+	mult += (bonus_d * double_mult_per) / 2
 
 	# Chain length (cohesion) bonus — tiered. Apply only the highest tier reached.
 	for ti in range(Constants.CHAIN_TIER_MIN.size() - 1, -1, -1):
