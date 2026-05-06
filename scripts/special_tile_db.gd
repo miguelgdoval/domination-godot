@@ -11,6 +11,11 @@ static func all() -> Array[Domino]:
 		_gilded_shard(),
 		_prism(),
 		_void_eye(),
+		_spark(),
+		_hollow(),
+		_bridge(),
+		_pinnacle(),
+		_crown(),
 	]
 
 ## The Anchor — a 0|0 that refuses to be worthless.
@@ -56,4 +61,58 @@ static func _void_eye() -> Domino:
 	d.custom_name  = "The Void Eye"
 	d.bonus_chips  = 5
 	d.lore_text    = "\"It sees all connections and makes them real.\""
+	return d
+
+## The Spark — a 1|1 with +5 bonus chips. Bone-tier entry to the
+## special-tile shop so the player has an affordable upgrade option
+## even on a tight monedas budget.
+static func _spark() -> Domino:
+	var d := Domino.new(1, 1, Constants.Rarity.BONE)
+	d.custom_name = "The Spark"
+	d.bonus_chips = 5
+	d.lore_text   = "\"Small. But the cascade has to start somewhere.\""
+	return d
+
+## The Hollow — Bone-tier 0|0 with +6 bonus chips. Cheaper Anchor variant
+## for early-run blank-friendly builds (especially on the Blank Slate core).
+static func _hollow() -> Domino:
+	var d := Domino.new(0, 0, Constants.Rarity.BONE)
+	d.custom_name = "The Hollow"
+	d.bonus_chips = 6
+	d.lore_text   = "\"An empty channel still carries a tone.\""
+	return d
+
+## The Bridge — a 3|6, both pips common across the standard set, with
+## +6 bonus chips and double_weight=1 so the tile contributes a double's
+## mult bonus despite being a non-double. Designed as a connector tile
+## that fits anywhere AND scores like a real double.
+static func _bridge() -> Domino:
+	var d := Domino.new(3, 6, Constants.Rarity.CARVED)
+	d.custom_name    = "The Bridge"
+	d.bonus_chips    = 6
+	d.double_weight  = 1
+	d.lore_text      = "\"Two flows, one channel. The Bridge does not choose sides.\""
+	return d
+
+## The Pinnacle — a 9|9 that counts as 3 doubles for multiplier purposes
+## and adds 8 bonus chips. Massive on a doubles-stack build, terrible
+## under Resonance Inversion (Boss 3) — a real strategic acquisition.
+static func _pinnacle() -> Domino:
+	var d := Domino.new(9, 9, Constants.Rarity.OBSIDIAN)
+	d.custom_name    = "The Pinnacle"
+	d.bonus_chips    = 8
+	d.double_weight  = 3
+	d.lore_text      = "\"The peak of resonance. Three signals from one source.\""
+	return d
+
+## The Crown — Obsidian Wild with double_weight=3 and +8 bonus chips.
+## Connects to anything (Wild) AND triples its mult contribution. Total
+## chip output: WILD_BASE_CHIPS (10) + bonus (8) = 18, with +3 mult from
+## the triple-resonance. The Archiver-tier centerpiece of any Wild build.
+static func _crown() -> Domino:
+	var d := Domino.new(Domino.WILD, Domino.WILD, Constants.Rarity.OBSIDIAN, true)
+	d.custom_name    = "The Crown"
+	d.bonus_chips    = 8
+	d.double_weight  = 3
+	d.lore_text      = "\"It does not need to match. The chain matches it.\""
 	return d
