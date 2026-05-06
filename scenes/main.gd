@@ -742,7 +742,13 @@ func _begin_round_play() -> void:
 	_last_tier_reached = -1
 
 	_dm = DirectiveManager.new()
-	_dm.setup(_rm, 2)
+	# Per-core directive count override (The Runner core starts with 3
+	# active directive slots instead of the standard 2).
+	var directive_count: int = 2
+	if GameState.chosen_core >= 0 and GameState.chosen_core < Constants.CORE_PROFILES.size():
+		directive_count = int(Constants.CORE_PROFILES[GameState.chosen_core] \
+			.get("start_directives", 2))
+	_dm.setup(_rm, directive_count)
 	_dm.directive_completed.connect(_on_directive_completed)
 
 	_result_overlay.hide()
@@ -1878,6 +1884,8 @@ func _build_shop_item_card(entry: Dictionary) -> Control:
 	var disc: int = GameState.shop_discount_pct()
 	if disc > 0:
 		cost = maxi(1, int(cost * (100 - disc) / 100.0))
+	# Per-core flat surcharge (Obsidian Core costs +2 per item).
+	cost = maxi(1, cost + GameState.core_shop_price_delta())
 	var bought: bool = m.id in _shop_bought or GameState.owns_module(m.id)
 
 	var panel := PanelContainer.new()
@@ -4261,8 +4269,12 @@ func _build_directives_panel() -> Control:
 	var title_lbl := _make_label("DIRECTIVES:", C_DIM, 12)
 	hbox.add_child(title_lbl)
 
+	# Allocate 3 slots so The Runner core (which starts with 3 active
+	# directives) has somewhere to render. Standard / 2-directive runs
+	# leave the third label blank — costs one empty Label, saves a UI
+	# rebuild on core change.
 	_directive_labels.clear()
-	for i in range(2):
+	for i in range(3):
 		var lbl := _make_label("", C_DIM, 12)
 		hbox.add_child(lbl)
 		_directive_labels.append(lbl)

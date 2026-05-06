@@ -50,6 +50,26 @@ func start_run(p_core: int = 0, p_protocol: int = 0,
 	is_daily_run        = false
 	# Protocol starting bonus
 	monedas += Constants.PROTOCOL_BONUS_MONEDAS[p_protocol]
+	# Core profile — preloaded modules, extra monedas, etc. for cores that
+	# define more than just a custom box. Empty dict for cores that don't.
+	_apply_core_profile(p_core)
+
+## Apply the per-core profile (preloaded modules, starting monedas bump,
+## etc.) declared in `Constants.CORE_PROFILES`. Called from start_run
+## after the baseline state has been set up.
+func _apply_core_profile(p_core: int) -> void:
+	if p_core < 0 or p_core >= Constants.CORE_PROFILES.size():
+		return
+	var profile: Dictionary = Constants.CORE_PROFILES[p_core]
+	if profile.is_empty():
+		return
+	monedas += int(profile.get("start_monedas", 0))
+	for mid in profile.get("start_modules", []):
+		for m in ModuleDB.all():
+			if m.id == String(mid):
+				modules.append(m)
+				module_slots += m.extra_slots
+				break
 
 ## Begin a daily-trial run. Reseeds Godot's RNG with today's deterministic
 ## seed so every player faces the same box order, shop offers, etc., then
@@ -217,6 +237,14 @@ func shop_discount_pct() -> int:
 		if m.effect_type == Module.EffectType.SHOP_DISCOUNT:
 			total += m.effect_value
 	return clampi(total, 0, 80)
+
+## Per-core shop price modifier — added flat to every shop item's cost
+## AFTER any percentage discount. Used by the Obsidian Core (+2) to
+## offset its preloaded Obsidian module.
+func core_shop_price_delta() -> int:
+	if chosen_core < 0 or chosen_core >= Constants.CORE_PROFILES.size():
+		return 0
+	return int(Constants.CORE_PROFILES[chosen_core].get("shop_price_delta", 0))
 
 func chain_coin_bonus(chain_length: int) -> int:
 	var total := 0

@@ -5,12 +5,13 @@ extends Node
 # ---------------------------------------------------------------------------
 # Calibration Cores  (box variants chosen at run start)
 # ---------------------------------------------------------------------------
-const CORE_COUNT: int = 6
+const CORE_COUNT: int = 9
 const CORE_NAMES: Array[String] = [
 	"Standard Core", "Resonant Core", "Dense Array", "Void Lattice",
 	"Slimline", "Specialist Core",
+	"The Arsenal", "The Runner", "Obsidian Core",
 ]
-const CORE_RARITIES: Array[int] = [0, 1, 1, 2, 1, 2]  # Bone, Carved, Carved, Ivory, Carved, Ivory
+const CORE_RARITIES: Array[int] = [0, 1, 1, 2, 1, 2, 1, 2, 3]
 const CORE_DESCS: Array[String] = [
 	"Full double-9 set — 110 tiles.\nBalanced and well-understood.",
 	"Doubles only (0-0 through 9-9) — 50 tiles.\nEvery tile resonates. Multipliers run wild.",
@@ -18,6 +19,9 @@ const CORE_DESCS: Array[String] = [
 	"Standard set + 10 Wild tiles — 120 tiles.\nUnstable flux. The Wilds connect to anything.",
 	"One copy of each tile — 55 tiles.\nBox drains fast. Make every placement count.",
 	"Only tiles with a face ≥ 6, ×2 — 68 tiles.\nFewer matching faces, but every tile is heavy.",
+	"Standard set + 2 Bone modules pre-equipped.\nHit the ground running.",
+	"Standard set, +4 starting Monedas, +1 directive slot.\nContract specialist build.",
+	"Standard set + 1 Obsidian module pre-equipped.\nShop prices +2. Power has its cost.",
 ]
 const CORE_LORES: Array[String] = [
 	"\"Standard field array. Recommended for initial calibration.\"",
@@ -26,14 +30,12 @@ const CORE_LORES: Array[String] = [
 	"\"Something has contaminated the array. The Wilds answer to nothing—and everything.\"",
 	"\"Reduced redundancy. The simulation runs lean, fast, and unforgiving.\"",
 	"\"Only the loud frequencies. The faint signals have been filtered out.\"",
+	"\"Pre-loaded with field gear. The Operator does not improvise.\"",
+	"\"A backchannel kit. The Copper Guild knows your name.\"",
+	"\"The Renegade Mechanic's signature. The Archiver would disapprove.\"",
 ]
 ## Score target scale (applied as target × scale / 100).
-## Resonant Core: all-doubles → massive multipliers → harder targets.
-## Dense Array: max pip 6 → lower chips → easier targets.
-## Void Lattice: wilds help chaining but don't score → slight reduction.
-## Slimline: half-deck → tighter chains → slight reduction.
-## Specialist: high-pip only → easier to score → harder targets.
-const CORE_TARGET_SCALE: Array[int] = [100, 160, 65, 90, 85, 130]
+const CORE_TARGET_SCALE: Array[int] = [100, 160, 65, 90, 85, 130, 110, 100, 110]
 
 ## Unlock gates per core. Index 0 is the starter — always unlocked, the
 ## description is just for completeness. The other entries say what the
@@ -48,6 +50,31 @@ const CORE_UNLOCKS: Array[Dictionary] = [
 	{ "type": "wins",       "value": 1,  "label": "Recalibrate the Chronometer at least once." },
 	{ "type": "best_round", "value": 5,  "label": "Clear the first Entropy Failure (round 5)." },
 	{ "type": "best_round", "value": 10, "label": "Clear the second Entropy Failure (round 10)." },
+	{ "type": "best_round", "value": 5,  "label": "Clear the first Entropy Failure (round 5)." },
+	{ "type": "best_round", "value": 10, "label": "Clear the second Entropy Failure (round 10)." },
+	{ "type": "wins",       "value": 1,  "label": "Recalibrate the Chronometer at least once." },
+]
+
+## Per-core "profile": a small dict describing extra starting state that
+## the standard `start_run` flow doesn't cover (preloaded modules, extra
+## starting monedas / directives, shop pricing modifier, etc.). Indexed
+## the same as CORE_NAMES; an empty dict means "no extras".
+##
+## Recognised keys:
+##   start_modules     : Array[String]  — module IDs equipped at run start.
+##   start_monedas     : int            — added to the protocol bonus.
+##   start_directives  : int            — overrides the default 2 active.
+##   shop_price_delta  : int            — added to every shop item's cost.
+const CORE_PROFILES: Array[Dictionary] = [
+	{},                                                          # Standard
+	{},                                                          # Resonant
+	{},                                                          # Dense
+	{},                                                          # Void
+	{},                                                          # Slimline
+	{},                                                          # Specialist
+	{"start_modules": ["brass_gear", "copper_coil"]},            # Arsenal
+	{"start_monedas": 4, "start_directives": 3},                 # Runner
+	{"start_modules": ["the_dominator"], "shop_price_delta": 2}, # Obsidian
 ]
 
 # ---------------------------------------------------------------------------
