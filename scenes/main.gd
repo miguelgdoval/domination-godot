@@ -179,6 +179,11 @@ var _btn_discard:     Button
 var _btn_undo:        Button
 var _btn_stand:       Button   # appears only once chronos ≥ target
 var _btn_pass:        Button   # appears only when softlocked (no legal moves)
+## Two-line hint shown next to the Stand button when target is reached.
+## Top line: monedas the player would bank from unused hands by standing.
+## Bottom: distance to next tier (and the mult bonus it unlocks). Helps the
+## player make an informed choice between safe and greedy.
+var _lbl_stand_hint:  Label
 # Reinforcement tray
 var _reinforcement_tray: HBoxContainer
 # Contract indicator
@@ -489,6 +494,27 @@ func _show_boss_warning() -> void:
 func _on_boss_begin_pressed() -> void:
 	_boss_overlay.hide()
 	_begin_round_play()
+	_play_boss_entry_flash()
+
+## Brief red table flash + screen shake when the player commits to a boss
+## round. Reinforces "this is dangerous" right as control returns to play.
+## The flash bg colour is tweened back to the etapa's normal table tone so
+## it overlays cleanly with the existing etapa-theme transition.
+func _play_boss_entry_flash() -> void:
+	if _table_style == null:
+		return
+	var etapa: int = clampi(GameState.current_etapa(), 0, 3)
+	var normal_bg: Color = Constants.ETAPA_TABLE[etapa]
+	var flash_bg:  Color = Color(0.55, 0.06, 0.06, normal_bg.a)
+	var t := create_tween()
+	t.tween_method(func(c: Color): _table_style.bg_color = c,
+		normal_bg, flash_bg, 0.10)
+	t.tween_method(func(c: Color): _table_style.bg_color = c,
+		flash_bg, normal_bg, 0.55) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	# Modest screen-shake on the same beat as the flash peak.
+	_maybe_table_shake(220)
+	AudioManager.play_sfx("chain_play")
 
 func _begin_round_play() -> void:
 	_phase = Phase.PLAYING
@@ -552,11 +578,7 @@ func _end_round(won: bool) -> void:
 		var earned: int = GameState.award_monedas(_rm.unused_hands())
 		_lbl_result.text = "RECALIBRATION SUCCESSFUL"
 		_lbl_result.add_theme_color_override("font_color", C_WIN)
-		var detail: String = "Chronos: %d / %d    +%d Monedas" % [
-			_rm.chronos, _rm.target, earned]
-		if dir_bonus > 0:
-			detail += "\nDirectives: +%d Monedas" % dir_bonus
-		_lbl_result_sub.text = detail
+		_lbl_result_sub.text = _build_round_summary_text(earned, dir_bonus)
 		var shop_name: String = \
 			"ARTISAN'S WORKSHOP" if GameState.is_boss_round() else "BRASS EMPORIUM"
 		_btn_result_action.text = "VISIT " + shop_name
@@ -564,6 +586,82 @@ func _end_round(won: bool) -> void:
 		_show_run_end(false)
 		return
 	_result_overlay.show()
+
+## Compose the round-summary text shown in the result overlay. Pulls the
+## final chain stats from the Scoring module so the breakdown reflects all
+## modifiers (doubles bonus, tier bonus, module-driven mult/chips).
+func _build_round_summary_text(monedas_earned: int, dir_bonus: int) -> String:
+	if _rm == null or _rm.current_chain == null:
+		return "Chronos: %d / %d    +%d Monedas" % [
+			_rm.chronos if _rm else 0, _rm.target if _rm else 0, monedas_earned]
+
+	var result: Dictionary = Scoring.calculate(_rm.current_chain, GameState.modules)
+	var length:  int = result.get("length", 0)
+	var doubles: int = result.get("doubles", 0)
+	var chips:   int = result.get("chips", 0)
+	var mult:    int = result.get("mult", 1)
+
+	# Highest tier the chain reached + the bonus it contributed.
+	var tier_name:  String = "Fragment"
+	var tier_bonus: int    = 0
+	for ti in range(Constants.CHAIN_TIER_MIN.size() - 1, -1, -1):
+		if length >= Constants.CHAIN_TIER_MIN[ti]:
+			tier_name  = Constants.CHAIN_TIER_NAMES[ti]
+			tier_bonus = Constants.CHAIN_TIER_BONUS[ti]
+			break
+
+	# Doubles mult bonus (with the diminishing-returns cap from scoring.gd).
+	var full_d:  int = mini(doubles, Constants.DOUBLES_FULL_THRESHOLD)
+	var bonus_d: int = maxi(0, doubles - Constants.DOUBLES_FULL_THRESHOLD)
+	var doubles_mult_bonus: int = full_d + bonus_d / 2
+
+	# Monedas breakdown — mirrors GameState.award_monedas.
+	var base_m:   int = Constants.MONEDAS_PER_ROUND
+	var unused:   int = _rm.unused_hands()
+	var unused_m: int = unused * Constants.MONEDAS_PER_UNUSED_HAND
+	var boss_m:   int = Constants.BOSS_MONEDAS_BONUS if GameState.is_boss_round() else 0
+	var module_m: int = monedas_earned - base_m - unused_m - boss_m
+
+	var lines: Array = []
+	lines.append("Chronos: %d / %d" % [_rm.chronos, _rm.target])
+	lines.append("")
+	lines.append("══ Chain ══")
+	lines.append("%d tiles · %d doubles · %s tier" % [length, doubles, tier_name])
+	lines.append("%d chips × %d mult = %d Chronos" % [chips, mult, chips * mult])
+	lines.append("")
+	lines.append("══ Mult sources ══")
+	lines.append("  Base: ×1")
+	if doubles_mult_bonus > 0:
+		var note: String = ""
+		if bonus_d > 0:
+			note = "  (cap: first %d full, rest half)" % Constants.DOUBLES_FULL_THRESHOLD
+		lines.append("  Doubles (%d): +%d%s" % [doubles, doubles_mult_bonus, note])
+	if tier_bonus > 0:
+		lines.append("  Tier (%s): +%d" % [tier_name, tier_bonus])
+	lines.append("")
+	lines.append("══ Monedas earned: +%d ══" % monedas_earned)
+	lines.append("  Round base: +%d" % base_m)
+	if unused_m > 0:
+		lines.append("  Unused hands (%d): +%d" % [unused, unused_m])
+	if boss_m > 0:
+		lines.append("  Boss bonus: +%d" % boss_m)
+	if module_m > 0:
+		lines.append("  Modules: +%d" % module_m)
+	if dir_bonus > 0:
+		lines.append("  Directives: +%d" % dir_bonus)
+
+	# Near-miss nudge: how close were we to the next bonus tier?
+	var next_threshold: int = -1
+	for t_min in Constants.CHAIN_TIER_MIN:
+		if length < t_min:
+			next_threshold = t_min
+			break
+	if next_threshold > 0:
+		var to_go: int = next_threshold - length
+		lines.append("")
+		lines.append("Almost: %d more tile%s to next tier." % [to_go, "s" if to_go > 1 else ""])
+
+	return "\n".join(lines)
 
 func _show_shop() -> void:
 	_phase = Phase.SHOP
@@ -847,6 +945,42 @@ func _is_player_stuck() -> bool:
 	if _rm.can_discard() and not _rm.box.is_empty():
 		return false
 	return true
+
+## Update the inline Stand hint whenever the action bar refreshes.
+## Hidden unless the Stand button itself is visible.
+func _refresh_stand_hint() -> void:
+	if _lbl_stand_hint == null or _btn_stand == null:
+		return
+	if not _btn_stand.visible:
+		_lbl_stand_hint.visible = false
+		return
+	_lbl_stand_hint.visible = true
+
+	var unused: int = _rm.unused_hands()
+	var bank:   int = unused * Constants.MONEDAS_PER_UNUSED_HAND
+	var stand_line: String = "STAND  +%d Monedas (%d unused)" % [bank, unused]
+
+	# How far to the next bonus tier the chain hasn't crossed yet?
+	var length: int = _rm.committed_chain_length
+	var next_min:   int = -1
+	var next_bonus: int = 0
+	var next_name:  String = ""
+	for ti in range(Constants.CHAIN_TIER_MIN.size()):
+		if length < Constants.CHAIN_TIER_MIN[ti]:
+			next_min   = Constants.CHAIN_TIER_MIN[ti]
+			next_bonus = Constants.CHAIN_TIER_BONUS[ti]
+			next_name  = Constants.CHAIN_TIER_NAMES[ti]
+			break
+
+	var extend_line: String
+	if next_min < 0:
+		extend_line = "EXTEND →  Singularity reached, push for more chips"
+	else:
+		var to_go: int = next_min - length
+		extend_line = "EXTEND →  +%d tile%s for %s (+%d mult)" % [
+			to_go, "s" if to_go > 1 else "", next_name, next_bonus]
+
+	_lbl_stand_hint.text = stand_line + "\n" + extend_line
 
 ## Burn a hand without scoring — the anti-softlock escape hatch.
 func _on_pass_pressed() -> void:
@@ -1680,6 +1814,7 @@ func _refresh_action_buttons() -> void:
 	if _btn_stand != null:
 		_btn_stand.visible  = _rm.chronos >= _rm.target and _rm.hands_remaining > 0
 		_btn_stand.disabled = not _btn_stand.visible
+		_refresh_stand_hint()
 
 	# Pass appears only when truly stuck (anti-softlock).
 	if _btn_pass != null:
@@ -3219,10 +3354,21 @@ func _build_action_bar() -> Control:
 	# one hand without scoring so the round can drain to its natural end.
 	_btn_pass    = _make_button("⏭  Pass Hand",  _on_pass_pressed,    Vector2(150, 42))
 	_btn_pass.visible = false
+
+	# Stand-decision hint: a small two-line label sitting next to the Stand
+	# button so the player can weigh "lock in for monedas" against
+	# "keep extending for the next tier".
+	_lbl_stand_hint = _make_label("", C_DIM, 11)
+	_lbl_stand_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_lbl_stand_hint.autowrap_mode = TextServer.AUTOWRAP_OFF
+	_lbl_stand_hint.visible = false
+	FontManager.apply_mono(_lbl_stand_hint)
+
 	hbox.add_child(_btn_undo)
 	hbox.add_child(_btn_discard)
 	hbox.add_child(_btn_play)
 	hbox.add_child(_btn_stand)
+	hbox.add_child(_lbl_stand_hint)
 	hbox.add_child(_btn_pass)
 	return hbox
 
@@ -3235,7 +3381,7 @@ func _build_result_overlay() -> Control:
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	overlay.add_child(center)
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(560, 0)
+	panel.custom_minimum_size = Vector2(620, 0)
 	var style := StyleBoxFlat.new()
 	style.bg_color     = Color(0.10, 0.09, 0.07, 0.98)
 	style.border_color = Color(0.5, 0.45, 0.35)
@@ -3251,10 +3397,13 @@ func _build_result_overlay() -> Control:
 	_lbl_result.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(_lbl_result)
 	vbox.add_child(_make_hsep())
-	_lbl_result_sub = _make_label("", C_TEXT, 14)
+	# Multi-line round summary: chain stats, mult breakdown, monedas earned.
+	# Mono font keeps the columnar "  Doubles (4): +4" lines aligned.
+	_lbl_result_sub = _make_label("", C_TEXT, 13)
 	_lbl_result_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_lbl_result_sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_lbl_result_sub.custom_minimum_size = Vector2(480, 0)
+	_lbl_result_sub.custom_minimum_size = Vector2(540, 0)
+	FontManager.apply_mono(_lbl_result_sub)
 	vbox.add_child(_lbl_result_sub)
 	vbox.add_child(_make_hsep())
 	var row := HBoxContainer.new()
