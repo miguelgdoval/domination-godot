@@ -124,6 +124,17 @@ func sell_module(m: Module) -> bool:
 func is_boss_round() -> bool:
 	return Constants.is_boss_round(round_index)
 
+## Returns the active boss-effect kind for the current round, or
+## STAT_CUT (= no special hook) for non-boss rounds. Scoring and the
+## renderer call this to honour effects like RESONANCE_INVERSION.
+func active_boss_effect() -> int:
+	if not is_boss_round():
+		return Constants.BossEffect.STAT_CUT
+	var e: int = current_etapa()
+	if e < 0 or e >= Constants.BOSS_EFFECT_TYPE.size():
+		return Constants.BossEffect.STAT_CUT
+	return Constants.BOSS_EFFECT_TYPE[e]
+
 func current_etapa() -> int:
 	return Constants.etapa_for_round(round_index)
 

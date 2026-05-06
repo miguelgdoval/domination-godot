@@ -83,10 +83,20 @@ static func calculate(chain: Chain, modules: Array = []) -> Dictionary:
 	# grant half (rounded down). Prevents all-doubles builds from running away
 	# under persistent-chain compounding (a 12-tile pure-double chain used to
 	# produce mult > 12 from doubles alone).
+	#
+	# Boss override: RESONANCE_INVERSION flips the sign — doubles SUBTRACT
+	# from the multiplier this round, forcing the player to abandon the
+	# doubles-stack build and chase long low-pip chains instead.
+	var double_sign: int = 1
+	if GameState.active_boss_effect() == Constants.BossEffect.RESONANCE_INVERSION:
+		double_sign = -1
 	var full_d:    int = mini(doubles, Constants.DOUBLES_FULL_THRESHOLD)
 	var bonus_d:   int = maxi(0, doubles - Constants.DOUBLES_FULL_THRESHOLD)
-	mult += full_d * double_mult_per
-	mult += (bonus_d * double_mult_per) / 2
+	mult += double_sign * full_d * double_mult_per
+	mult += double_sign * (bonus_d * double_mult_per) / 2
+	# Mult must remain positive — a deeply inverted chain still scores at
+	# minimum ×1 so the round can never go negative on the player.
+	mult = maxi(1, mult)
 
 	# Chain length (cohesion) bonus — tiered. Apply only the highest tier reached.
 	for ti in range(Constants.CHAIN_TIER_MIN.size() - 1, -1, -1):

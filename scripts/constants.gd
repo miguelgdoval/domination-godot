@@ -242,25 +242,40 @@ func score_target(round_index: int) -> int:
 const BOSS_NAMES: Array[String] = [
 	"FREQUENCY DRAIN",
 	"SIGNAL DECAY",
-	"RESONANCE LOCK",
+	"RESONANCE INVERSION",
 	"TOTAL ENTROPY",
 ]
 const BOSS_DESCS: Array[String] = [
 	"Your Isolation Chamber is compressed.\nHand size –1 for this round.",
 	"Discharge relays compromised.\nMaximum discards –1 for this round.",
-	"The signal stutters under load.\nHand size –1 and plays –1 for this round.",
+	"Self-referential flows have inverted polarity.\nEach double SUBTRACTS from your multiplier\ninstead of adding to it.",
 	"All systems failing at once.\nHand –1, plays –1, discards –1.",
 ]
-## Persistent-chain rebalance:
-##   • Boss 2: was discards –2 (often → 0 with default protocol, near auto-fail
-##     because shaping one round-long chain depends on discards). Now –1.
-##   • Boss 3: was plays –1 only — too soft against a multi-hand chain. Now
-##     also –1 hand size to actually constrain the build.
-##   • Boss 4: now compounds all three pressures (was only hand & plays).
+## Persistent-chain rebalance + boss-variety pass:
+##   • Boss 1 / Boss 2 stay as stat-cuts — fine framing for early rounds.
+##   • Boss 3 was a stat-cut (hand & plays); now it's RESONANCE_INVERSION.
+##     Doubles flip sign in the mult math, so the doubles-stack build that
+##     dominates the rest of the run becomes a liability. Player must
+##     pivot to long low-pip chains for this one round. No stat cuts.
+##   • Boss 4 still stacks all three stat pressures.
 ##
 ## Delta applied to hand_size on boss rounds.
-const BOSS_HAND_DELTA:    Array[int] = [-1,  0, -1, -1]
+const BOSS_HAND_DELTA:    Array[int] = [-1,  0,  0, -1]
 ## Delta applied to max_discards on boss rounds (clamped to min 0).
 const BOSS_DISCARD_DELTA: Array[int] = [ 0, -1,  0, -1]
 ## Delta applied to max_hands on boss rounds (clamped to min 1).
-const BOSS_HANDS_DELTA:   Array[int] = [ 0,  0, -1, -1]
+const BOSS_HANDS_DELTA:   Array[int] = [ 0,  0,  0, -1]
+
+## Boss effect "kind" — drives scoring overrides and (eventually)
+## render-time tweaks. STAT_CUT bosses just lean on the deltas above;
+## special effects need scoring or display logic to honour them.
+enum BossEffect {
+	STAT_CUT,            # No special hook; uses the stat deltas only.
+	RESONANCE_INVERSION, # Doubles count NEGATIVELY toward mult.
+}
+const BOSS_EFFECT_TYPE: Array[int] = [
+	BossEffect.STAT_CUT,
+	BossEffect.STAT_CUT,
+	BossEffect.RESONANCE_INVERSION,
+	BossEffect.STAT_CUT,
+]

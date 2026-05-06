@@ -77,7 +77,7 @@ const ETAPA_ATMOSPHERE:  Array[String] = [
 const BOSS_LORE: Array[String] = [
 	"The frequencies bleed.\nWhat was stable becomes noise.",
 	"Your signal reaches us fractured.\nThe decay accelerates.",
-	"The resonance lock has no key.\nOnly pressure.",
+	"The mirror eats its reflection.\nWhat resonates now devours.",
 	"This is not a test.\nThe Chronometer cannot hold much longer.",
 ]
 
