@@ -243,6 +243,45 @@ static func all() -> Array[Module]:
 			Module.EffectType.CHAIN_COIN_BONUS, 1, 3, 0,
 			"Chains of 3+ tiles award +1 Moneda on play.",
 			"The longer the pulse, the greater the dividend."),
+
+		# ------------------------------------------------------------------
+		# Roster expansion — fills archetype tier gaps so build paths have
+		# upgrade options at every rarity, not just at one or two.
+		# ------------------------------------------------------------------
+
+		# ECONOMY — was capped at CARVED; now extends to IVORY + OBSIDIAN
+		_make("vault_connection", "Vault Connection", Constants.Rarity.IVORY,
+			Module.EffectType.SHOP_DISCOUNT, 25, 0, 0,
+			"All shop items cost 25% less.",
+			"A direct line to the Copper Guild. Discretion is presumed."),
+
+		_make_extra("counting_house", "Counting House", Constants.Rarity.OBSIDIAN,
+			Module.EffectType.COIN_PER_ROUND, 6, 0, 1,
+			"+6 Monedas at the end of every round. +1 Module slot.",
+			"\"The wealth was already there. You only learned to see it.\""),
+
+		# BLANKS — now reaches OBSIDIAN (was capped at IVORY)
+		_make_extra("blank_coalescer", "Blank Coalescer", Constants.Rarity.OBSIDIAN,
+			Module.EffectType.BLANK_TO_CHIPS, 28, 0, 1,
+			"+28 Chips per blank face in chain. +1 Module slot.",
+			"\"The Void was singing all along. Only the deaf called it empty.\""),
+
+		# HIGH_PIP — entry-level BONE option + top-tier OBSIDIAN
+		_make("resonant_stride", "Resonant Stride", Constants.Rarity.BONE,
+			Module.EffectType.HIGH_PIP_BONUS, 3, 5, 0,
+			"Tiles with 5+ pips on either face: +3 Chips.",
+			"Even moderate frequencies carry weight when the array listens."),
+
+		_make_extra("apex_resonator", "Apex Resonator", Constants.Rarity.OBSIDIAN,
+			Module.EffectType.HIGH_PIP_BONUS, 25, 9, 1,
+			"Tiles with 9 pips on either face: +25 Chips. +1 Module slot.",
+			"\"The peak frequencies do not amplify. They become.\""),
+
+		# SACRIFICE — entry BONE option (currently starts at CARVED)
+		_make("triage_engine", "Triage Engine", Constants.Rarity.BONE,
+			Module.EffectType.LOW_PIP_TO_MULT, 1, 1, 0,
+			"Tiles with ≤1 total pips: 0 Chips, +1 Mult each.",
+			"The smallest signals are not worth scoring. They are worth burning."),
 	]
 
 static func get_by_rarity(rarity: int) -> Array[Module]:
