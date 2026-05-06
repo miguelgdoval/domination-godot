@@ -5,13 +5,14 @@ extends Node
 # ---------------------------------------------------------------------------
 # Calibration Cores  (box variants chosen at run start)
 # ---------------------------------------------------------------------------
-const CORE_COUNT: int = 9
+const CORE_COUNT: int = 10
 const CORE_NAMES: Array[String] = [
 	"Standard Core", "Resonant Core", "Dense Array", "Void Lattice",
 	"Slimline", "Specialist Core",
 	"The Arsenal", "The Runner", "Obsidian Core",
+	"Blank Slate",
 ]
-const CORE_RARITIES: Array[int] = [0, 1, 1, 2, 1, 2, 1, 2, 3]
+const CORE_RARITIES: Array[int] = [0, 1, 1, 2, 1, 2, 1, 2, 3, 2]
 const CORE_DESCS: Array[String] = [
 	"Full double-9 set — 110 tiles.\nBalanced and well-understood.",
 	"Doubles only (0-0 through 9-9) — 50 tiles.\nEvery tile resonates. Multipliers run wild.",
@@ -22,6 +23,7 @@ const CORE_DESCS: Array[String] = [
 	"Standard set + 2 Bone modules pre-equipped.\nHit the ground running.",
 	"Standard set, +4 starting Monedas, +1 directive slot.\nContract specialist build.",
 	"Standard set + 1 Obsidian module pre-equipped.\nShop prices +2. Power has its cost.",
+	"Blank-heavy box (130 tiles) + Null Recoder pre-equipped.\nZeroes become your strongest signal.",
 ]
 const CORE_LORES: Array[String] = [
 	"\"Standard field array. Recommended for initial calibration.\"",
@@ -33,9 +35,10 @@ const CORE_LORES: Array[String] = [
 	"\"Pre-loaded with field gear. The Operator does not improvise.\"",
 	"\"A backchannel kit. The Copper Guild knows your name.\"",
 	"\"The Renegade Mechanic's signature. The Archiver would disapprove.\"",
+	"\"The Chronometer found signal in the silence first.\"",
 ]
 ## Score target scale (applied as target × scale / 100).
-const CORE_TARGET_SCALE: Array[int] = [100, 160, 65, 90, 85, 130, 110, 100, 110]
+const CORE_TARGET_SCALE: Array[int] = [100, 160, 65, 90, 85, 130, 110, 100, 110, 95]
 
 ## Unlock gates per core. Index 0 is the starter — always unlocked, the
 ## description is just for completeness. The other entries say what the
@@ -53,6 +56,7 @@ const CORE_UNLOCKS: Array[Dictionary] = [
 	{ "type": "best_round", "value": 5,  "label": "Clear the first Entropy Failure (round 5)." },
 	{ "type": "best_round", "value": 10, "label": "Clear the second Entropy Failure (round 10)." },
 	{ "type": "wins",       "value": 1,  "label": "Recalibrate the Chronometer at least once." },
+	{ "type": "best_round", "value": 10, "label": "Clear the second Entropy Failure (round 10)." },
 ]
 
 ## Per-core "profile": a small dict describing extra starting state that
@@ -75,6 +79,7 @@ const CORE_PROFILES: Array[Dictionary] = [
 	{"start_modules": ["brass_gear", "copper_coil"]},            # Arsenal
 	{"start_monedas": 4, "start_directives": 3},                 # Runner
 	{"start_modules": ["the_dominator"], "shop_price_delta": 2}, # Obsidian
+	{"start_modules": ["null_recoder"]},                         # Blank Slate
 ]
 
 # ---------------------------------------------------------------------------

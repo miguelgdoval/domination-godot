@@ -29,6 +29,7 @@ static func create_for_core(core_index: int) -> Box:
 		3: return _create_void()
 		4: return _create_slimline()
 		5: return _create_specialist()
+		9: return _create_blank_slate()
 		_: return create_standard()
 
 ## Resonant Core: only double tiles (0-0 through 9-9), 5 copies each = 50 tiles.
@@ -82,6 +83,24 @@ static func _create_specialist() -> Box:
 	for i in range(Constants.MAX_PIP + 1):
 		for j in range(i, Constants.MAX_PIP + 1):
 			if maxi(i, j) >= 6:
+				box._all_tiles.append(Domino.new(i, j))
+				box._all_tiles.append(Domino.new(i, j))
+	box.replenish()
+	return box
+
+## Blank Slate: standard set ×2 PLUS extra copies of every tile that has
+## a 0-pip face. Effect: ~half the box has at least one blank, making
+## the BLANK_TO_CHIPS module (preloaded by the core profile) the
+## scoring engine. 110 + 20 = 130 tiles.
+static func _create_blank_slate() -> Box:
+	var box := Box.new()
+	for i in range(Constants.MAX_PIP + 1):
+		for j in range(i, Constants.MAX_PIP + 1):
+			box._all_tiles.append(Domino.new(i, j))
+			box._all_tiles.append(Domino.new(i, j))
+			# Tiles with a blank face: +2 extra copies — the box is now
+			# heavily weighted toward zeros.
+			if i == 0 or j == 0:
 				box._all_tiles.append(Domino.new(i, j))
 				box._all_tiles.append(Domino.new(i, j))
 	box.replenish()

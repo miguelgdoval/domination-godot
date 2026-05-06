@@ -1201,6 +1201,26 @@ func _is_player_stuck() -> bool:
 		return false
 	return true
 
+## One-shot pulse on the Stand button the first time it becomes visible
+## within a round — bigger entrance, gold flash, then settles. Player
+## who's been head-down on chain building gets a clear "new option" cue.
+func _pulse_stand_button() -> void:
+	if _btn_stand == null or not is_instance_valid(_btn_stand):
+		return
+	_btn_stand.pivot_offset = _btn_stand.size * 0.5
+	_btn_stand.scale = Vector2(0.7, 0.7)
+	_btn_stand.modulate = Color(1.5, 1.4, 0.9)
+	var t := create_tween().set_parallel(true)
+	t.tween_property(_btn_stand, "scale", Vector2(1.10, 1.10), 0.18) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.tween_property(_btn_stand, "modulate", Color.WHITE, 0.32) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	var settle := create_tween()
+	settle.tween_interval(0.18)
+	settle.tween_property(_btn_stand, "scale", Vector2.ONE, 0.22) \
+		.set_trans(Tween.TRANS_SPRING).set_ease(Tween.EASE_OUT)
+	AudioManager.play_sfx("round_clear")
+
 ## Update the inline Stand hint whenever the action bar refreshes.
 ## Hidden unless the Stand button itself is visible.
 func _refresh_stand_hint() -> void:
@@ -2259,8 +2279,15 @@ func _refresh_action_buttons() -> void:
 	# Stand becomes available the moment the round target is met. Player
 	# can keep extending for tier bonuses / directives, or lock in here.
 	if _btn_stand != null:
-		_btn_stand.visible  = _rm.chronos >= _rm.target and _rm.hands_remaining > 0
-		_btn_stand.disabled = not _btn_stand.visible
+		var was_visible: bool = _btn_stand.visible
+		var should_show: bool = _rm.chronos >= _rm.target and _rm.hands_remaining > 0
+		_btn_stand.visible  = should_show
+		_btn_stand.disabled = not should_show
+		# First-time appearance pulse: draw the player's eye to the new
+		# action without forcing a tutorial popup. Only pulses on the
+		# transition (off → on), not every refresh.
+		if should_show and not was_visible:
+			_pulse_stand_button()
 		_refresh_stand_hint()
 
 	# Pass appears only when truly stuck (anti-softlock).
