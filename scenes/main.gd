@@ -2105,6 +2105,7 @@ func _show_run_end(victory: bool) -> void:
 	# the Run Stats block below (and any future achievement system).
 	SaveManager.accumulate_run_stats({
 		"won":            victory,
+		"difficulty":     GameState.difficulty,
 		"total_chronos":  GameState.total_chronos,
 		"hands_played":   GameState.hands_played,
 		"doubles_played": GameState.doubles_played,

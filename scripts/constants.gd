@@ -223,6 +223,21 @@ const ACHIEVEMENTS: Array[Dictionary] = [
 	{"id": "collector",       "name": "Module Collector",  "icon": "▢",
 	 "desc": "See 20 unique modules across all runs.",
 	 "type": "modules_seen",   "value": 20},
+	{"id": "hard_recal",      "name": "Hard Recalibrator", "icon": "⬢",
+	 "desc": "Recalibrate the Chronometer on Hard difficulty.",
+	 "type": "hard_wins",      "value": 1},
+	{"id": "veteran",         "name": "Veteran",           "icon": "✱✱",
+	 "desc": "Play 500 hands across all runs.",
+	 "type": "hands_played",   "value": 500},
+	{"id": "doubles_specialist","name": "Doubles Specialist","icon": "⊕",
+	 "desc": "Place 100 doubles across all runs.",
+	 "type": "doubles_played", "value": 100},
+	{"id": "chronos_hoarder", "name": "Chronos Hoarder",   "icon": "♔",
+	 "desc": "Earn 1,000,000 total Chronos across all runs.",
+	 "type": "chronos",        "value": 1000000},
+	{"id": "connoisseur",     "name": "Module Connoisseur","icon": "▣",
+	 "desc": "See 30 unique modules across all runs.",
+	 "type": "modules_seen",   "value": 30},
 ]
 
 ## Returns true if the achievement at `idx` is earned given a lifetime
@@ -237,12 +252,15 @@ static func achievement_earned(idx: int, lifetime: Dictionary,
 	var t: String = a.get("type", "")
 	var v: int    = int(a.get("value", 0))
 	match t:
-		"best_tier":     return int(lifetime.get("best_tier", -1)) >= v
-		"best_round":    return int(lifetime.get("best_round", 0)) >= v
-		"wins":          return int(lifetime.get("wins", 0)) >= v
-		"hands_played":  return int(lifetime.get("hands_played", 0)) >= v
-		"modules_seen":  return int(Array(lifetime.get("modules_seen", [])).size()) >= v
-		"daily_streak":  return daily_streak >= v
+		"best_tier":      return int(lifetime.get("best_tier", -1)) >= v
+		"best_round":     return int(lifetime.get("best_round", 0)) >= v
+		"wins":           return int(lifetime.get("wins", 0)) >= v
+		"hard_wins":      return int(lifetime.get("hard_wins", 0)) >= v
+		"chronos":        return int(lifetime.get("chronos", 0)) >= v
+		"hands_played":   return int(lifetime.get("hands_played", 0)) >= v
+		"doubles_played": return int(lifetime.get("doubles_played", 0)) >= v
+		"modules_seen":   return int(Array(lifetime.get("modules_seen", [])).size()) >= v
+		"daily_streak":   return daily_streak >= v
 		_: return false
 
 # ---------------------------------------------------------------------------

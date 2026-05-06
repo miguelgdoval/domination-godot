@@ -154,6 +154,10 @@ func accumulate_run_stats(stats: Dictionary) -> void:
 	s["runs"]            = s.get("runs",            0) + 1
 	if stats.get("won", false):
 		s["wins"]        = s.get("wins",            0) + 1
+		# Track hard-mode wins separately so an achievement can gate on
+		# "win on hard difficulty" without needing per-run win records.
+		if int(stats.get("difficulty", -1)) == Constants.Difficulty.HARD:
+			s["hard_wins"] = s.get("hard_wins",     0) + 1
 	s["chronos"]         = s.get("chronos",         0) + int(stats.get("total_chronos", 0))
 	s["hands_played"]    = s.get("hands_played",    0) + int(stats.get("hands_played", 0))
 	s["doubles_played"]  = s.get("doubles_played",  0) + int(stats.get("doubles_played", 0))
@@ -270,6 +274,7 @@ func get_lifetime_stats() -> Dictionary:
 	return {
 		"runs":           s.get("runs",            0),
 		"wins":           s.get("wins",            0),
+		"hard_wins":      s.get("hard_wins",       0),
 		"chronos":        s.get("chronos",         0),
 		"hands_played":   s.get("hands_played",    0),
 		"doubles_played": s.get("doubles_played",  0),
