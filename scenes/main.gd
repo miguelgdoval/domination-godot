@@ -346,6 +346,12 @@ var _lbl_manos_count:     Label
 ## Lets the player see at a glance how much they still have to draw —
 ## matters most on Slimline (drains fast) but useful on every core.
 var _lbl_box_count:        Label
+## Visible monedas counter pill in the HUD. Was previously a hidden
+## label inside the centre score column; promoted here to its own pill
+## so the player sees their wallet during play, not only when entering
+## the shop. Updated via _animate_monedas_to which tweens the count.
+var _lbl_monedas_pill:     Label
+var _lbl_monedas_pill_value: int = 0    # last value the pill DISPLAYED
 var _lbl_descartes_count: Label
 var _contracts_vbox:      VBoxContainer
 var _artifacts_vbox:      VBoxContainer
@@ -2336,12 +2342,15 @@ func _refresh_hud() -> void:
 	_lbl_round.text = GameState.round_display()
 	_lbl_etapa.text = GameState.etapa_name()
 
-	# Monedas: pop "+N" if value increased during play
+	# Monedas: pop "+N" if value increased during play; tween the pill
+	# counter from its previous DISPLAYED value to the new amount so the
+	# count-up reads as a fluid animation rather than a snap.
 	var new_m := GameState.monedas
 	if new_m > _last_monedas and _phase == Phase.PLAYING and not _scoring_active:
 		call_deferred("_pop_monedas_delta", new_m - _last_monedas)
 	_last_monedas = new_m
 	_lbl_monedas.text = "Monedas: %d" % new_m
+	_animate_monedas_to(new_m)
 
 	# Chronos bar — skipped during scoring animation (animation drives the fill)
 	if not _scoring_active:
@@ -3595,6 +3604,35 @@ func _build_hud() -> Control:
 	_lbl_box_count = _make_label("0/0", C_TEXT, 22)
 	FontManager.apply_mono(_lbl_box_count)
 	box_count_row.add_child(_lbl_box_count)
+
+	# ── MONEDAS pill (gold) — visible wallet counter ──────
+	var mon_pc := PanelContainer.new()
+	mon_pc.custom_minimum_size = Vector2(110, 52)
+	var mon_style := StyleBoxFlat.new()
+	mon_style.bg_color = Color(0.20, 0.15, 0.04, 0.92)
+	mon_style.set_corner_radius_all(8)
+	mon_style.set_border_width_all(1)
+	mon_style.border_color = C_MONEDAS.darkened(0.3)
+	mon_pc.add_theme_stylebox_override("panel", mon_style)
+	hbox.add_child(mon_pc)
+
+	var mon_vbox := VBoxContainer.new()
+	mon_vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	mon_vbox.add_theme_constant_override("separation", 2)
+	mon_pc.add_child(mon_vbox)
+
+	var mon_lbl := _make_label("MONEDAS", C_DIM, 10)
+	mon_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	mon_vbox.add_child(mon_lbl)
+
+	var mon_count_row := HBoxContainer.new()
+	mon_count_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	mon_count_row.add_theme_constant_override("separation", 4)
+	mon_vbox.add_child(mon_count_row)
+	mon_count_row.add_child(_make_label("◉", C_MONEDAS, 14))
+	_lbl_monedas_pill = _make_label("0", C_MONEDAS, 22)
+	FontManager.apply_mono(_lbl_monedas_pill)
+	mon_count_row.add_child(_lbl_monedas_pill)
 
 	# ── Pause button ──────────────────────────────────────
 	# Sits just before the gear so the right edge cluster reads as
@@ -5111,10 +5149,34 @@ func _update_chronos_ghost(extra: int) -> void:
 
 ## Pop a "+N" gold label from the Monedas display whenever coins increase.
 func _pop_monedas_delta(delta: int) -> void:
-	if _lbl_monedas == null or not is_instance_valid(_lbl_monedas):
+	# Prefer the visible MONEDAS pill — that's where the player's eye is
+	# tracking the wallet during play. Fall back to the legacy hidden
+	# label if the pill hasn't been built yet (e.g. during init flicker).
+	var anchor: Control = _lbl_monedas_pill if (_lbl_monedas_pill != null \
+		and is_instance_valid(_lbl_monedas_pill)) else _lbl_monedas
+	if anchor == null or not is_instance_valid(anchor):
 		return
-	var pos := _lbl_monedas.global_position + Vector2(_lbl_monedas.size.x * 0.5, 0)
+	var pos := anchor.global_position + Vector2(anchor.size.x * 0.5, 0)
 	_do_tile_pop("+%d" % delta, C_MONEDAS, pos, 15, 0.90)
+
+## Smoothly tween the MONEDAS pill counter from its currently-displayed
+## value to `target`. ~0.4s with circ ease — slow at the end so the
+## final number is readable. Fires from _refresh_hud whenever the
+## monedas balance changes (earned or spent).
+func _animate_monedas_to(target: int) -> void:
+	if _lbl_monedas_pill == null or not is_instance_valid(_lbl_monedas_pill):
+		return
+	if target == _lbl_monedas_pill_value:
+		_lbl_monedas_pill.text = "%d" % target
+		return
+	var from: int = _lbl_monedas_pill_value
+	_lbl_monedas_pill_value = target
+	var t := create_tween()
+	t.tween_method(func(v: float):
+		if _lbl_monedas_pill != null and is_instance_valid(_lbl_monedas_pill):
+			_lbl_monedas_pill.text = "%d" % int(round(v)),
+		float(from), float(target), 0.40) \
+		.set_trans(Tween.TRANS_CIRC).set_ease(Tween.EASE_OUT)
 
 func _set_chronos_bar(c: int, t: int) -> void:
 	_chronos_bar.max_value = t
