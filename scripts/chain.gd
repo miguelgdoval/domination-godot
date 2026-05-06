@@ -14,7 +14,15 @@ var tile_displays: Array[Vector2i] = []
 var left_end:  int = EMPTY
 var right_end: int = EMPTY
 
-# Each history entry: {tile, side ("first"|"right"|"left"), prev_left, prev_right}
+## Branching at doubles: each double placed in the chain adds an extra
+## valid match value here. Future tiles can connect via left_end, right_end,
+## OR any value in extra_ends. When a tile lands via an extra_end, that
+## end is consumed and the tile's other face becomes a new extra_end —
+## the chain effectively forks. Visualisation stays linear (the branched
+## tile is appended on the right) but the gameplay flexibility is real.
+var extra_ends: Array[int] = []
+
+# Each history entry: {tile, side, prev_left, prev_right, prev_extra}
 var _history: Array[Dictionary] = []
 
 # ---------------------------------------------------------------------------
@@ -35,8 +43,14 @@ func can_add(domino: Domino) -> bool:
 		return true
 	if domino.is_double() and _has_doubles_connect_any():
 		return true
-	return (domino.left  == left_end  or domino.right == left_end or
-			domino.left  == right_end or domino.right == right_end)
+	if domino.left  == left_end  or domino.right == left_end or \
+			domino.left  == right_end or domino.right == right_end:
+		return true
+	# Branching: any extra open end created by a previously-placed double.
+	for v in extra_ends:
+		if v == WILD or domino.left == v or domino.right == v:
+			return true
+	return false
 
 # ---------------------------------------------------------------------------
 # Mutation
@@ -49,6 +63,7 @@ func add(domino: Domino) -> bool:
 		"tile":       domino,
 		"prev_left":  left_end,
 		"prev_right": right_end,
+		"prev_extra": extra_ends.duplicate(),
 		"side":       ""
 	}
 
@@ -59,9 +74,7 @@ func add(domino: Domino) -> bool:
 		tile_displays.append(Vector2i(domino.left, domino.right))
 		left_end  = WILD if domino.is_wild else domino.left
 		right_end = WILD if domino.is_wild else domino.right
-		return true
-
-	if _fits_right(domino):
+	elif _fits_right(domino):
 		snap["side"] = "right"
 		_history.append(snap)
 		_append_right(domino)
@@ -69,8 +82,17 @@ func add(domino: Domino) -> bool:
 		snap["side"] = "left"
 		_history.append(snap)
 		_prepend_left(domino)
+	elif _fits_extra(domino):
+		snap["side"] = "extra"
+		_history.append(snap)
+		_append_via_extra(domino)
 	else:
 		return false
+
+	# Branching: doubles add a new open-end value the chain can match later.
+	# (Wild doubles don't add a specific value — they're already universal.)
+	if not domino.is_wild and domino.is_double():
+		extra_ends.append(domino.left)
 
 	return true
 
@@ -83,9 +105,16 @@ func undo() -> Domino:
 	var snap: Dictionary = _history.pop_back()
 	left_end  = snap["prev_left"]
 	right_end = snap["prev_right"]
+	# Restore extra_ends snapshot (empty-list default for legacy entries).
+	var prev_extra: Array = snap.get("prev_extra", [])
+	extra_ends.clear()
+	for v in prev_extra:
+		extra_ends.append(int(v))
 
+	# "extra"-side placements are appended to the right of the visual chain
+	# (same as right adds), so removal is also from the back.
 	match snap["side"]:
-		"first", "right":
+		"first", "right", "extra":
 			tiles.pop_back()
 			tile_displays.pop_back()
 		"left":
@@ -97,6 +126,7 @@ func undo() -> Domino:
 func clear() -> void:
 	tiles.clear()
 	tile_displays.clear()
+	extra_ends.clear()
 	_history.clear()
 	left_end  = EMPTY
 	right_end = EMPTY
@@ -117,6 +147,68 @@ func display() -> String:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+## True if the tile matches a branching open end (created by a double
+## already in the chain). Only consulted after `_fits_right`/`_fits_left`
+## have failed, so this is the fallback path.
+func _fits_extra(domino: Domino) -> bool:
+	if extra_ends.is_empty():
+		return false
+	if domino.is_wild:
+		return true
+	for v in extra_ends:
+		if v == WILD or domino.left == v or domino.right == v:
+			return true
+	return false
+
+## Append a tile that matched via an extra (branch) open end. The matched
+## extra is consumed; the tile's other face becomes a NEW extra so the
+## chain can keep growing along that branch later. Visually the tile is
+## appended on the right (same as `_append_right`); the renderer doesn't
+## currently draw branches as a tree.
+func _append_via_extra(domino: Domino) -> void:
+	# Find the first matching extra_end.
+	var idx: int = -1
+	var matched_v: int = 0
+	for i in range(extra_ends.size()):
+		var v: int = extra_ends[i]
+		if domino.is_wild or v == WILD or v == Domino.WILD \
+				or domino.left == v or domino.right == v:
+			idx = i
+			matched_v = v
+			break
+	if idx < 0:
+		return
+	extra_ends.remove_at(idx)
+
+	var connecting: int
+	var exposed:    int
+	if domino.is_wild:
+		connecting = matched_v
+		exposed    = matched_v
+	elif matched_v == WILD or matched_v == Domino.WILD:
+		connecting = domino.left
+		exposed    = domino.right
+	elif domino.left == matched_v:
+		connecting = domino.left
+		exposed    = domino.right
+	else:
+		connecting = domino.right
+		exposed    = domino.left
+
+	# The branch keeps growing — push the exposed face back onto extra_ends
+	# so the next tile can land on this branch too.
+	if not domino.is_wild:
+		extra_ends.append(exposed)
+
+	tiles.append(domino)
+	# Render with connecting face oriented "left" so the tile looks like a
+	# right-side append visually. Pure cosmetic — not connected to anything
+	# in the visible chain (the branch is logical, not drawn).
+	if connecting == domino.left:
+		tile_displays.append(Vector2i(domino.left, domino.right))
+	else:
+		tile_displays.append(Vector2i(domino.right, domino.left))
+
 func _fits_right(domino: Domino) -> bool:
 	if domino.is_wild or right_end == WILD:
 		return true

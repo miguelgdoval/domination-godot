@@ -3,6 +3,24 @@
 class_name Module
 extends RefCounted
 
+## Archetype tags drive shop bias: when generating new offers, the shop
+## weights each candidate module by how many modules of its archetype the
+## player already owns. Synergy builds form naturally instead of needing
+## the player to luck into matching effects.
+##
+## Mapping is derived from `effect_type` via `Module.archetype_of()` so we
+## don't have to tag every entry in module_db.gd by hand.
+enum Archetype {
+	GENERIC,    # FLAT_MULT, FLAT_CHIPS — useful in any build, never biased
+	DOUBLES,    # rewards doubles in chain
+	LONG_CHAIN, # rewards chain length / tile count
+	HIGH_PIP,   # rewards high pip values per tile
+	BLANKS,     # rewards blank pips / wild tiles
+	SACRIFICE,  # converts low-pip tiles into mult
+	ECONOMY,    # monedas / shop pricing
+	UTILITY,    # stats: hand size, extra plays, discards, slots
+}
+
 enum EffectType {
 	FLAT_MULT,          # +effect_value mult every hand
 	FLAT_CHIPS,         # +effect_value chips every hand
@@ -40,3 +58,30 @@ var extra_slots:  int = 0      # additional module slots granted on equip
 var description:  String
 var lore_text:    String = ""
 var icon_path:    String = ""   # res://assets/modules/{id}.png — swap when art arrives
+
+## Archetype derived from `effect_type`. Used for shop bias.
+func archetype() -> Archetype:
+	return Module.archetype_of(effect_type)
+
+static func archetype_of(eff: EffectType) -> Archetype:
+	match eff:
+		EffectType.DOUBLE_MULT_BOOST, EffectType.DOUBLE_PIP_BOOST, \
+		EffectType.DOUBLES_CONNECT_ANY:
+			return Archetype.DOUBLES
+		EffectType.LONG_CHAIN_BOOST, EffectType.CHIPS_PER_TILE, \
+		EffectType.CLOSING_TILE_BONUS, EffectType.ROUND_SCALING_MULT, \
+		EffectType.CHAIN_COIN_BONUS:
+			return Archetype.LONG_CHAIN
+		EffectType.HIGH_PIP_BONUS, EffectType.ERA_SCALING_MULT:
+			return Archetype.HIGH_PIP
+		EffectType.BLANK_TO_CHIPS, EffectType.WILD_PIP_VALUE:
+			return Archetype.BLANKS
+		EffectType.LOW_PIP_TO_MULT:
+			return Archetype.SACRIFICE
+		EffectType.COIN_PER_ROUND, EffectType.SHOP_DISCOUNT:
+			return Archetype.ECONOMY
+		EffectType.HAND_SIZE_BONUS, EffectType.EXTRA_HAND, \
+		EffectType.DISCARD_BONUS, EffectType.EXTRA_SLOT:
+			return Archetype.UTILITY
+		_:
+			return Archetype.GENERIC

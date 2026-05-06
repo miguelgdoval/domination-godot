@@ -136,7 +136,16 @@ func play_chain() -> Dictionary:
 
 	return result
 
-## Discard tiles at the given indices (into the box), draw replacements.
+## Discard tiles at the given indices, draw replacements, with TARGETED
+## RE-DRAW: for each tile discarded, if the box still contains any tile
+## that legally fits the current chain's open ends, one such fit is
+## promoted to the top of the draw pile. This way "discard to fish for a
+## connection" actually fishes — the player isn't discarding into a
+## random redraw under the persistent-chain mechanic.
+##
+## If the chain is empty (every tile fits) or the box has no fitting
+## tiles, behaves like a normal discard with random replacements.
+##
 ## Returns false if no discards remain or indices list is empty.
 func discard(indices: Array) -> bool:
 	if discards_remaining <= 0 or indices.is_empty():
@@ -151,9 +160,30 @@ func discard(indices: Array) -> bool:
 			hand.remove_at(i)
 
 	discards_remaining -= 1
+	_promote_fitting_tiles_to_top(indices.size())
 	_draw_to_full()
 	hand_changed.emit()
 	return true
+
+## Look at the current draw pile and surface up to `count` tiles that fit
+## the chain's open ends so they get drawn first. No-op if the chain is
+## empty (any tile fits anyway) or the box is empty.
+func _promote_fitting_tiles_to_top(count: int) -> void:
+	if current_chain == null or current_chain.is_empty() or count <= 0:
+		return
+	if box == null or box.is_empty():
+		return
+	# Snapshot the entire draw pile in a randomised order so we don't
+	# always promote the same fitting tile from the top.
+	var pile: Array = box.peek(box.draw_pile_size())
+	pile.shuffle()
+	var promoted: int = 0
+	for tile in pile:
+		if promoted >= count:
+			break
+		if current_chain.can_add(tile):
+			box.promote_to_top(tile)
+			promoted += 1
 
 # ---------------------------------------------------------------------------
 # Queries

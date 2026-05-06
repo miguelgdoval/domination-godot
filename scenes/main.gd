@@ -670,10 +670,13 @@ func _show_shop() -> void:
 
 	var etapa: int = GameState.current_etapa()
 	var owned_ids: Array = GameState.modules.map(func(m): return m.id)
+	# Pass full module objects too — ShopManager uses them to derive the
+	# player's archetype investment and bias shop offers toward synergies.
+	var owned_modules: Array = GameState.modules
 	if GameState.is_boss_round():
 		_lbl_shop_title.text = "THE ARTISAN'S WORKSHOP"
 		_lbl_shop_greeting.text = ARTISAN_GREETINGS[clampi(etapa, 0, 3)]
-		_shop_inventory = ShopManager.generate_artisan(owned_ids)
+		_shop_inventory = ShopManager.generate_artisan(owned_ids, owned_modules)
 		_tile_offers = TileShopManager.generate_offers(3)
 		_tile_offers_bought.clear()
 		_removal_candidates = TileShopManager.generate_removal_candidates(GameState.box, 8)
@@ -682,7 +685,7 @@ func _show_shop() -> void:
 	else:
 		_lbl_shop_title.text = "THE BRASS EMPORIUM"
 		_lbl_shop_greeting.text = EMPORIUM_GREETINGS[clampi(etapa, 0, 3)]
-		_shop_inventory = ShopManager.generate_emporium(3, owned_ids)
+		_shop_inventory = ShopManager.generate_emporium(3, owned_ids, owned_modules)
 		_artisan_section.hide()
 
 	_shop_bought.clear()
