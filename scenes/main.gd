@@ -330,6 +330,11 @@ var _daily_history_overlay: Control # built lazily on first open
 var _btn_achievements:     Button   # opens the achievements overlay
 var _achievements_overlay: Control  # built lazily on first open
 var _settings_overlay:     Control  # volume / mute panel, accessible anywhere
+## Mid-run pause overlay. Shown via the HUD pause button or ESC during
+## PLAYING phase when nothing else is active. Blocks game input by sitting
+## on the UI layer; "RESUME" hides it, "QUIT" returns to the title screen
+## without clearing the saved run (so Continue still works on reload).
+var _pause_overlay:        Control
 
 # ---------------------------------------------------------------------------
 # Design-image layout refs
@@ -768,6 +773,46 @@ func _refresh_daily_trial_button() -> void:
 func _on_settings_btn_pressed() -> void:
 	_refresh_settings_overlay()
 	_settings_overlay.show()
+
+## Show the mid-run pause overlay. Lazy-built on first open. Doesn't
+## change _phase (the play state stays PLAYING so refreshes still target
+## the right widgets), but the overlay sits on top of the UI layer and
+## blocks input via a full-rect MOUSE_FILTER_STOP backdrop.
+func _on_pause_pressed() -> void:
+	if _phase != Phase.PLAYING:
+		return
+	if _pause_overlay == null:
+		_pause_overlay = _build_pause_overlay()
+		_title_overlay.get_parent().add_child(_pause_overlay)
+	_pause_overlay.show()
+
+func _on_pause_resume_pressed() -> void:
+	if _pause_overlay != null:
+		_pause_overlay.hide()
+
+func _on_pause_settings_pressed() -> void:
+	# Close the pause overlay, open settings on top. Settings has its own
+	# close handling and the player returns to play directly from there
+	# without seeing the pause overlay again — settings is the natural
+	# follow-on action.
+	if _pause_overlay != null:
+		_pause_overlay.hide()
+	_on_settings_btn_pressed()
+
+## Quit the current run back to the title screen. Doesn't clear the
+## saved-run flag, so the Continue button on the title remains active
+## and the player can resume later. Daily runs are an exception — they
+## don't auto-save, so quitting forfeits today's attempt cleanly.
+func _on_pause_quit_pressed() -> void:
+	if GameState.is_daily_run:
+		# Forfeit today's daily as a loss — same as if they'd lost a hand.
+		# Otherwise the player could "rage-quit" out of a bad daily start.
+		SaveManager.record_daily_attempt(false,
+			GameState.total_chronos, GameState.round_index)
+	if _pause_overlay != null:
+		_pause_overlay.hide()
+	_phase = Phase.TITLE
+	_show_title()
 
 func _on_core_card_pressed(index: int) -> void:
 	_pending_core = index
@@ -3080,7 +3125,12 @@ func _unhandled_input(event: InputEvent) -> void:
 				_rm.discard(_selected_tiles)
 				_selected_tiles.clear()
 		KEY_ESCAPE:
-			if _compass_overlay != null:
+			# ESC priority: cancel modal-like states first, fall through to
+			# clearing selection, finally open the pause overlay if there's
+			# nothing else to dismiss. Pressing ESC again closes pause.
+			if _pause_overlay != null and _pause_overlay.visible:
+				_on_pause_resume_pressed()
+			elif _compass_overlay != null:
 				_on_compass_cancel()
 			elif _reinforcement_pending != null:
 				_cancel_reinforcement_targeting()
@@ -3089,6 +3139,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				_refresh_tile_visuals()
 				_refresh_chain_display()
 				_refresh_action_buttons()
+			else:
+				_on_pause_pressed()
 
 ## Animate a hand-tile button lifting (selected) or returning to rest (deselected).
 ## State-guarded so tweens don't stack on rapid clicks.
@@ -3543,6 +3595,23 @@ func _build_hud() -> Control:
 	_lbl_box_count = _make_label("0/0", C_TEXT, 22)
 	FontManager.apply_mono(_lbl_box_count)
 	box_count_row.add_child(_lbl_box_count)
+
+	# ── Pause button ──────────────────────────────────────
+	# Sits just before the gear so the right edge cluster reads as
+	# "session controls" (pause / settings) — distinct from the resource
+	# pills (manos / discards / box) on the same row.
+	var pause_style := StyleBoxFlat.new()
+	pause_style.bg_color = Color(0, 0, 0, 0)
+	var pause_btn := Button.new()
+	pause_btn.text = "❙❙"
+	pause_btn.custom_minimum_size = Vector2(36, 36)
+	pause_btn.add_theme_stylebox_override("normal", pause_style)
+	pause_btn.add_theme_stylebox_override("hover",  pause_style)
+	pause_btn.add_theme_stylebox_override("pressed", pause_style)
+	pause_btn.add_theme_font_size_override("font_size", 18)
+	pause_btn.add_theme_color_override("font_color", C_DIM)
+	pause_btn.pressed.connect(_on_pause_pressed)
+	hbox.add_child(pause_btn)
 
 	# ── Gear button ───────────────────────────────────────
 	var gear_style := StyleBoxFlat.new()
@@ -5986,6 +6055,51 @@ func _item_initials(name: String) -> String:
 ## _show_run_end() populates and animates it; this just wires up the nodes.
 ## Settings overlay — volume sliders, mute toggle.
 ## Accessible from title screen and (in future) from the pause button in-game.
+## Mid-run pause overlay. Compact panel with three actions:
+##   RESUME           — hide the overlay, return to play
+##   SETTINGS         — open the existing settings overlay on top
+##   QUIT TO TITLE    — abandon the run (mid-run save is preserved for
+##                      regular runs; daily runs forfeit as a loss).
+func _build_pause_overlay() -> Control:
+	var overlay := ColorRect.new()
+	overlay.color = Color(0, 0, 0, 0.85)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(360, 0)
+	var ps := StyleBoxFlat.new()
+	ps.bg_color     = Color(0.08, 0.07, 0.05, 0.98)
+	ps.border_color = C_GOLD_RIM
+	ps.set_border_width_all(2)
+	ps.set_corner_radius_all(8)
+	panel.add_theme_stylebox_override("panel", ps)
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_theme_constant_override("separation", 12)
+	panel.add_child(vbox)
+
+	var title := _make_label("PAUSED", C_TITLE_GLOW, 22)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(title)
+
+	vbox.add_child(_make_hsep())
+
+	vbox.add_child(_make_button("▶  RESUME",
+		_on_pause_resume_pressed, Vector2(280, 48)))
+	vbox.add_child(_make_button("⚙  SETTINGS",
+		_on_pause_settings_pressed, Vector2(280, 48)))
+	vbox.add_child(_make_button("⤴  QUIT TO TITLE",
+		_on_pause_quit_pressed, Vector2(280, 48)))
+
+	return overlay
+
 func _build_settings_overlay() -> Control:
 	var overlay := ColorRect.new()
 	overlay.color = Color(0, 0, 0, 0.82)
