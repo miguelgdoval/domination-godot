@@ -209,6 +209,60 @@ func record_daily_attempt(won: bool, score: int, round_reached: int) -> void:
 	_data["daily_history"] = hist
 	_save_to_disk()
 
+## Number of consecutive daily wins ending at today (or yesterday if today
+## hasn't been attempted yet — you don't break a streak by not playing
+## yet today). Walks back day-by-day; stops at the first loss or gap.
+func daily_streak() -> int:
+	var hist: Dictionary = _data.get("daily_history", {})
+	if hist.is_empty():
+		return 0
+	# Start from today; if not attempted, slide back one day so a player
+	# who hasn't played YET today can still see their existing streak.
+	var d: Dictionary = Time.get_date_dict_from_system()
+	var unix: int = int(Time.get_unix_time_from_datetime_dict(d))
+	if not hist.has(_date_key_from_dict(d)):
+		unix -= 86400
+	var streak: int = 0
+	while true:
+		var dt: Dictionary = Time.get_date_dict_from_unix_time(unix)
+		var key: String = _date_key_from_dict(dt)
+		var entry: Dictionary = hist.get(key, {})
+		if entry.is_empty() or not entry.get("won", false):
+			break
+		streak += 1
+		unix -= 86400
+	return streak
+
+## Aggregate counts across the entire daily history. Cheap — runs through
+## the whole dict once, used by the history overlay's header strip.
+func daily_summary() -> Dictionary:
+	var hist: Dictionary = _data.get("daily_history", {})
+	var attempts: int = hist.size()
+	var wins: int     = 0
+	for key in hist.keys():
+		if hist[key].get("won", false):
+			wins += 1
+	return {
+		"attempts": attempts,
+		"wins":     wins,
+		"streak":   daily_streak(),
+	}
+
+## All daily attempts as a date-sorted Array (newest first).
+## Each entry: { date: "YYYY-MM-DD", won, score, round_reached }
+func daily_history_sorted() -> Array:
+	var hist: Dictionary = _data.get("daily_history", {})
+	var out: Array = []
+	for key in hist.keys():
+		var e: Dictionary = hist[key].duplicate()
+		e["date"] = key
+		out.append(e)
+	out.sort_custom(func(a, b): return a["date"] > b["date"])
+	return out
+
+func _date_key_from_dict(d: Dictionary) -> String:
+	return "%04d-%02d-%02d" % [int(d.year), int(d.month), int(d.day)]
+
 ## Returns lifetime stats dict. Always has the standard keys (defaulted to
 ## 0 if the player has never finished a run).
 func get_lifetime_stats() -> Dictionary:

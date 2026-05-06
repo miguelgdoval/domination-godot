@@ -312,6 +312,8 @@ var _core_select_overlay:  Control
 var _proto_select_overlay: Control
 var _btn_continue_run:     Button   # shown only when SaveManager has a saved run
 var _btn_daily_trial:      Button   # one attempt per day, deterministic seed
+var _btn_daily_history:    Button   # opens the daily-history overlay
+var _daily_history_overlay: Control # built lazily on first open
 var _settings_overlay:     Control  # volume / mute panel, accessible anywhere
 
 # ---------------------------------------------------------------------------
@@ -380,6 +382,20 @@ func _on_continue_run_pressed() -> void:
 	SaveManager.load_run()
 	_start_round()
 
+## Open the daily-history overlay. Built lazily on first open so the UI
+## tree stays slim if the player never uses the feature.
+func _on_daily_history_pressed() -> void:
+	if _daily_history_overlay == null:
+		_daily_history_overlay = _build_daily_history_overlay()
+		# Parent to the same UI layer the title overlay lives on.
+		_title_overlay.get_parent().add_child(_daily_history_overlay)
+	_refresh_daily_history_overlay()
+	_daily_history_overlay.show()
+
+func _on_daily_history_close_pressed() -> void:
+	if _daily_history_overlay != null:
+		_daily_history_overlay.hide()
+
 ## Begin today's daily trial. Skips core/protocol selection — daily uses
 ## the standard core + equilibrium protocol so every player faces the
 ## same starting state, and reseeds the RNG via GameState.start_daily_run.
@@ -391,6 +407,148 @@ func _on_daily_trial_pressed() -> void:
 	GameState.start_daily_run()
 	# Skip the start-of-run tile-removal step too — daily is fixed-state.
 	_start_round()
+
+## Build the modal overlay shown when the player taps "📅 HISTORY" on
+## the title screen. Layout:
+##   header  : aggregate stats — total wins / attempts / current streak
+##   body    : scrollable list of past attempts, newest first
+##   footer  : close button
+## State is reloaded each open via _refresh_daily_history_overlay.
+func _build_daily_history_overlay() -> Control:
+	var overlay := ColorRect.new()
+	overlay.color = Color(0, 0, 0, 0.88)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(560, 600)
+	var ps := StyleBoxFlat.new()
+	ps.bg_color     = Color(0.08, 0.06, 0.10, 0.98)   # tinted to match Daily violet
+	ps.border_color = Color(0.70, 0.55, 0.95)
+	ps.set_border_width_all(2)
+	ps.set_corner_radius_all(8)
+	panel.add_theme_stylebox_override("panel", ps)
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 12)
+	vbox.set_meta("history_root", true)
+	panel.add_child(vbox)
+
+	var title := _make_label("DAILY TRIAL HISTORY", C_TITLE_GLOW, 22)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(title)
+
+	# Stats strip — the actual labels are populated in _refresh_*. Names
+	# are stored as meta so refresh can find them without globals.
+	var strip := HBoxContainer.new()
+	strip.alignment = BoxContainer.ALIGNMENT_CENTER
+	strip.add_theme_constant_override("separation", 24)
+	vbox.add_child(strip)
+	for key in ["streak", "wins", "attempts"]:
+		var col := VBoxContainer.new()
+		col.alignment = BoxContainer.ALIGNMENT_CENTER
+		var caption := _make_label(key.to_upper(), C_DIM, 10)
+		caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		col.add_child(caption)
+		var val := _make_label("0", C_TEXT, 20)
+		val.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		FontManager.apply_mono(val)
+		col.add_child(val)
+		col.set_meta("stat_key", key)
+		col.set_meta("stat_label", val)
+		strip.add_child(col)
+	vbox.set_meta("stats_strip", strip)
+
+	vbox.add_child(_make_hsep())
+
+	# Scrollable list of attempts.
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(520, 360)
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(scroll)
+	var list := VBoxContainer.new()
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("separation", 4)
+	scroll.add_child(list)
+	vbox.set_meta("history_list", list)
+
+	vbox.add_child(_make_hsep())
+
+	var btn_row := HBoxContainer.new()
+	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_child(btn_row)
+	btn_row.add_child(_make_button("CLOSE", _on_daily_history_close_pressed,
+		Vector2(160, 44)))
+
+	return overlay
+
+func _refresh_daily_history_overlay() -> void:
+	if _daily_history_overlay == null:
+		return
+	# The structure above stuffs the root vbox into the panel as the only
+	# child of center → panel. Walk down to the vbox we tagged.
+	var root: Node = _daily_history_overlay.get_child(0).get_child(0).get_child(0)
+	var summary: Dictionary = SaveManager.daily_summary()
+	var strip: Node = root.get_meta("stats_strip")
+	for col in strip.get_children():
+		if col is VBoxContainer and col.has_meta("stat_key"):
+			var k: String = col.get_meta("stat_key")
+			var lbl: Label = col.get_meta("stat_label")
+			lbl.text = "%d" % int(summary.get(k, 0))
+
+	var list: VBoxContainer = root.get_meta("history_list")
+	for child in list.get_children():
+		child.queue_free()
+
+	var entries: Array = SaveManager.daily_history_sorted()
+	if entries.is_empty():
+		var empty := _make_label(
+			"No attempts yet. Today's trial awaits.", C_DIM, 13)
+		empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		list.add_child(empty)
+		return
+
+	for entry in entries:
+		list.add_child(_build_daily_history_row(entry))
+
+func _build_daily_history_row(entry: Dictionary) -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+
+	var won: bool = entry.get("won", false)
+	var icon := _make_label("✓" if won else "✗",
+		C_WIN if won else C_LOSE, 16)
+	icon.custom_minimum_size = Vector2(24, 0)
+	row.add_child(icon)
+
+	var date_lbl := _make_label(entry.get("date", "?"), C_TEXT, 13)
+	date_lbl.custom_minimum_size = Vector2(120, 0)
+	FontManager.apply_mono(date_lbl)
+	row.add_child(date_lbl)
+
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(spacer)
+
+	var round_lbl := _make_label(
+		"R%d" % int(entry.get("round_reached", 0)), C_DIM, 13)
+	round_lbl.custom_minimum_size = Vector2(48, 0)
+	FontManager.apply_mono(round_lbl)
+	row.add_child(round_lbl)
+
+	var score_lbl := _make_label(
+		"%d" % int(entry.get("score", 0)), C_CHRONOS, 14)
+	score_lbl.custom_minimum_size = Vector2(110, 0)
+	score_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	FontManager.apply_mono(score_lbl)
+	row.add_child(score_lbl)
+
+	return row
 
 ## Update the Daily Trial button label and enabled state. Called from
 ## _show_title and from anywhere that might transition back to the title.
@@ -3875,6 +4033,15 @@ func _build_title_overlay() -> Control:
 	ds_hov.bg_color = Color(0.24, 0.14, 0.32)
 	_btn_daily_trial.add_theme_stylebox_override("hover", ds_hov)
 	btn_row.add_child(_btn_daily_trial)
+
+	# Daily history viewer — small icon-only button right next to the daily
+	# trial button. Always visible (even with no attempts) so the player
+	# discovers the feature naturally.
+	_btn_daily_history = _make_button("📅",
+		_on_daily_history_pressed, Vector2(54, 54))
+	_btn_daily_history.add_theme_stylebox_override("normal", ds)
+	_btn_daily_history.add_theme_stylebox_override("hover", ds_hov)
+	btn_row.add_child(_btn_daily_history)
 
 	# "Continue Run" — hidden until SaveManager confirms a mid-run save exists
 	_btn_continue_run = _make_button(
