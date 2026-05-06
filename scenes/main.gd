@@ -408,6 +408,37 @@ func _on_daily_history_close_pressed() -> void:
 	if _daily_history_overlay != null:
 		_daily_history_overlay.hide()
 
+## Copy today's daily result to the OS clipboard so the player can
+## paste it into chat / social. Format is compact and recognisable —
+## same shape as Wordle / Balatro daily share strings.
+func _on_daily_share_pressed() -> void:
+	if not SaveManager.daily_attempted_today():
+		return
+	var entry: Dictionary = SaveManager.get_daily_today()
+	var won:   bool   = entry.get("won", false)
+	var score: int    = int(entry.get("score", 0))
+	var round_r: int  = int(entry.get("round_reached", 0))
+	var seed_n: int   = SaveManager.today_daily_seed()
+	var date_s: String = SaveManager.today_date_key()
+	var streak: int   = SaveManager.daily_streak()
+	# Compact, scannable. Seed lets others run the same daily for
+	# verification; streak gives a brag hook.
+	var icon: String = "✓" if won else "✗"
+	var lines := [
+		"Domination — Daily %s" % date_s,
+		"%s  R%d  —  %d Chronos" % [icon, round_r, score],
+		"Seed: %d" % seed_n,
+	]
+	if streak > 1:
+		lines.append("Streak: %d days" % streak)
+	var text: String = "\n".join(lines)
+	DisplayServer.clipboard_set(text)
+	# Brief toast confirming the copy. Pops at the share-button anchor
+	# (panel center) so the player's eye is already there.
+	var anchor: Vector2 = _daily_history_overlay.get_global_rect().get_center()
+	_do_tile_pop("Copied!", C_WIN, anchor, 18, 1.10)
+	AudioManager.play_sfx("module_equip")
+
 ## Begin today's daily trial. Skips core/protocol selection — daily uses
 ## the standard core + equilibrium protocol so every player faces the
 ## same starting state, and reseeds the RNG via GameState.start_daily_run.
@@ -494,6 +525,15 @@ func _build_daily_history_overlay() -> Control:
 	var btn_row := HBoxContainer.new()
 	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	vbox.add_child(btn_row)
+	# SHARE button — only meaningful once today's daily has been attempted.
+	# Visibility toggled in _refresh_daily_history_overlay so it disappears
+	# until there's something worth sharing.
+	var share_btn := _make_button("📋  SHARE TODAY",
+		_on_daily_share_pressed, Vector2(180, 44))
+	share_btn.visible = false
+	vbox.set_meta("share_btn", share_btn)
+	btn_row.add_child(share_btn)
+
 	btn_row.add_child(_make_button("CLOSE", _on_daily_history_close_pressed,
 		Vector2(160, 44)))
 
@@ -523,10 +563,16 @@ func _refresh_daily_history_overlay() -> void:
 			"No attempts yet. Today's trial awaits.", C_DIM, 13)
 		empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		list.add_child(empty)
-		return
+	else:
+		for entry in entries:
+			list.add_child(_build_daily_history_row(entry))
 
-	for entry in entries:
-		list.add_child(_build_daily_history_row(entry))
+	# SHARE button shows only when today has been attempted (the player
+	# has something they could share). Hidden otherwise so the empty
+	# state stays clean.
+	if root.has_meta("share_btn"):
+		var share_btn: Button = root.get_meta("share_btn")
+		share_btn.visible = SaveManager.daily_attempted_today()
 
 func _build_daily_history_row(entry: Dictionary) -> Control:
 	var row := HBoxContainer.new()
