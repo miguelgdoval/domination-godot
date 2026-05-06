@@ -1386,6 +1386,9 @@ func _show_run_end(victory: bool) -> void:
 		GameState.total_chronos,
 		GameState.modules.size()
 	)
+	# Snapshot lifetime stats *before* accumulating this run's stats so we
+	# can detect cores/protocols that just unlocked.
+	var lt_before: Dictionary = SaveManager.get_lifetime_stats()
 	# Lifetime stats — accumulated across every run, win or loss. Powers
 	# the Run Stats block below (and any future achievement system).
 	SaveManager.accumulate_run_stats({
@@ -1398,6 +1401,8 @@ func _show_run_end(victory: bool) -> void:
 		"round_reached":  GameState.round_index,
 		"module_ids":     GameState.modules.map(func(m): return m.id),
 	})
+	var lt_after: Dictionary = SaveManager.get_lifetime_stats()
+	var new_unlocks: Array = _detect_new_unlocks(lt_before, lt_after)
 	SaveManager.clear_run()
 	# Music cue
 	AudioManager.play_music("menu_theme")
@@ -1466,6 +1471,13 @@ func _show_run_end(victory: bool) -> void:
 	stat_lines.append(["Total Chronos", "%d" % lt["chronos"]])
 	stat_lines.append(["Longest chain", "%d tiles  (%s)" % [lt["longest_chain"], lt_best_tier]])
 	stat_lines.append(["Furthest round", "%d" % lt["best_round"]])
+
+	# Newly-unlocked cores / protocols this run — surface them prominently
+	# so the player knows their next run has new options.
+	if not new_unlocks.is_empty():
+		stat_lines.append(["─── 🔓 NEW UNLOCKS ───", ""])
+		for u in new_unlocks:
+			stat_lines.append([u["kind"], u["name"]])
 
 	var stat_labels: Array = []
 	for pair in stat_lines:
@@ -1823,6 +1835,23 @@ func _refresh_hud() -> void:
 
 ## Build a preview Chain from the current selection (in click order).
 ## Stops at the first tile that fails to connect — partial chains are valid previews.
+## Compare lifetime stats before/after accumulating this run's data and
+## return a list of cores/protocols that just crossed their unlock gates.
+## Each entry: { "kind": "Core" | "Protocol", "name": "<display name>" }.
+func _detect_new_unlocks(before: Dictionary, after: Dictionary) -> Array:
+	var unlocks: Array = []
+	for i in range(Constants.CORE_UNLOCKS.size()):
+		var was: bool = Constants.is_core_unlocked(i, before)
+		var now: bool = Constants.is_core_unlocked(i, after)
+		if not was and now:
+			unlocks.append({"kind": "Core", "name": Constants.CORE_NAMES[i]})
+	for i in range(Constants.PROTOCOL_UNLOCKS.size()):
+		var was: bool = Constants.is_protocol_unlocked(i, before)
+		var now: bool = Constants.is_protocol_unlocked(i, after)
+		if not was and now:
+			unlocks.append({"kind": "Protocol", "name": Constants.PROTOCOL_NAMES[i]})
+	return unlocks
+
 ## Display name for a module archetype. GENERIC returns "" so it doesn't
 ## clutter the shop card with a redundant tag (FLAT_MULT etc. fit anything).
 func _archetype_label(a: int) -> String:
@@ -3831,10 +3860,26 @@ func _build_selection_overlay(
 	cards_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	vbox.add_child(cards_row)
 
+	# Pull lifetime stats once and pass each card the right unlock gate so
+	# locked entries render dim with a requirement hint instead of being
+	# selectable.
+	var lifetime: Dictionary = SaveManager.get_lifetime_stats()
+	var is_core: bool = title_text.begins_with("CALIBRATION")
 	out_cards.clear()
 	for i in range(count):
+		var unlocked: bool = true
+		var unlock_label: String = ""
+		if is_core:
+			unlocked = Constants.is_core_unlocked(i, lifetime)
+			if not unlocked:
+				unlock_label = Constants.CORE_UNLOCKS[i].get("label", "Locked.")
+		else:
+			unlocked = Constants.is_protocol_unlocked(i, lifetime)
+			if not unlocked:
+				unlock_label = Constants.PROTOCOL_UNLOCKS[i].get("label", "Locked.")
 		var card := _build_selection_card(
-			i, names[i], rarities[i], descs[i], lores[i], card_callback)
+			i, names[i], rarities[i], descs[i], lores[i], card_callback,
+			unlocked, unlock_label)
 		cards_row.add_child(card)
 		out_cards.append(card)
 
@@ -3854,49 +3899,74 @@ func _build_selection_card(
 		rarity: int,
 		desc: String,
 		lore: String,
-		callback: Callable) -> PanelContainer:
+		callback: Callable,
+		unlocked: bool = true,
+		unlock_label: String = "") -> PanelContainer:
 
 	var panel := PanelContainer.new()
 	panel.custom_minimum_size = Vector2(256, 200)
 
-	# Initial style (unselected)
+	# Locked cards are dimmer (less saturation) and use a muted border.
 	var style := StyleBoxFlat.new()
-	style.bg_color     = Color(0.11, 0.10, 0.07)
-	style.border_color = C_RARITY[rarity]
+	if unlocked:
+		style.bg_color     = Color(0.11, 0.10, 0.07)
+		style.border_color = C_RARITY[rarity]
+	else:
+		style.bg_color     = Color(0.06, 0.05, 0.04)
+		style.border_color = Color(0.32, 0.28, 0.20)
 	style.set_border_width_all(2)
 	style.set_corner_radius_all(8)
 	panel.add_theme_stylebox_override("panel", style)
+	if not unlocked:
+		panel.modulate = Color(0.65, 0.65, 0.65)
 
 	var vbox := VBoxContainer.new()
 	vbox.add_theme_constant_override("separation", 8)
 	panel.add_child(vbox)
 
-	# Rarity badge
-	vbox.add_child(_make_label(Constants.RARITY_NAMES[rarity].to_upper(), C_RARITY[rarity], 11))
+	# Rarity badge — supplemented by 🔒 LOCKED for gated cards.
+	if unlocked:
+		vbox.add_child(_make_label(Constants.RARITY_NAMES[rarity].to_upper(),
+			C_RARITY[rarity], 11))
+	else:
+		vbox.add_child(_make_label("🔒  LOCKED", C_DIM, 11))
 
 	# Name
-	vbox.add_child(_make_label(card_name, C_TEXT, 20))
+	vbox.add_child(_make_label(card_name, C_TEXT if unlocked else C_DIM, 20))
 
-	# Description (may be multiline)
-	var desc_lbl := _make_label(desc, C_PREVIEW, 13)
-	desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	desc_lbl.custom_minimum_size = Vector2(236, 0)
-	vbox.add_child(desc_lbl)
+	# Description (may be multiline) — replaced with the unlock requirement
+	# if the card is locked, so the player learns *how* to unlock it.
+	if unlocked:
+		var desc_lbl := _make_label(desc, C_PREVIEW, 13)
+		desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		desc_lbl.custom_minimum_size = Vector2(236, 0)
+		vbox.add_child(desc_lbl)
 
-	# Lore
-	var lore_lbl := _make_label(lore, C_DIM, 11)
-	lore_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	lore_lbl.custom_minimum_size = Vector2(236, 0)
-	vbox.add_child(lore_lbl)
+		# Lore
+		var lore_lbl := _make_label(lore, C_DIM, 11)
+		lore_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		lore_lbl.custom_minimum_size = Vector2(236, 0)
+		vbox.add_child(lore_lbl)
+	else:
+		var req_header := _make_label("UNLOCK REQUIREMENT", C_DIM, 10)
+		vbox.add_child(req_header)
+		var req_lbl := _make_label(unlock_label, C_PREVIEW, 12)
+		req_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		req_lbl.custom_minimum_size = Vector2(236, 0)
+		vbox.add_child(req_lbl)
 
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	vbox.add_child(spacer)
 
-	# SELECT button
+	# SELECT button — disabled and relabelled if locked.
 	var btn := Button.new()
-	btn.text = "SELECT"
-	btn.pressed.connect(callback.bind(index))
+	if unlocked:
+		btn.text = "SELECT"
+		btn.pressed.connect(callback.bind(index))
+	else:
+		btn.text = "LOCKED"
+		btn.disabled = true
 	vbox.add_child(btn)
 
 	return panel

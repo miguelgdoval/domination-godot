@@ -28,6 +28,19 @@ const CORE_LORES: Array[String] = [
 ## Void Lattice: wilds help chaining but don't score → slight reduction.
 const CORE_TARGET_SCALE: Array[int] = [100, 160, 65, 90]
 
+## Unlock gates per core. Index 0 is the starter — always unlocked, the
+## description is just for completeness. The other entries say what the
+## player must accomplish (across any prior run) to unlock the core.
+##
+## Format: { "type": "best_round" | "wins", "value": int, "label": String }
+## Checked against SaveManager.get_lifetime_stats() at the start screen.
+const CORE_UNLOCKS: Array[Dictionary] = [
+	{ "type": "always", "value": 0,  "label": "Available from the first run." },
+	{ "type": "best_round", "value": 5,  "label": "Clear the first Entropy Failure (round 5)." },
+	{ "type": "best_round", "value": 10, "label": "Clear the second Entropy Failure (round 10)." },
+	{ "type": "wins",       "value": 1,  "label": "Recalibrate the Chronometer at least once." },
+]
+
 # ---------------------------------------------------------------------------
 # Etapa visual themes  (index 0-3, one per etapa)
 # ---------------------------------------------------------------------------
@@ -89,6 +102,35 @@ const PROTOCOL_HAND_SIZES:    Array[int] = [5, 4, 6, 5]
 const PROTOCOL_HANDS:         Array[int] = [4, 4, 5, 6]
 const PROTOCOL_DISCARDS:      Array[int] = [2, 4, 1, 0]
 const PROTOCOL_BONUS_MONEDAS: Array[int] = [0, 0, 0, 5]
+
+## Unlock gates per protocol. Same format as CORE_UNLOCKS.
+const PROTOCOL_UNLOCKS: Array[Dictionary] = [
+	{ "type": "always", "value": 0,  "label": "Available from the first run." },
+	{ "type": "best_round", "value": 5,  "label": "Clear the first Entropy Failure (round 5)." },
+	{ "type": "best_round", "value": 10, "label": "Clear the second Entropy Failure (round 10)." },
+	{ "type": "wins",       "value": 1,  "label": "Recalibrate the Chronometer at least once." },
+]
+
+## Returns true if the unlock requirement in `gate` is met by the given
+## lifetime-stats dict (from SaveManager.get_lifetime_stats()). The
+## "always" type is the starter gate (everyone has it).
+static func unlock_met(gate: Dictionary, lifetime: Dictionary) -> bool:
+	match gate.get("type", "always"):
+		"always":     return true
+		"best_round": return int(lifetime.get("best_round", 0)) >= int(gate["value"])
+		"wins":       return int(lifetime.get("wins",       0)) >= int(gate["value"])
+		_: return true
+
+## Convenience wrapper: is core index `i` currently unlocked?
+static func is_core_unlocked(i: int, lifetime: Dictionary) -> bool:
+	if i < 0 or i >= CORE_UNLOCKS.size():
+		return false
+	return unlock_met(CORE_UNLOCKS[i], lifetime)
+
+static func is_protocol_unlocked(i: int, lifetime: Dictionary) -> bool:
+	if i < 0 or i >= PROTOCOL_UNLOCKS.size():
+		return false
+	return unlock_met(PROTOCOL_UNLOCKS[i], lifetime)
 
 # ---------------------------------------------------------------------------
 # Rarity
