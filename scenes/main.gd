@@ -162,6 +162,11 @@ var _chain_container:  VBoxContainer
 ## Used by the scoring sequence to find each tile's screen position regardless
 ## of which row it landed in.
 var _chain_tile_panels: Array[Control] = []
+## Floating row above the chain that renders open branch ends created by
+## previously-placed doubles. Each entry is a small pip-badge showing the
+## pip value the chain can match next via that branch. Empty when no
+## branches are open.
+var _chain_branches_row: HBoxContainer
 var _lbl_preview:          Label   # equation line: "N chips × M"
 var _lbl_preview_total:    Label   # big total line: "= TOTAL" (dominant)
 var _chain_milestone_row:  HBoxContainer   # visual dot-progress bar for chain bonuses
@@ -2113,6 +2118,47 @@ func _archetype_color(a: int) -> Color:
 		Module.Archetype.UTILITY:    return Color(0.55, 0.85, 0.95)
 		_: return C_DIM
 
+## Rebuild the branch indicator row above the chain. One small badge per
+## entry in the preview chain's `extra_ends` array — the live list of
+## branch open-end values created by previously-placed doubles. Each
+## badge shows the pip value the chain can still match via that branch.
+##
+## When the chain has no extra_ends (no doubles placed yet, or every
+## branch already extended), the row collapses to nothing.
+func _refresh_branch_indicators(preview: Chain) -> void:
+	if _chain_branches_row == null:
+		return
+	for child in _chain_branches_row.get_children():
+		child.queue_free()
+	if preview == null or preview.extra_ends.is_empty():
+		return
+	# Header label — explains the row to anyone who hasn't seen it before.
+	_chain_branches_row.add_child(_make_label("BRANCHES:", C_DIM, 10))
+	for v in preview.extra_ends:
+		_chain_branches_row.add_child(_build_branch_badge(int(v)))
+
+## Compact circular pip badge. Shows a number (or ★ for wild) on a
+## small dark disc with the etapa accent colour as a glow ring.
+func _build_branch_badge(pip: int) -> Control:
+	var size: int = 22
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(size, size)
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var accent: Color = Constants.ETAPA_ACCENT[clampi(GameState.current_etapa(), 0, 3)]
+	var s := StyleBoxFlat.new()
+	s.bg_color     = Color(0.10, 0.09, 0.07, 0.95)
+	s.border_color = accent
+	s.set_border_width_all(1)
+	s.set_corner_radius_all(size / 2)
+	panel.add_theme_stylebox_override("panel", s)
+
+	var lbl := _make_label("★" if pip < 0 else str(pip), accent, 12)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	FontManager.apply_mono(lbl)
+	panel.add_child(lbl)
+	return panel
+
 ## Render the chain's open ends as a compact string for the info bar.
 ## Includes left_end, right_end, and any branching `extra_ends` so the
 ## player can see *all* the pip values they could connect a tile to —
@@ -2164,6 +2210,7 @@ func _refresh_chain_display() -> void:
 			var idle := _start_tile_breathe(tile_panel)
 			if idle != null:
 				_chain_idle_tweens.append(idle)
+	_refresh_branch_indicators(preview)
 
 	if not preview.is_empty():
 		var r: Dictionary = Scoring.calculate(preview, GameState.modules)
@@ -3187,6 +3234,15 @@ func _build_table_area() -> Control:
 	var top_spacer := Control.new()
 	top_spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	vbox.add_child(top_spacer)
+
+	# Branch indicators — populated when the chain has live extra_ends
+	# (open branch values from previously-placed doubles). Sits above the
+	# chain so the player can see at a glance which pip values can still
+	# be matched via branching.
+	_chain_branches_row = HBoxContainer.new()
+	_chain_branches_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	_chain_branches_row.add_theme_constant_override("separation", 6)
+	vbox.add_child(_chain_branches_row)
 
 	# Chain tiles — VBox of rows. Each row is built fresh in _refresh_chain_display.
 	_chain_container = VBoxContainer.new()
