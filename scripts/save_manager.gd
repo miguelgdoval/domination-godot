@@ -51,8 +51,15 @@ func load_settings() -> Dictionary:
 
 ## Serialise the current GameState run into the save file.
 ## Call after every shop exit and at the end of every scored hand.
+##
+## Daily-trial runs are intentionally NOT auto-saved: the determinism of
+## the seed only holds if the run is played in one session, and persisting
+## the in-progress state would let the player effectively restart by
+## crashing at a bad point.
 func save_run() -> void:
 	if not _is_run_active():
+		return
+	if GameState.is_daily_run:
 		return
 	_data["run"] = {
 		"active":           true,
@@ -161,6 +168,45 @@ func accumulate_run_stats(stats: Dictionary) -> void:
 			seen.append(mid)
 	s["modules_seen"] = seen
 	_data["lifetime_stats"] = s
+	_save_to_disk()
+
+# ---------------------------------------------------------------------------
+# Daily Trial
+# ---------------------------------------------------------------------------
+
+## Today's calendar key (YYYY-MM-DD), used as the daily-history dict key.
+func today_date_key() -> String:
+	var d: Dictionary = Time.get_date_dict_from_system()
+	return "%04d-%02d-%02d" % [int(d.year), int(d.month), int(d.day)]
+
+## Deterministic seed for today's daily trial. Same value for every player
+## on the same calendar day (UTC drift aside) so leaderboards / shared
+## attempts compare apples to apples.
+func today_daily_seed() -> int:
+	var d: Dictionary = Time.get_date_dict_from_system()
+	return int(d.year) * 10000 + int(d.month) * 100 + int(d.day)
+
+## Has the player already used their one attempt at today's daily?
+func daily_attempted_today() -> bool:
+	var hist: Dictionary = _data.get("daily_history", {})
+	return hist.has(today_date_key())
+
+## Returns today's daily attempt entry, or {} if not yet attempted.
+## Shape: { won: bool, score: int, round_reached: int }
+func get_daily_today() -> Dictionary:
+	var hist: Dictionary = _data.get("daily_history", {})
+	return hist.get(today_date_key(), {})
+
+## Record the result of today's daily run. One attempt per day — the
+## title-screen button locks once this is set.
+func record_daily_attempt(won: bool, score: int, round_reached: int) -> void:
+	var hist: Dictionary = _data.get("daily_history", {})
+	hist[today_date_key()] = {
+		"won":           won,
+		"score":         score,
+		"round_reached": round_reached,
+	}
+	_data["daily_history"] = hist
 	_save_to_disk()
 
 ## Returns lifetime stats dict. Always has the standard keys (defaulted to

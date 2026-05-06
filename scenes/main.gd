@@ -311,6 +311,7 @@ var _title_overlay:        Control
 var _core_select_overlay:  Control
 var _proto_select_overlay: Control
 var _btn_continue_run:     Button   # shown only when SaveManager has a saved run
+var _btn_daily_trial:      Button   # one attempt per day, deterministic seed
 var _settings_overlay:     Control  # volume / mute panel, accessible anywhere
 
 # ---------------------------------------------------------------------------
@@ -361,6 +362,9 @@ func _show_title() -> void:
 	# Show "Continue" button only when a mid-run save exists
 	if _btn_continue_run != null:
 		_btn_continue_run.visible = SaveManager.has_saved_run()
+	# Daily Trial: one attempt per calendar day. Locked once today's
+	# attempt has been recorded; the button re-labels to show the result.
+	_refresh_daily_trial_button()
 
 func _on_title_start_pressed() -> void:
 	_pending_core     = 0
@@ -375,6 +379,32 @@ func _on_continue_run_pressed() -> void:
 	_title_overlay.hide()
 	SaveManager.load_run()
 	_start_round()
+
+## Begin today's daily trial. Skips core/protocol selection — daily uses
+## the standard core + equilibrium protocol so every player faces the
+## same starting state, and reseeds the RNG via GameState.start_daily_run.
+## One attempt per day; the button is disabled once the attempt is logged.
+func _on_daily_trial_pressed() -> void:
+	if SaveManager.daily_attempted_today():
+		return
+	_title_overlay.hide()
+	GameState.start_daily_run()
+	# Skip the start-of-run tile-removal step too — daily is fixed-state.
+	_start_round()
+
+## Update the Daily Trial button label and enabled state. Called from
+## _show_title and from anywhere that might transition back to the title.
+func _refresh_daily_trial_button() -> void:
+	if _btn_daily_trial == null:
+		return
+	if SaveManager.daily_attempted_today():
+		var d: Dictionary = SaveManager.get_daily_today()
+		var icon: String = "✓" if d.get("won", false) else "✗"
+		_btn_daily_trial.text     = "DAILY TRIAL  %s" % icon
+		_btn_daily_trial.disabled = true
+	else:
+		_btn_daily_trial.text     = "DAILY TRIAL  ↺"
+		_btn_daily_trial.disabled = false
 
 func _on_settings_btn_pressed() -> void:
 	_refresh_settings_overlay()
@@ -1399,6 +1429,11 @@ func _show_run_end(victory: bool) -> void:
 		GameState.total_chronos,
 		GameState.modules.size()
 	)
+	# Daily trial: lock today's attempt so the title-screen button shows
+	# the result and disables itself until tomorrow's seed.
+	if GameState.is_daily_run:
+		SaveManager.record_daily_attempt(victory,
+			GameState.total_chronos, GameState.round_index)
 	# Snapshot lifetime stats *before* accumulating this run's stats so we
 	# can detect cores/protocols that just unlocked.
 	var lt_before: Dictionary = SaveManager.get_lifetime_stats()
@@ -3822,6 +3857,24 @@ func _build_title_overlay() -> Control:
 
 	btn_row.add_child(_make_button(
 		"INITIATE TRIAL CYCLE  →", _on_title_start_pressed, Vector2(280, 54)))
+
+	# Daily Trial: deterministic seed per calendar day, one attempt each.
+	# Sits between the standard new-run button and the continue button.
+	_btn_daily_trial = _make_button(
+		"DAILY TRIAL  ↺", _on_daily_trial_pressed, Vector2(200, 54))
+	# Distinct violet styling so the Daily button reads as its own mode
+	# rather than a variant of "new run".
+	var ds := StyleBoxFlat.new()
+	ds.bg_color     = Color(0.18, 0.10, 0.24)
+	ds.border_color = Color(0.70, 0.55, 0.95)
+	ds.set_border_width_all(2)
+	ds.set_corner_radius_all(6)
+	ds.set_content_margin_all(10)
+	_btn_daily_trial.add_theme_stylebox_override("normal", ds)
+	var ds_hov := ds.duplicate() as StyleBoxFlat
+	ds_hov.bg_color = Color(0.24, 0.14, 0.32)
+	_btn_daily_trial.add_theme_stylebox_override("hover", ds_hov)
+	btn_row.add_child(_btn_daily_trial)
 
 	# "Continue Run" — hidden until SaveManager confirms a mid-run save exists
 	_btn_continue_run = _make_button(

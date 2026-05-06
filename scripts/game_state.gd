@@ -23,6 +23,7 @@ var hands_played:    int = 0   # total hands played this run
 var doubles_played:  int = 0   # total doubles placed this run (for contracts)
 var longest_chain:   int = 0   # max chain length reached in any round this run
 var best_tier:       int = -1  # max tier index reached in any round this run (-1 = none)
+var is_daily_run:    bool = false   # set by start_daily_run; controls run-end recording
 
 # ---------------------------------------------------------------------------
 # Run initialisation
@@ -46,8 +47,19 @@ func start_run(p_core: int = 0, p_protocol: int = 0,
 	doubles_played      = 0
 	longest_chain       = 0
 	best_tier           = -1
+	is_daily_run        = false
 	# Protocol starting bonus
 	monedas += Constants.PROTOCOL_BONUS_MONEDAS[p_protocol]
+
+## Begin a daily-trial run. Reseeds Godot's RNG with today's deterministic
+## seed so every player faces the same box order, shop offers, etc., then
+## kicks off a normal run on the Standard core / Equilibrium protocol so
+## the playing field stays uniform. Sets `is_daily_run` so the run-end
+## screen can tell the difference and record the attempt.
+func start_daily_run() -> void:
+	seed(SaveManager.today_daily_seed())
+	start_run(0, 0, Constants.Difficulty.NORMAL)
+	is_daily_run = true
 
 # ---------------------------------------------------------------------------
 # Round progression
