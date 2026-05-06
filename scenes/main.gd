@@ -3895,11 +3895,17 @@ func _build_selection_overlay(
 
 	vbox.add_child(_make_hsep())
 
-	# Cards row
-	var cards_row := HBoxContainer.new()
-	cards_row.add_theme_constant_override("separation", 16)
-	cards_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	vbox.add_child(cards_row)
+	# Cards grid — wraps to multiple rows when there are many cores /
+	# protocols. Up to 4 columns wide so each card stays at full size;
+	# additional cards flow to the next row instead of forcing a horizontal
+	# scrollbar inside the selection panel.
+	var cards_wrap := CenterContainer.new()
+	vbox.add_child(cards_wrap)
+	var cards_grid := GridContainer.new()
+	cards_grid.columns = mini(4, count)
+	cards_grid.add_theme_constant_override("h_separation", 16)
+	cards_grid.add_theme_constant_override("v_separation", 16)
+	cards_wrap.add_child(cards_grid)
 
 	# Pull lifetime stats once and pass each card the right unlock gate so
 	# locked entries render dim with a requirement hint instead of being
@@ -3921,7 +3927,7 @@ func _build_selection_overlay(
 		var card := _build_selection_card(
 			i, names[i], rarities[i], descs[i], lores[i], card_callback,
 			unlocked, unlock_label)
-		cards_row.add_child(card)
+		cards_grid.add_child(card)
 		out_cards.append(card)
 
 	vbox.add_child(_make_hsep())

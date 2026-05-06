@@ -27,6 +27,8 @@ static func create_for_core(core_index: int) -> Box:
 		1: return _create_resonant()
 		2: return _create_dense()
 		3: return _create_void()
+		4: return _create_slimline()
+		5: return _create_specialist()
 		_: return create_standard()
 
 ## Resonant Core: only double tiles (0-0 through 9-9), 5 copies each = 50 tiles.
@@ -58,6 +60,30 @@ static func _create_void() -> Box:
 			box._all_tiles.append(Domino.new(i, j))
 	for _k in range(10):
 		box._all_tiles.append(Domino.new(Domino.WILD, Domino.WILD, 0, true))
+	box.replenish()
+	return box
+
+## Slimline: one copy of every double-9 tile = 55 tiles total. Forces
+## faster rounds (the box drains quickly) and pushes the player toward
+## extending one big chain instead of grinding many shorter ones.
+static func _create_slimline() -> Box:
+	var box := Box.new()
+	for i in range(Constants.MAX_PIP + 1):
+		for j in range(i, Constants.MAX_PIP + 1):
+			box._all_tiles.append(Domino.new(i, j))
+	box.replenish()
+	return box
+
+## Specialist: only tiles with at least one face ≥ 6, ×2 copies = 68 tiles.
+## Average pip total is much higher than the standard set, so chips
+## scale fast — at the cost of a cramped pool of matching faces.
+static func _create_specialist() -> Box:
+	var box := Box.new()
+	for i in range(Constants.MAX_PIP + 1):
+		for j in range(i, Constants.MAX_PIP + 1):
+			if maxi(i, j) >= 6:
+				box._all_tiles.append(Domino.new(i, j))
+				box._all_tiles.append(Domino.new(i, j))
 	box.replenish()
 	return box
 

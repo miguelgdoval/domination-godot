@@ -5,28 +5,35 @@ extends Node
 # ---------------------------------------------------------------------------
 # Calibration Cores  (box variants chosen at run start)
 # ---------------------------------------------------------------------------
-const CORE_COUNT: int = 4
+const CORE_COUNT: int = 6
 const CORE_NAMES: Array[String] = [
 	"Standard Core", "Resonant Core", "Dense Array", "Void Lattice",
+	"Slimline", "Specialist Core",
 ]
-const CORE_RARITIES: Array[int] = [0, 1, 1, 2]  # Bone, Carved, Carved, Ivory
+const CORE_RARITIES: Array[int] = [0, 1, 1, 2, 1, 2]  # Bone, Carved, Carved, Ivory, Carved, Ivory
 const CORE_DESCS: Array[String] = [
 	"Full double-9 set — 110 tiles.\nBalanced and well-understood.",
 	"Doubles only (0-0 through 9-9) — 50 tiles.\nEvery tile resonates. Multipliers run wild.",
 	"Double-6 set — 84 tiles.\nLower pip ceiling, but chains form freely.",
 	"Standard set + 10 Wild tiles — 120 tiles.\nUnstable flux. The Wilds connect to anything.",
+	"One copy of each tile — 55 tiles.\nBox drains fast. Make every placement count.",
+	"Only tiles with a face ≥ 6, ×2 — 68 tiles.\nFewer matching faces, but every tile is heavy.",
 ]
 const CORE_LORES: Array[String] = [
 	"\"Standard field array. Recommended for initial calibration.\"",
 	"\"All harmonics collapsed to pure resonance. The signal sings itself.\"",
 	"\"A tighter grid. The Chronometer breathes easier at reduced amplitude.\"",
 	"\"Something has contaminated the array. The Wilds answer to nothing—and everything.\"",
+	"\"Reduced redundancy. The simulation runs lean, fast, and unforgiving.\"",
+	"\"Only the loud frequencies. The faint signals have been filtered out.\"",
 ]
 ## Score target scale (applied as target × scale / 100).
 ## Resonant Core: all-doubles → massive multipliers → harder targets.
 ## Dense Array: max pip 6 → lower chips → easier targets.
 ## Void Lattice: wilds help chaining but don't score → slight reduction.
-const CORE_TARGET_SCALE: Array[int] = [100, 160, 65, 90]
+## Slimline: half-deck → tighter chains → slight reduction.
+## Specialist: high-pip only → easier to score → harder targets.
+const CORE_TARGET_SCALE: Array[int] = [100, 160, 65, 90, 85, 130]
 
 ## Unlock gates per core. Index 0 is the starter — always unlocked, the
 ## description is just for completeness. The other entries say what the
@@ -39,6 +46,8 @@ const CORE_UNLOCKS: Array[Dictionary] = [
 	{ "type": "best_round", "value": 5,  "label": "Clear the first Entropy Failure (round 5)." },
 	{ "type": "best_round", "value": 10, "label": "Clear the second Entropy Failure (round 10)." },
 	{ "type": "wins",       "value": 1,  "label": "Recalibrate the Chronometer at least once." },
+	{ "type": "best_round", "value": 5,  "label": "Clear the first Entropy Failure (round 5)." },
+	{ "type": "best_round", "value": 10, "label": "Clear the second Entropy Failure (round 10)." },
 ]
 
 # ---------------------------------------------------------------------------
