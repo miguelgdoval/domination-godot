@@ -1015,17 +1015,39 @@ func _on_hand_scored(result: Dictionary) -> void:
 						break
 
 			var chips: int = 0
+			# Per-tile module-firing tags. Short label per module type that
+			# actually contributed chips/mult on THIS specific tile, so the
+			# scoring animation can pop a tag above the tile and the player
+			# can see which tile triggered which module bonus.
+			var fired_tags: Array = []
 			if is_sac:
 				chips = 0   # sacrificed — traded for mult
+				fired_tags.append("SACRIFICE")
 			elif dw > 0 and tile.is_wild and wild_pip_chips_ui > 0:
 				chips = wild_pip_chips_ui
+				fired_tags.append("WILD")
 			elif dw > 0:
 				chips = pips * double_pip_mult + tile.bonus_chips
+				if double_pip_mult > 1:
+					fired_tags.append("DOUBLE")
 			else:
 				chips = pips + tile.bonus_chips
 				if blank_pip_val_ui > 0 and not tile.is_wild:
-					if tile.left  == 0: chips += blank_pip_val_ui
-					if tile.right == 0: chips += blank_pip_val_ui
+					var blank_count: int = (1 if tile.left == 0 else 0) \
+						+ (1 if tile.right == 0 else 0)
+					if blank_count > 0:
+						chips += blank_pip_val_ui * blank_count
+						fired_tags.append("BLANK")
+			# HIGH_PIP_BONUS triggers when max(left, right) ≥ threshold.
+			# Re-derive here without re-iterating modules — we only need
+			# to know whether ANY high-pip module fired on this tile.
+			if not tile.is_wild:
+				for m in GameState.modules:
+					if m.effect_type == Module.EffectType.HIGH_PIP_BONUS \
+							and max(tile.left, tile.right) >= m.effect_param:
+						chips += m.effect_value
+						fired_tags.append("HIGH-PIP")
+						break
 
 			# `panel` is the actual chain tile, animated in place. No overlay
 			# duplicate is built any more — the tile itself glows and scales.
@@ -1038,6 +1060,7 @@ func _on_hand_scored(result: Dictionary) -> void:
 				"max_pip":    max(tile.left, tile.right),
 				"has_blank":  not tile.is_wild and (tile.left == 0 or tile.right == 0),
 				"total_pips": pips if not tile.is_wild else 999,
+				"tags":       fired_tags,
 			})
 
 	# Determine which modules fired so the rack can pulse them
@@ -2171,6 +2194,19 @@ func _archetype_label(a: int) -> String:
 		Module.Archetype.ECONOMY:    return "ECONOMY"
 		Module.Archetype.UTILITY:    return "UTILITY"
 		_: return ""
+
+## Tint for the per-tile module-fired tag pops. Reuses the archetype
+## colour so the in-play tag matches the colour shown on the shop card —
+## visual continuity between "module type I bought" and "module fired
+## here". Falls back to dim for unknown tags.
+func _archetype_color_for_tag(tag: String) -> Color:
+	match tag:
+		"DOUBLE":    return _archetype_color(Module.Archetype.DOUBLES)
+		"HIGH-PIP":  return _archetype_color(Module.Archetype.HIGH_PIP)
+		"BLANK":     return _archetype_color(Module.Archetype.BLANKS)
+		"WILD":      return _archetype_color(Module.Archetype.BLANKS)
+		"SACRIFICE": return _archetype_color(Module.Archetype.SACRIFICE)
+		_: return C_DIM
 
 ## Color tag for archetype. Gives each build identity a distinct hue so
 ## a deck-heavy shop card visually clusters by colour.
@@ -5140,6 +5176,9 @@ func _run_scoring_sequence(overlay_infos: Array, result: Dictionary,
 
 		# Step 1 — tile brightens and pops up in place (no duplicate overlay).
 		# Doubles also fire a connection spark to signal "branch end created".
+		# When a module fired on this specific tile, pop short tags above it
+		# so the player can see WHICH tile triggered which bonus.
+		var tags: Array = info.get("tags", [])
 		seq.tween_callback(func():
 			if panel == null or not is_instance_valid(panel):
 				return
@@ -5151,6 +5190,13 @@ func _run_scoring_sequence(overlay_infos: Array, result: Dictionary,
 				.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 			if is_dbl:
 				_do_chain_spark(center, C_MONEDAS)
+			# Stagger tags so multiple modules firing on one tile read as
+			# distinct labels rather than overlapping into one blob.
+			for tag_i in range(tags.size()):
+				var tag_text: String = String(tags[tag_i])
+				var tag_offset: Vector2 = Vector2(0, -panel.size.y * 0.55 - tag_i * 14)
+				_do_tile_pop(tag_text, _archetype_color_for_tag(tag_text),
+					center + tag_offset, 11, 1.05)
 		)
 		seq.tween_interval(0.10)
 
