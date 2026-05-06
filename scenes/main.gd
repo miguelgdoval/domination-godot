@@ -2314,11 +2314,19 @@ func _unhandled_input(event: InputEvent) -> void:
 ## Animate a hand-tile button lifting (selected) or returning to rest (deselected).
 ## State-guarded so tweens don't stack on rapid clicks.
 func _apply_tile_lift(btn: Button, lift: bool) -> void:
-	var was_lifted: bool = btn.get_meta("_lifted", false)
+	# Guard with has_meta — Godot's get_meta(name, default) returns the
+	# default correctly but still logs an "object has no meta with key X"
+	# error when the key is missing. has_meta keeps the console clean on
+	# the first refresh after a tile is created.
+	var was_lifted: bool = false
+	if btn.has_meta("_lifted"):
+		was_lifted = btn.get_meta("_lifted")
 	if was_lifted == lift:
 		return
 	btn.set_meta("_lifted", lift)
-	var prev: Tween = btn.get_meta("_lt", null)
+	var prev: Tween = null
+	if btn.has_meta("_lt"):
+		prev = btn.get_meta("_lt")
 	if prev != null and is_instance_valid(prev):
 		prev.kill()
 	var lt := btn.create_tween().set_parallel(true)
