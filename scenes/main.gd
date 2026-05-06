@@ -330,6 +330,10 @@ var _settings_overlay:     Control  # volume / mute panel, accessible anywhere
 var _lbl_score_big:       Label
 var _lbl_score_label:     Label
 var _lbl_manos_count:     Label
+## Tile count remaining in the box (draw pile) for the current round.
+## Lets the player see at a glance how much they still have to draw —
+## matters most on Slimline (drains fast) but useful on every core.
+var _lbl_box_count:        Label
 var _lbl_descartes_count: Label
 var _contracts_vbox:      VBoxContainer
 var _artifacts_vbox:      VBoxContainer
@@ -2090,6 +2094,10 @@ func _refresh_hud() -> void:
 		_lbl_manos_count.text = "%d/%d" % [_rm.hands_remaining, _rm.max_hands]
 	if _lbl_descartes_count != null and _rm != null:
 		_lbl_descartes_count.text = "%d/%d" % [_rm.discards_remaining, _rm.max_discards]
+	# Box (draw pile) count: remaining / total. Reflects targeted re-draws,
+	# permanent box additions/removals from the shop, and tile_offers buys.
+	if _lbl_box_count != null and _rm != null and _rm.box != null:
+		_lbl_box_count.text = "%d/%d" % [_rm.box.draw_pile_size(), _rm.box.total_tiles()]
 
 	# Hands dots — hidden HBoxContainers kept for compatibility; still update them
 	for ch in _hands_dot_row.get_children(): ch.queue_free()
@@ -3259,6 +3267,35 @@ func _build_hud() -> Control:
 	_discards_dot_row = HBoxContainer.new()
 	_discards_dot_row.visible = false
 	disc_vbox.add_child(_discards_dot_row)
+
+	# ── CAJA pill (box / draw pile) — shows tiles remaining ─
+	var box_pc := PanelContainer.new()
+	box_pc.custom_minimum_size = Vector2(110, 52)
+	var box_style := StyleBoxFlat.new()
+	box_style.bg_color = Color(0.10, 0.07, 0.16, 0.92)
+	box_style.set_corner_radius_all(8)
+	box_style.set_border_width_all(1)
+	box_style.border_color = C_GOLD_RIM
+	box_pc.add_theme_stylebox_override("panel", box_style)
+	hbox.add_child(box_pc)
+
+	var box_vbox := VBoxContainer.new()
+	box_vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	box_vbox.add_theme_constant_override("separation", 2)
+	box_pc.add_child(box_vbox)
+
+	var box_lbl := _make_label("CAJA", C_DIM, 10)
+	box_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box_vbox.add_child(box_lbl)
+
+	var box_count_row := HBoxContainer.new()
+	box_count_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	box_count_row.add_theme_constant_override("separation", 4)
+	box_vbox.add_child(box_count_row)
+	box_count_row.add_child(_make_label("◰", C_TEXT, 14))
+	_lbl_box_count = _make_label("0/0", C_TEXT, 22)
+	FontManager.apply_mono(_lbl_box_count)
+	box_count_row.add_child(_lbl_box_count)
 
 	# ── Gear button ───────────────────────────────────────
 	var gear_style := StyleBoxFlat.new()
