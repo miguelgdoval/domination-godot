@@ -173,6 +173,9 @@ var _chain_milestone_row:  HBoxContainer   # visual dot-progress bar for chain b
 ## Highest tier index reached so far in the current round (-1 = none).
 ## Used to detect tier crossings and fire a celebration animation.
 var _last_tier_reached: int = -1
+## Set true the first time chronos crosses the round target so the
+## "target reached" confetti burst only fires once per round.
+var _target_celebrated: bool = false
 var _lbl_last_hand:        Label
 # Play button pulse tween (looping amber glow when valid chain ready)
 var _play_pulse_tween: Tween = null
@@ -745,6 +748,7 @@ func _begin_round_play() -> void:
 	# Reset tier-crossing tracker so each round can celebrate its tier
 	# milestones independently.
 	_last_tier_reached = -1
+	_target_celebrated = false
 
 	_dm = DirectiveManager.new()
 	# Per-core directive count override (The Runner core starts with 3
@@ -1200,6 +1204,41 @@ func _is_player_stuck() -> bool:
 	if _rm.can_discard() and not _rm.box.is_empty():
 		return false
 	return true
+
+## Confetti-style burst when the player first crosses the round target.
+## Twelve coloured dots launch upward from the chronos bar at staggered
+## angles, fade out, and queue_free themselves. Visual fanfare for the
+## moment the round actually feels won.
+func _burst_target_celebration() -> void:
+	if _chronos_bar == null or not is_instance_valid(_chronos_bar):
+		return
+	var origin: Vector2 = _chronos_bar.global_position \
+		+ Vector2(_chronos_bar.size.x * 0.5, _chronos_bar.size.y * 0.5)
+	var palette: Array = [C_WIN, C_MONEDAS, C_CHRONOS, C_TITLE_GLOW]
+	for i in range(12):
+		var dot := PanelContainer.new()
+		dot.custom_minimum_size = Vector2(7, 7)
+		var color: Color = palette[i % palette.size()]
+		var ds := StyleBoxFlat.new()
+		ds.bg_color = color
+		ds.set_corner_radius_all(4)
+		dot.add_theme_stylebox_override("panel", ds)
+		dot.position = origin - Vector2(3.5, 3.5)
+		_ui_layer.add_child(dot)
+
+		# Spread dots in an upward fan. Each gets a slightly different
+		# trajectory so the burst doesn't look like a single arc.
+		var angle: float = -PI * 0.5 + randf_range(-PI * 0.5, PI * 0.5)
+		var dist:  float = randf_range(80.0, 160.0)
+		var dur:   float = randf_range(0.55, 0.85)
+		var end:   Vector2 = origin + Vector2(cos(angle), sin(angle)) * dist
+		end.y += 40.0   # mild gravity drop at the end
+		var t := create_tween().set_parallel(true)
+		t.tween_property(dot, "position", end - Vector2(3.5, 3.5), dur) \
+			.set_trans(Tween.TRANS_CIRC).set_ease(Tween.EASE_OUT)
+		t.tween_property(dot, "modulate:a", 0.0, dur)
+		t.chain().tween_callback(dot.queue_free)
+	AudioManager.play_sfx("round_clear")
 
 ## One-shot pulse on the Stand button the first time it becomes visible
 ## within a round — bigger entrance, gold flash, then settles. Player
@@ -2288,6 +2327,12 @@ func _refresh_action_buttons() -> void:
 		# transition (off → on), not every refresh.
 		if should_show and not was_visible:
 			_pulse_stand_button()
+			# Same trigger as the Stand pulse, but a wider celebration —
+			# the player just hit the chronos target for the round, the
+			# moment they've been chasing. Fires once per round.
+			if not _target_celebrated:
+				_target_celebrated = true
+				_burst_target_celebration()
 		_refresh_stand_hint()
 
 	# Pass appears only when truly stuck (anti-softlock).
