@@ -327,6 +327,8 @@ var _btn_continue_run:     Button   # shown only when SaveManager has a saved ru
 var _btn_daily_trial:      Button   # one attempt per day, deterministic seed
 var _btn_daily_history:    Button   # opens the daily-history overlay
 var _daily_history_overlay: Control # built lazily on first open
+var _btn_achievements:     Button   # opens the achievements overlay
+var _achievements_overlay: Control  # built lazily on first open
 var _settings_overlay:     Control  # volume / mute panel, accessible anywhere
 
 # ---------------------------------------------------------------------------
@@ -412,6 +414,17 @@ func _on_daily_history_pressed() -> void:
 func _on_daily_history_close_pressed() -> void:
 	if _daily_history_overlay != null:
 		_daily_history_overlay.hide()
+
+func _on_achievements_pressed() -> void:
+	if _achievements_overlay == null:
+		_achievements_overlay = _build_achievements_overlay()
+		_title_overlay.get_parent().add_child(_achievements_overlay)
+	_refresh_achievements_overlay()
+	_achievements_overlay.show()
+
+func _on_achievements_close_pressed() -> void:
+	if _achievements_overlay != null:
+		_achievements_overlay.hide()
 
 ## Copy today's daily result to the OS clipboard so the player can
 ## paste it into chat / social. Format is compact and recognisable —
@@ -612,6 +625,131 @@ func _build_daily_history_row(entry: Dictionary) -> Control:
 	row.add_child(score_lbl)
 
 	return row
+
+## Build the achievements browser overlay. Each Constants.ACHIEVEMENTS
+## entry becomes a card showing icon, name, and unlock condition; earned
+## cards render full-colour with a glow border, locked cards are dimmed.
+## Lazy-built (called once on first open).
+func _build_achievements_overlay() -> Control:
+	var overlay := ColorRect.new()
+	overlay.color = Color(0, 0, 0, 0.88)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(720, 580)
+	var ps := StyleBoxFlat.new()
+	ps.bg_color     = Color(0.08, 0.07, 0.05, 0.98)
+	ps.border_color = Color(0.85, 0.70, 0.30)   # warm amber match for "achievement" feel
+	ps.set_border_width_all(2)
+	ps.set_corner_radius_all(8)
+	panel.add_theme_stylebox_override("panel", ps)
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 12)
+	panel.add_child(vbox)
+
+	var title := _make_label("ACHIEVEMENTS", C_TITLE_GLOW, 22)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(title)
+
+	var sub := _make_label("", C_DIM, 12)
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sub.set_meta("ach_summary", true)
+	vbox.add_child(sub)
+
+	vbox.add_child(_make_hsep())
+
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(680, 420)
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(scroll)
+	var grid := GridContainer.new()
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 12)
+	scroll.add_child(grid)
+	vbox.set_meta("ach_grid", grid)
+
+	vbox.add_child(_make_hsep())
+
+	var btn_row := HBoxContainer.new()
+	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_child(btn_row)
+	btn_row.add_child(_make_button("CLOSE",
+		_on_achievements_close_pressed, Vector2(160, 44)))
+
+	return overlay
+
+func _refresh_achievements_overlay() -> void:
+	if _achievements_overlay == null:
+		return
+	var root: Node = _achievements_overlay.get_child(0).get_child(0).get_child(0)
+	var lifetime: Dictionary = SaveManager.get_lifetime_stats()
+	var streak:   int        = SaveManager.daily_streak()
+
+	var earned_n: int = 0
+	for i in range(Constants.ACHIEVEMENTS.size()):
+		if Constants.achievement_earned(i, lifetime, streak):
+			earned_n += 1
+	for child in root.get_children():
+		if child is Label and child.has_meta("ach_summary"):
+			child.text = "%d / %d earned" % [earned_n, Constants.ACHIEVEMENTS.size()]
+			break
+
+	var grid: GridContainer = root.get_meta("ach_grid")
+	for child in grid.get_children():
+		child.queue_free()
+	for i in range(Constants.ACHIEVEMENTS.size()):
+		var earned: bool = Constants.achievement_earned(i, lifetime, streak)
+		grid.add_child(_build_achievement_card(Constants.ACHIEVEMENTS[i], earned))
+
+func _build_achievement_card(a: Dictionary, earned: bool) -> Control:
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(216, 92)
+	var s := StyleBoxFlat.new()
+	if earned:
+		s.bg_color     = Color(0.14, 0.11, 0.06)
+		s.border_color = Color(0.85, 0.70, 0.30)
+	else:
+		s.bg_color     = Color(0.06, 0.05, 0.04)
+		s.border_color = Color(0.28, 0.24, 0.18)
+	s.set_border_width_all(2)
+	s.set_corner_radius_all(6)
+	s.set_content_margin_all(10)
+	panel.add_theme_stylebox_override("panel", s)
+	if not earned:
+		panel.modulate = Color(0.65, 0.65, 0.65)
+
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 10)
+	panel.add_child(hbox)
+
+	var icon := _make_label(String(a.get("icon", "?")),
+		Color(0.85, 0.70, 0.30) if earned else C_DIM, 26)
+	icon.custom_minimum_size = Vector2(40, 0)
+	icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	icon.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	hbox.add_child(icon)
+
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 2)
+	hbox.add_child(col)
+
+	col.add_child(_make_label(String(a.get("name", "?")),
+		C_TEXT if earned else C_DIM, 13))
+	var desc_lbl := _make_label(String(a.get("desc", "")), C_PREVIEW, 10)
+	desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc_lbl.custom_minimum_size = Vector2(150, 0)
+	col.add_child(desc_lbl)
+
+	return panel
 
 ## Update the Daily Trial button label and enabled state. Called from
 ## _show_title and from anywhere that might transition back to the title.
@@ -1757,6 +1895,7 @@ func _show_run_end(victory: bool) -> void:
 	})
 	var lt_after: Dictionary = SaveManager.get_lifetime_stats()
 	var new_unlocks: Array = _detect_new_unlocks(lt_before, lt_after)
+	var new_achievements: Array = _detect_new_achievements(lt_before, lt_after)
 	SaveManager.clear_run()
 	# Music cue
 	AudioManager.play_music("menu_theme")
@@ -1832,6 +1971,13 @@ func _show_run_end(victory: bool) -> void:
 		stat_lines.append(["─── 🔓 NEW UNLOCKS ───", ""])
 		for u in new_unlocks:
 			stat_lines.append([u["kind"], u["name"]])
+
+	# Newly-earned achievements — separate from unlocks (unlocks gate
+	# playable content; achievements are pure milestone markers).
+	if not new_achievements.is_empty():
+		stat_lines.append(["─── ★ ACHIEVEMENTS ───", ""])
+		for a in new_achievements:
+			stat_lines.append(["%s  %s" % [a["icon"], a["name"]], ""])
 
 	var stat_labels: Array = []
 	for pair in stat_lines:
@@ -2215,6 +2361,20 @@ func _refresh_boss_effect_lbl() -> void:
 		return
 	_boss_effect_lbl.text = "⚠  %s" % Constants.BOSS_NAMES[etapa]
 	_boss_effect_lbl.visible = true
+
+## Compare lifetime stats before/after accumulating this run's data and
+## return any achievements that crossed their gate. Achievements use the
+## SAME pattern as unlock gates (so the same lifetime keys drive them),
+## plus a daily-streak gate that requires SaveManager.daily_streak().
+func _detect_new_achievements(before: Dictionary, after: Dictionary) -> Array:
+	var streak: int = SaveManager.daily_streak()
+	var earned: Array = []
+	for i in range(Constants.ACHIEVEMENTS.size()):
+		var was: bool = Constants.achievement_earned(i, before, streak)
+		var now: bool = Constants.achievement_earned(i, after,  streak)
+		if not was and now:
+			earned.append(Constants.ACHIEVEMENTS[i])
+	return earned
 
 ## Compare lifetime stats before/after accumulating this run's data and
 ## return a list of cores/protocols that just crossed their unlock gates.
@@ -4309,6 +4469,22 @@ func _build_title_overlay() -> Control:
 	_btn_daily_history.add_theme_stylebox_override("normal", ds)
 	_btn_daily_history.add_theme_stylebox_override("hover", ds_hov)
 	btn_row.add_child(_btn_daily_history)
+
+	# Achievements browser — amber-styled to match the achievement panel.
+	# Always visible so first-time players see the feature exists.
+	_btn_achievements = _make_button("★",
+		_on_achievements_pressed, Vector2(54, 54))
+	var as_style := StyleBoxFlat.new()
+	as_style.bg_color     = Color(0.14, 0.11, 0.06)
+	as_style.border_color = Color(0.85, 0.70, 0.30)
+	as_style.set_border_width_all(2)
+	as_style.set_corner_radius_all(6)
+	as_style.set_content_margin_all(10)
+	_btn_achievements.add_theme_stylebox_override("normal", as_style)
+	var as_hov := as_style.duplicate() as StyleBoxFlat
+	as_hov.bg_color = Color(0.20, 0.15, 0.08)
+	_btn_achievements.add_theme_stylebox_override("hover", as_hov)
+	btn_row.add_child(_btn_achievements)
 
 	# "Continue Run" — hidden until SaveManager confirms a mid-run save exists
 	_btn_continue_run = _make_button(

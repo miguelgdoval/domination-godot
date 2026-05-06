@@ -174,6 +174,78 @@ static func is_protocol_unlocked(i: int, lifetime: Dictionary) -> bool:
 	return unlock_met(PROTOCOL_UNLOCKS[i], lifetime)
 
 # ---------------------------------------------------------------------------
+# Achievements — visual progression markers, independent of core/protocol
+# unlock gates. Earned by hitting lifetime-stat thresholds. No additional
+# tracking required: derived from SaveManager.get_lifetime_stats().
+# ---------------------------------------------------------------------------
+## Each entry:
+##   id   — stable string for save persistence
+##   name — short display title
+##   icon — single-glyph badge symbol
+##   desc — short unlock condition shown on the badge card
+##   type — stat key in lifetime stats: best_tier / best_round / wins /
+##          daily_streak / hands_played / modules_seen / doubles_played
+##   value — threshold the stat must meet
+const ACHIEVEMENTS: Array[Dictionary] = [
+	{"id": "tier_pulse",      "name": "First Pulse",       "icon": "▷",
+	 "desc": "Reach the Pulse tier (4-tile chain).",
+	 "type": "best_tier",      "value": 0},
+	{"id": "tier_cohesion",   "name": "Cohesion Achieved", "icon": "◇",
+	 "desc": "Reach the Cohesion tier (7-tile chain).",
+	 "type": "best_tier",      "value": 1},
+	{"id": "tier_resonance",  "name": "Resonance Master",  "icon": "◆",
+	 "desc": "Reach the Resonance tier (11-tile chain).",
+	 "type": "best_tier",      "value": 2},
+	{"id": "tier_harmonic",   "name": "Harmonic Pulse",    "icon": "❖",
+	 "desc": "Reach the Harmonic tier (16-tile chain).",
+	 "type": "best_tier",      "value": 3},
+	{"id": "tier_singularity","name": "The Singularity",   "icon": "✦",
+	 "desc": "Reach the Singularity tier (21+ chain).",
+	 "type": "best_tier",      "value": 4},
+	{"id": "boss1",           "name": "First Failure",     "icon": "I",
+	 "desc": "Clear the first Entropy Failure.",
+	 "type": "best_round",     "value": 5},
+	{"id": "boss2",           "name": "Second Failure",    "icon": "II",
+	 "desc": "Clear the second Entropy Failure.",
+	 "type": "best_round",     "value": 10},
+	{"id": "recalibrator",    "name": "Recalibrator",      "icon": "⬡",
+	 "desc": "Recalibrate the Chronometer (win a run).",
+	 "type": "wins",           "value": 1},
+	{"id": "streak3",         "name": "Three-Day Pulse",   "icon": "✺",
+	 "desc": "Win 3 daily trials in a row.",
+	 "type": "daily_streak",   "value": 3},
+	{"id": "streak7",         "name": "Week of Order",     "icon": "✺✺",
+	 "desc": "Win 7 daily trials in a row.",
+	 "type": "daily_streak",   "value": 7},
+	{"id": "centurion",       "name": "Centurion",         "icon": "✱",
+	 "desc": "Play 100 hands across all runs.",
+	 "type": "hands_played",   "value": 100},
+	{"id": "collector",       "name": "Module Collector",  "icon": "▢",
+	 "desc": "See 20 unique modules across all runs.",
+	 "type": "modules_seen",   "value": 20},
+]
+
+## Returns true if the achievement at `idx` is earned given a lifetime
+## stats dict (from SaveManager.get_lifetime_stats() or daily helpers).
+## `daily_streak` is passed in via the `extra` arg since it's computed
+## by the SaveManager rather than a flat key on lifetime_stats.
+static func achievement_earned(idx: int, lifetime: Dictionary,
+		daily_streak: int = 0) -> bool:
+	if idx < 0 or idx >= ACHIEVEMENTS.size():
+		return false
+	var a: Dictionary = ACHIEVEMENTS[idx]
+	var t: String = a.get("type", "")
+	var v: int    = int(a.get("value", 0))
+	match t:
+		"best_tier":     return int(lifetime.get("best_tier", -1)) >= v
+		"best_round":    return int(lifetime.get("best_round", 0)) >= v
+		"wins":          return int(lifetime.get("wins", 0)) >= v
+		"hands_played":  return int(lifetime.get("hands_played", 0)) >= v
+		"modules_seen":  return int(Array(lifetime.get("modules_seen", [])).size()) >= v
+		"daily_streak":  return daily_streak >= v
+		_: return false
+
+# ---------------------------------------------------------------------------
 # Rarity
 # ---------------------------------------------------------------------------
 enum Rarity { BONE = 0, CARVED = 1, IVORY = 2, OBSIDIAN = 3 }
