@@ -78,7 +78,7 @@ const BOSS_LORE: Array[String] = [
 	"The frequencies bleed.\nWhat was stable becomes noise.",
 	"Your signal reaches us fractured.\nThe decay accelerates.",
 	"The mirror eats its reflection.\nWhat resonates now devours.",
-	"This is not a test.\nThe Chronometer cannot hold much longer.",
+	"The Archive remembers what it pleases.\nYou must remember the rest.",
 ]
 
 # Pip positions in a 3×3 grid (index 0-8, left-to-right top-to-bottom)
@@ -2271,6 +2271,12 @@ func _layout_chain_serpentine(chain: Chain) -> void:
 		if reverse:
 			indices.reverse()
 
+		# GHOST_CHAIN: a deterministic third of the placed tiles render at
+		# very low opacity. The rule (`(idx + 1) % 3 == 0`) is stable across
+		# renders within a round so the player can lock in which tiles are
+		# ghosted and remember them — but they look near-blank, no pip
+		# values readable.
+		var ghosting: bool = GameState.active_boss_effect() == Constants.BossEffect.GHOST_CHAIN
 		for tile_idx in indices:
 			var d: Vector2i = chain.tile_displays[tile_idx]
 			var is_double: bool = (d.x == d.y)
@@ -2282,6 +2288,8 @@ func _layout_chain_serpentine(chain: Chain) -> void:
 			var right_pip: int = d.x if reverse else d.y
 			var tile_panel: Control = _build_chain_tile(
 				left_pip, right_pip, half_size, is_double)
+			if ghosting and (tile_idx + 1) % 3 == 0:
+				tile_panel.modulate.a = 0.18
 			row.add_child(tile_panel)
 			_chain_tile_panels[tile_idx] = tile_panel
 

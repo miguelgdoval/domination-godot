@@ -258,13 +258,13 @@ const BOSS_NAMES: Array[String] = [
 	"FREQUENCY DRAIN",
 	"MIRROR DECAY",
 	"RESONANCE INVERSION",
-	"TOTAL ENTROPY",
+	"GHOST CHAIN",
 ]
 const BOSS_DESCS: Array[String] = [
 	"Your Isolation Chamber is compressed.\nHand size –1 for this round.",
 	"Pip values mirror across the threshold.\nEach pip scores as (9 – pip).\nLow tiles are now your strongest.",
 	"Self-referential flows have inverted polarity.\nEach double SUBTRACTS from your multiplier\ninstead of adding to it.",
-	"All systems failing at once.\nHand –1, plays –1, discards –1.",
+	"The Archive forgets what it has seen.\nA third of your placed tiles fade from view.\nTrust your memory.",
 ]
 ## Boss arc:
 ##   • Boss 1 — STAT_CUT. The gentle intro: small hand, normal everything.
@@ -273,26 +273,29 @@ const BOSS_DESCS: Array[String] = [
 ##     low-pip tiles (especially blanks) become valuable.
 ##   • Boss 3 — RESONANCE_INVERSION. Doubles flip sign in the mult math,
 ##     so the doubles-stack build becomes a liability for one round.
-##   • Boss 4 — STAT_CUT compound; the pure-attrition rush.
+##   • Boss 4 — GHOST_CHAIN. Hard-mode final boss: a third of the chain's
+##     placed tiles render near-invisible, forcing the player to remember
+##     pip values for connection planning. No stat cuts.
 ##
 ## Delta applied to hand_size on boss rounds.
-const BOSS_HAND_DELTA:    Array[int] = [-1,  0,  0, -1]
+const BOSS_HAND_DELTA:    Array[int] = [-1,  0,  0,  0]
 ## Delta applied to max_discards on boss rounds (clamped to min 0).
-const BOSS_DISCARD_DELTA: Array[int] = [ 0,  0,  0, -1]
+const BOSS_DISCARD_DELTA: Array[int] = [ 0,  0,  0,  0]
 ## Delta applied to max_hands on boss rounds (clamped to min 1).
-const BOSS_HANDS_DELTA:   Array[int] = [ 0,  0,  0, -1]
+const BOSS_HANDS_DELTA:   Array[int] = [ 0,  0,  0,  0]
 
-## Boss effect "kind" — drives scoring overrides and (eventually)
-## render-time tweaks. STAT_CUT bosses just lean on the deltas above;
-## special effects need scoring or display logic to honour them.
+## Boss effect "kind" — drives scoring overrides and render-time tweaks.
+## STAT_CUT bosses just lean on the deltas above; special effects need
+## scoring or display logic to honour them.
 enum BossEffect {
 	STAT_CUT,            # No special hook; uses the stat deltas only.
 	MIRROR_DECAY,        # Each pip's chip contribution is (9 - pip).
 	RESONANCE_INVERSION, # Doubles count NEGATIVELY toward mult.
+	GHOST_CHAIN,         # ~1/3 of chain tiles render at low opacity.
 }
 const BOSS_EFFECT_TYPE: Array[int] = [
 	BossEffect.STAT_CUT,
 	BossEffect.MIRROR_DECAY,
 	BossEffect.RESONANCE_INVERSION,
-	BossEffect.STAT_CUT,
+	BossEffect.GHOST_CHAIN,
 ]
