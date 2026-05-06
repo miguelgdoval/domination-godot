@@ -329,6 +329,8 @@ var _btn_daily_history:    Button   # opens the daily-history overlay
 var _daily_history_overlay: Control # built lazily on first open
 var _btn_achievements:     Button   # opens the achievements overlay
 var _achievements_overlay: Control  # built lazily on first open
+var _btn_stats:            Button   # opens the lifetime statistics overlay
+var _stats_overlay:        Control  # built lazily on first open
 var _settings_overlay:     Control  # volume / mute panel, accessible anywhere
 ## Mid-run pause overlay. Shown via the HUD pause button or ESC during
 ## PLAYING phase when nothing else is active. Blocks game input by sitting
@@ -436,6 +438,17 @@ func _on_achievements_pressed() -> void:
 func _on_achievements_close_pressed() -> void:
 	if _achievements_overlay != null:
 		_achievements_overlay.hide()
+
+func _on_stats_pressed() -> void:
+	if _stats_overlay == null:
+		_stats_overlay = _build_stats_overlay()
+		_title_overlay.get_parent().add_child(_stats_overlay)
+	_refresh_stats_overlay()
+	_stats_overlay.show()
+
+func _on_stats_close_pressed() -> void:
+	if _stats_overlay != null:
+		_stats_overlay.hide()
 
 ## Copy today's daily result to the OS clipboard so the player can
 ## paste it into chat / social. Format is compact and recognisable —
@@ -761,6 +774,162 @@ func _build_achievement_card(a: Dictionary, earned: bool) -> Control:
 	col.add_child(desc_lbl)
 
 	return panel
+
+## Lifetime statistics overlay — browsable breakdown of every stat
+## SaveManager tracks across runs. Sections:
+##
+##   RUNS         — runs / wins / win rate
+##   CHAINS       — longest chain, best tier reached
+##   PLAY         — hands played, doubles placed, total chronos
+##   PROGRESSION  — furthest round, achievements earned, modules seen
+##   DAILY        — attempts, wins, current streak
+##
+## All values are read-only snapshots; no edit affordances. Lazy-built
+## on first open (same pattern as achievements / daily history).
+func _build_stats_overlay() -> Control:
+	var overlay := ColorRect.new()
+	overlay.color = Color(0, 0, 0, 0.88)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(620, 600)
+	var ps := StyleBoxFlat.new()
+	ps.bg_color     = Color(0.07, 0.06, 0.05, 0.98)
+	ps.border_color = C_CHRONOS.darkened(0.2)
+	ps.set_border_width_all(2)
+	ps.set_corner_radius_all(8)
+	panel.add_theme_stylebox_override("panel", ps)
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 12)
+	panel.add_child(vbox)
+
+	var title := _make_label("LIFETIME STATISTICS", C_TITLE_GLOW, 22)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(title)
+
+	vbox.add_child(_make_hsep())
+
+	# Sections panel — content rebuilt by _refresh_stats_overlay so we
+	# don't need to thread per-section labels through metadata. Just
+	# stash the host VBox and replace its children on refresh.
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(580, 460)
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(scroll)
+	var content := VBoxContainer.new()
+	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content.add_theme_constant_override("separation", 14)
+	scroll.add_child(content)
+	vbox.set_meta("stats_content", content)
+
+	vbox.add_child(_make_hsep())
+
+	var btn_row := HBoxContainer.new()
+	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_child(btn_row)
+	btn_row.add_child(_make_button("CLOSE",
+		_on_stats_close_pressed, Vector2(160, 44)))
+
+	return overlay
+
+func _refresh_stats_overlay() -> void:
+	if _stats_overlay == null:
+		return
+	var root: Node = _stats_overlay.get_child(0).get_child(0).get_child(0)
+	var content: VBoxContainer = root.get_meta("stats_content")
+	for child in content.get_children():
+		child.queue_free()
+
+	var lt: Dictionary = SaveManager.get_lifetime_stats()
+	var streak: int = SaveManager.daily_streak()
+	var daily: Dictionary = SaveManager.daily_summary()
+
+	var runs: int = int(lt.get("runs", 0))
+	var wins: int = int(lt.get("wins", 0))
+	var win_rate_str: String = "—"
+	if runs > 0:
+		win_rate_str = "%d%%" % int(round(100.0 * wins / float(runs)))
+
+	var best_tier: int = int(lt.get("best_tier", -1))
+	var best_tier_str: String = "—"
+	if best_tier >= 0 and best_tier < Constants.CHAIN_TIER_NAMES.size():
+		best_tier_str = Constants.CHAIN_TIER_NAMES[best_tier]
+
+	var ach_total: int = Constants.ACHIEVEMENTS.size()
+	var ach_earned: int = 0
+	for i in range(ach_total):
+		if Constants.achievement_earned(i, lt, streak):
+			ach_earned += 1
+
+	var modules_seen: Array = lt.get("modules_seen", [])
+
+	# Helper closure — append a section header + key/value rows.
+	var add_section: Callable = func(title_s: String, rows: Array):
+		content.add_child(_build_stats_section_header(title_s))
+		for r in rows:
+			content.add_child(_build_stats_row(r[0], r[1]))
+
+	add_section.call("RUNS", [
+		["Total runs",      "%d" % runs],
+		["Wins",            "%d" % wins],
+		["Win rate",        win_rate_str],
+		["Furthest round",  "%d" % int(lt.get("best_round", 0))],
+	])
+	add_section.call("CHAINS", [
+		["Longest chain",   "%d tiles" % int(lt.get("longest_chain", 0))],
+		["Best tier",       best_tier_str],
+	])
+	add_section.call("PLAY", [
+		["Hands played",    "%d" % int(lt.get("hands_played", 0))],
+		["Doubles played",  "%d" % int(lt.get("doubles_played", 0))],
+		["Total Chronos",   "%d" % int(lt.get("chronos", 0))],
+	])
+	add_section.call("PROGRESSION", [
+		["Achievements",    "%d / %d" % [ach_earned, ach_total]],
+		["Modules seen",    "%d" % modules_seen.size()],
+	])
+	add_section.call("DAILY TRIAL", [
+		["Attempts",        "%d" % int(daily.get("attempts", 0))],
+		["Wins",            "%d" % int(daily.get("wins", 0))],
+		["Current streak",  "%d days" % streak],
+	])
+
+func _build_stats_section_header(text: String) -> Control:
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 8)
+	var lbl := _make_label(text, C_CHRONOS, 13)
+	FontManager.apply_mono(lbl)
+	hbox.add_child(lbl)
+	var line := ColorRect.new()
+	line.color = C_CHRONOS.darkened(0.5)
+	line.custom_minimum_size = Vector2(0, 1)
+	line.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	line.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	hbox.add_child(line)
+	return hbox
+
+func _build_stats_row(key: String, value: String) -> Control:
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 8)
+
+	var k := _make_label(key, C_DIM, 12)
+	k.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hbox.add_child(k)
+
+	var v := _make_label(value, C_TEXT, 13)
+	FontManager.apply_mono(v)
+	v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	v.custom_minimum_size = Vector2(180, 0)
+	hbox.add_child(v)
+
+	return hbox
 
 ## Update the Daily Trial button label and enabled state. Called from
 ## _show_title and from anywhere that might transition back to the title.
@@ -4592,6 +4761,22 @@ func _build_title_overlay() -> Control:
 	as_hov.bg_color = Color(0.20, 0.15, 0.08)
 	_btn_achievements.add_theme_stylebox_override("hover", as_hov)
 	btn_row.add_child(_btn_achievements)
+
+	# Lifetime stats viewer — green-styled to match the chronos accent
+	# of the stats overlay border.
+	_btn_stats = _make_button("📊",
+		_on_stats_pressed, Vector2(54, 54))
+	var st_style := StyleBoxFlat.new()
+	st_style.bg_color     = Color(0.06, 0.13, 0.10)
+	st_style.border_color = C_CHRONOS.darkened(0.2)
+	st_style.set_border_width_all(2)
+	st_style.set_corner_radius_all(6)
+	st_style.set_content_margin_all(10)
+	_btn_stats.add_theme_stylebox_override("normal", st_style)
+	var st_hov := st_style.duplicate() as StyleBoxFlat
+	st_hov.bg_color = Color(0.08, 0.18, 0.13)
+	_btn_stats.add_theme_stylebox_override("hover", st_hov)
+	btn_row.add_child(_btn_stats)
 
 	# "Continue Run" — hidden until SaveManager confirms a mid-run save exists
 	_btn_continue_run = _make_button(
