@@ -21,6 +21,8 @@ var total_chronos:   int = 0   # cumulative Chronos across all rounds
 var best_hand:       int = 0   # highest single-hand Chronos this run
 var hands_played:    int = 0   # total hands played this run
 var doubles_played:  int = 0   # total doubles placed this run (for contracts)
+var longest_chain:   int = 0   # max chain length reached in any round this run
+var best_tier:       int = -1  # max tier index reached in any round this run (-1 = none)
 
 # ---------------------------------------------------------------------------
 # Run initialisation
@@ -42,6 +44,8 @@ func start_run(p_core: int = 0, p_protocol: int = 0,
 	best_hand           = 0
 	hands_played        = 0
 	doubles_played      = 0
+	longest_chain       = 0
+	best_tier           = -1
 	# Protocol starting bonus
 	monedas += Constants.PROTOCOL_BONUS_MONEDAS[p_protocol]
 

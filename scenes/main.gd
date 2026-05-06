@@ -730,6 +730,14 @@ func _on_hand_scored(result: Dictionary) -> void:
 	_lbl_last_hand.text = "%d chips  ×  %d  =  %d Chronos" % [
 		result["chips"], result["mult"], result["total"]]
 	GameState.record_hand(delta_total, result.get("doubles", 0))
+	# Track per-run maxima for the run-end recap and lifetime stats.
+	if new_length > GameState.longest_chain:
+		GameState.longest_chain = new_length
+	for ti in range(Constants.CHAIN_TIER_MIN.size() - 1, -1, -1):
+		if new_length >= Constants.CHAIN_TIER_MIN[ti]:
+			if ti > GameState.best_tier:
+				GameState.best_tier = ti
+			break
 	var dir_bonus: int = _dm.check_play(result)
 	if dir_bonus > 0:
 		GameState.monedas += dir_bonus
@@ -904,9 +912,45 @@ func _on_play_pressed() -> void:
 func _on_discard_pressed() -> void:
 	if _phase == Phase.PLAYING and not _scoring_active \
 			and not _selected_tiles.is_empty() and _rm.can_discard():
+		# Snapshot the hand BEFORE the discard so we can identify which
+		# tiles are genuinely new (drawn replacements) vs. which were
+		# already in hand. Targeted re-draw promotes fitting tiles to the
+		# top of the draw pile, but the player can't tell unless we point
+		# at the new arrivals after the swap.
+		var pre_hand: Array = _rm.hand.duplicate()
 		AudioManager.play_sfx("discard")
 		_rm.discard(_selected_tiles)
 		_selected_tiles.clear()
+		# After the swap, briefly highlight any newly-drawn tiles that fit
+		# the chain. Fires on the next frame so _rebuild_hand has run.
+		call_deferred("_flash_fitting_redraws", pre_hand)
+
+## Pulse any hand tile that (a) is new since `pre_hand` and (b) currently
+## fits the persistent chain's open ends. Reveals the targeted-re-draw
+## mechanic that was previously invisible.
+func _flash_fitting_redraws(pre_hand: Array) -> void:
+	if _rm == null or _rm.current_chain == null or _rm.current_chain.is_empty():
+		return
+	for i in range(_rm.hand.size()):
+		if i >= _tile_btns.size():
+			break
+		var tile: Domino = _rm.hand[i]
+		# Was this exact tile object already in pre_hand? RefCounted
+		# identity check is fine — discard removes by index, draw appends
+		# fresh references.
+		if tile in pre_hand:
+			continue
+		if not _rm.current_chain.can_add(tile):
+			continue
+		var btn: Button = _tile_btns[i]
+		if btn == null or not is_instance_valid(btn):
+			continue
+		btn.pivot_offset = btn.size * 0.5
+		var t := create_tween().set_parallel(true)
+		t.tween_property(btn, "modulate", Color(1.5, 1.4, 1.0), 0.18) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+		t.tween_property(btn, "modulate", Color.WHITE, 0.32) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN).set_delay(0.18)
 
 func _on_undo_pressed() -> void:
 	if _phase != Phase.PLAYING or _scoring_active:
@@ -1342,6 +1386,18 @@ func _show_run_end(victory: bool) -> void:
 		GameState.total_chronos,
 		GameState.modules.size()
 	)
+	# Lifetime stats — accumulated across every run, win or loss. Powers
+	# the Run Stats block below (and any future achievement system).
+	SaveManager.accumulate_run_stats({
+		"won":            victory,
+		"total_chronos":  GameState.total_chronos,
+		"hands_played":   GameState.hands_played,
+		"doubles_played": GameState.doubles_played,
+		"longest_chain":  GameState.longest_chain,
+		"best_tier":      GameState.best_tier,
+		"round_reached":  GameState.round_index,
+		"module_ids":     GameState.modules.map(func(m): return m.id),
+	})
 	SaveManager.clear_run()
 	# Music cue
 	AudioManager.play_music("menu_theme")
@@ -1382,17 +1438,34 @@ func _show_run_end(victory: bool) -> void:
 
 	var rounds_done: int  = GameState.round_index
 	var total_rounds: int = GameState.total_rounds()
+	var best_tier_str: String = "—"
+	if GameState.best_tier >= 0 and GameState.best_tier < Constants.CHAIN_TIER_NAMES.size():
+		best_tier_str = Constants.CHAIN_TIER_NAMES[GameState.best_tier]
 	var stat_lines: Array = [
 		["Rounds completed",  "%d / %d" % [rounds_done, total_rounds]],
 		["Total Chronos",     "%d"       % GameState.total_chronos],
+		["Longest chain",     "%d tiles  (%s)" % [GameState.longest_chain, best_tier_str]],
 		["Best single Pulse", "%d"       % GameState.best_hand],
 		["Hands played",      "%d"       % GameState.hands_played],
+		["Doubles played",    "%d"       % GameState.doubles_played],
 		["Core",              Constants.CORE_NAMES[GameState.chosen_core]],
 		["Protocol",          Constants.PROTOCOL_NAMES[GameState.chosen_protocol]],
 	]
 	if not GameState.modules.is_empty():
 		var names: Array = GameState.modules.map(func(m): return m.display_name)
 		stat_lines.append(["Modules", ", ".join(names)])
+
+	# Lifetime stats divider + cumulative-across-runs lines. Gives the
+	# loss/victory motivation by showing context: "this run vs all my runs".
+	var lt: Dictionary = SaveManager.get_lifetime_stats()
+	var lt_best_tier: String = "—"
+	if int(lt["best_tier"]) >= 0 and int(lt["best_tier"]) < Constants.CHAIN_TIER_NAMES.size():
+		lt_best_tier = Constants.CHAIN_TIER_NAMES[int(lt["best_tier"])]
+	stat_lines.append(["─── LIFETIME ───", ""])
+	stat_lines.append(["Total runs",    "%d (%d won)" % [lt["runs"], lt["wins"]]])
+	stat_lines.append(["Total Chronos", "%d" % lt["chronos"]])
+	stat_lines.append(["Longest chain", "%d tiles  (%s)" % [lt["longest_chain"], lt_best_tier]])
+	stat_lines.append(["Furthest round", "%d" % lt["best_round"]])
 
 	var stat_labels: Array = []
 	for pair in stat_lines:
@@ -1605,7 +1678,19 @@ func _build_shop_item_card(entry: Dictionary) -> Control:
 	# Module icon — 64×64, loads from assets/modules/{id}.png or shows placeholder
 	vbox.add_child(_build_item_icon(m.icon_path, m.display_name, C_RARITY[m.rarity], Vector2(64, 64)))
 
-	vbox.add_child(_make_label(Constants.RARITY_NAMES[m.rarity].to_upper(), C_RARITY[m.rarity], 11))
+	# Rarity + archetype tag row. Archetype lets the player see at a glance
+	# what build the module slots into (DOUBLES, LONG-CHAIN, ECONOMY, etc.)
+	# and why the shop is offering it — synergies are no longer invisible.
+	var tag_row := HBoxContainer.new()
+	tag_row.add_theme_constant_override("separation", 8)
+	tag_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	tag_row.add_child(_make_label(Constants.RARITY_NAMES[m.rarity].to_upper(),
+		C_RARITY[m.rarity], 11))
+	var arch_name: String = _archetype_label(m.archetype())
+	if arch_name != "":
+		tag_row.add_child(_make_label("·", C_DIM, 11))
+		tag_row.add_child(_make_label(arch_name, _archetype_color(m.archetype()), 11))
+	vbox.add_child(tag_row)
 	vbox.add_child(_make_label(m.display_name, C_TEXT, 18))
 
 	var desc_lbl := _make_label(m.description, C_PREVIEW, 13)
@@ -1738,6 +1823,49 @@ func _refresh_hud() -> void:
 
 ## Build a preview Chain from the current selection (in click order).
 ## Stops at the first tile that fails to connect — partial chains are valid previews.
+## Display name for a module archetype. GENERIC returns "" so it doesn't
+## clutter the shop card with a redundant tag (FLAT_MULT etc. fit anything).
+func _archetype_label(a: int) -> String:
+	match a:
+		Module.Archetype.DOUBLES:    return "DOUBLES"
+		Module.Archetype.LONG_CHAIN: return "LONG-CHAIN"
+		Module.Archetype.HIGH_PIP:   return "HIGH-PIP"
+		Module.Archetype.BLANKS:     return "BLANKS"
+		Module.Archetype.SACRIFICE:  return "SACRIFICE"
+		Module.Archetype.ECONOMY:    return "ECONOMY"
+		Module.Archetype.UTILITY:    return "UTILITY"
+		_: return ""
+
+## Color tag for archetype. Gives each build identity a distinct hue so
+## a deck-heavy shop card visually clusters by colour.
+func _archetype_color(a: int) -> Color:
+	match a:
+		Module.Archetype.DOUBLES:    return C_MONEDAS
+		Module.Archetype.LONG_CHAIN: return C_CHRONOS
+		Module.Archetype.HIGH_PIP:   return Color(0.95, 0.58, 0.20)
+		Module.Archetype.BLANKS:     return Color(0.85, 0.85, 0.95)
+		Module.Archetype.SACRIFICE:  return Color(0.95, 0.40, 0.40)
+		Module.Archetype.ECONOMY:    return C_MONEDAS.lerp(Color.WHITE, 0.25)
+		Module.Archetype.UTILITY:    return Color(0.55, 0.85, 0.95)
+		_: return C_DIM
+
+## Render the chain's open ends as a compact string for the info bar.
+## Includes left_end, right_end, and any branching `extra_ends` so the
+## player can see *all* the pip values they could connect a tile to —
+## including the extra ends spawned by previously-placed doubles.
+## "★" represents a wild end. Empty string if the chain has no tiles yet.
+func _format_open_ends(c: Chain) -> String:
+	if c == null or c.is_empty():
+		return ""
+	var values: Array = []
+	if c.left_end != Chain.EMPTY:
+		values.append("★" if c.left_end == Chain.WILD else str(c.left_end))
+	if c.right_end != Chain.EMPTY and c.right_end != c.left_end:
+		values.append("★" if c.right_end == Chain.WILD else str(c.right_end))
+	for v in c.extra_ends:
+		values.append("★" if v == Chain.WILD else str(v))
+	return ", ".join(values)
+
 ## Builds the chain that would result from playing the current selection
 ## on top of the persistent chain. Used for both visual rendering and
 ## live score projection. The committed portion is seeded first so the
@@ -1788,7 +1916,12 @@ func _refresh_chain_display() -> void:
 		_update_chronos_ghost(maxi(0, delta_proj))
 		# Chain info bar update
 		if _chain_info_lbl != null:
-			_chain_info_lbl.text = "CADENA: %d" % preview.length()
+			# CADENA: <length>   ↔ <open ends with extras from doubles>
+			var ends_str: String = _format_open_ends(preview)
+			if ends_str.is_empty():
+				_chain_info_lbl.text = "CADENA: %d" % preview.length()
+			else:
+				_chain_info_lbl.text = "CADENA: %d   ↔ %s" % [preview.length(), ends_str]
 		if _chain_bonus_lbl != null:
 			_chain_bonus_lbl.text = "+%d" % r["total"]
 	else:
@@ -4484,6 +4617,7 @@ func _run_scoring_sequence(overlay_infos: Array, result: Dictionary,
 		var chips_so_far: int     = cum_chips[ti]   # captured fresh per iteration ✓
 
 		# Step 1 — tile brightens and pops up in place (no duplicate overlay).
+		# Doubles also fire a connection spark to signal "branch end created".
 		seq.tween_callback(func():
 			if panel == null or not is_instance_valid(panel):
 				return
@@ -4493,6 +4627,8 @@ func _run_scoring_sequence(overlay_infos: Array, result: Dictionary,
 				.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 			pulse.tween_property(panel, "scale", Vector2(1.18, 1.18), 0.12) \
 				.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+			if is_dbl:
+				_do_chain_spark(center, C_MONEDAS)
 		)
 		seq.tween_interval(0.10)
 
@@ -5166,25 +5302,25 @@ func _tutorial_steps() -> Array[Dictionary]:
 	})
 	steps.append({
 		"title": "Building the Chain",
-		"body":  "Selected tiles form a Cohesion Pulse.\nTiles connect when a pip value matches\nthe open end of the chain.",
+		"body":  "Selected tiles form a Cohesion Pulse.\nTiles connect when a pip value matches\nan open end of the chain.\nYour chain PERSISTS across all hands\nin this round — keep extending it.",
 		"target": func() -> Control: return _chain_container,
 		"side":  "below",
 	})
 	steps.append({
 		"title": "Score Preview",
-		"body":  "See your Chronos before committing.\nChips × Mult = total score.\nLonger chains earn bonus Multiplier.",
+		"body":  "Chips × Mult = score, applied to the\nFULL chain after each placement.\nLonger chains unlock tier bonuses\n(Pulse, Cohesion, Resonance, …).",
 		"target": func() -> Control: return _lbl_preview_total,
 		"side":  "above",
 	})
 	steps.append({
-		"title": "Play Your Chain",
-		"body":  "Press PLAY to score your chain\nand add Chronos to this round.\nYou have a limited number of plays.",
+		"title": "Play Your Tiles",
+		"body":  "Press PLAY to add the selected tiles\nto your chain. The chain stays on the\ntable for the rest of the round —\nstop only when you Stand or run out.",
 		"target": func() -> Control: return _btn_play,
 		"side":  "above",
 	})
 	steps.append({
 		"title": "The Chronos Target",
-		"body":  "Reach the target Chronos to clear\nthe round and visit the shop.\nRun out of plays and the run ends.",
+		"body":  "Reach the target Chronos to clear\nthe round. Once the bar is full, a\nSTAND button appears — lock in or\nkeep extending for tier bonuses.",
 		"target": func() -> Control: return _chronos_bar,
 		"side":  "below",
 	})

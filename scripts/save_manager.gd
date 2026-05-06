@@ -136,6 +136,50 @@ func get_best_run(difficulty: int) -> Dictionary:
 	return _data.get("best_%d" % difficulty, {})
 
 # ---------------------------------------------------------------------------
+# Lifetime stats (persistent across all runs)
+# ---------------------------------------------------------------------------
+
+## Update cumulative-across-all-runs stats. Called from the run-end recap
+## with the metrics from the run that just finished. Each new run only
+## ever increases the stored maxima.
+func accumulate_run_stats(stats: Dictionary) -> void:
+	var s: Dictionary = _data.get("lifetime_stats", {})
+	s["runs"]            = s.get("runs",            0) + 1
+	if stats.get("won", false):
+		s["wins"]        = s.get("wins",            0) + 1
+	s["chronos"]         = s.get("chronos",         0) + int(stats.get("total_chronos", 0))
+	s["hands_played"]    = s.get("hands_played",    0) + int(stats.get("hands_played", 0))
+	s["doubles_played"]  = s.get("doubles_played",  0) + int(stats.get("doubles_played", 0))
+	s["longest_chain"]   = maxi(s.get("longest_chain", 0), int(stats.get("longest_chain", 0)))
+	s["best_tier"]       = maxi(s.get("best_tier",     -1), int(stats.get("best_tier", -1)))
+	s["best_round"]      = maxi(s.get("best_round",    0), int(stats.get("round_reached", 0)))
+	# Track unique modules ever collected — useful for "you've seen N of M
+	# modules" style achievements down the line.
+	var seen: Array = s.get("modules_seen", [])
+	for mid in stats.get("module_ids", []):
+		if mid not in seen:
+			seen.append(mid)
+	s["modules_seen"] = seen
+	_data["lifetime_stats"] = s
+	_save_to_disk()
+
+## Returns lifetime stats dict. Always has the standard keys (defaulted to
+## 0 if the player has never finished a run).
+func get_lifetime_stats() -> Dictionary:
+	var s: Dictionary = _data.get("lifetime_stats", {})
+	return {
+		"runs":           s.get("runs",            0),
+		"wins":           s.get("wins",            0),
+		"chronos":        s.get("chronos",         0),
+		"hands_played":   s.get("hands_played",    0),
+		"doubles_played": s.get("doubles_played",  0),
+		"longest_chain":  s.get("longest_chain",   0),
+		"best_tier":      s.get("best_tier",      -1),
+		"best_round":     s.get("best_round",      0),
+		"modules_seen":   s.get("modules_seen",   []),
+	}
+
+# ---------------------------------------------------------------------------
 # Tutorial flag
 # ---------------------------------------------------------------------------
 func set_tutorial_seen(b: bool) -> void:
