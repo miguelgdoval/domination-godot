@@ -326,6 +326,10 @@ var _usables_hbox:        HBoxContainer
 var _lbl_tile_box_count:  Label
 var _chain_info_lbl:      Label
 var _chain_bonus_lbl:     Label
+## Persistent boss-effect reminder shown in the chain info pill during
+## boss rounds with non-stat effects. Hidden on normal / stat-cut bosses
+## since the cinematic + stat changes are warning enough there.
+var _boss_effect_lbl:     Label
 
 # ===========================================================================
 # Lifecycle
@@ -563,6 +567,7 @@ func _begin_round_play() -> void:
 	_refresh_chain_display()
 	_refresh_directives()
 	_refresh_module_rack()
+	_refresh_boss_effect_lbl()
 	_start_ambient_effects(GameState.current_etapa())
 	# Tutorial: show on the very first round of a brand-new run
 	if GameState.round_index == 0 and not SaveManager.is_tutorial_seen():
@@ -585,6 +590,10 @@ func _end_round(won: bool) -> void:
 	else:
 		_show_run_end(false)
 		return
+	# Snapshot run state the moment the round is banked. If the player
+	# crashes during the shop phase or in the boss-warning cinematic
+	# they keep the round-clear (monedas + advanced index).
+	SaveManager.save_run()
 	_result_overlay.show()
 
 ## Compose the round-summary text shown in the result overlay. Pulls the
@@ -1317,6 +1326,9 @@ func _on_buy_pressed(entry: Dictionary) -> void:
 	GameState.add_module(m)
 	AudioManager.play_sfx("module_equip")
 	_shop_bought.append(m.id)
+	# Auto-save after every purchase so a mid-shop crash doesn't lose the
+	# upgrade. Save is cheap (single JSON write) and idempotent.
+	SaveManager.save_run()
 	_populate_shop()
 
 func _on_sell_pressed(m: Module) -> void:
@@ -1333,6 +1345,7 @@ func _on_buy_tile_pressed(index: int) -> void:
 	var t: Domino = entry["tile"]
 	GameState.box.add_tile(Domino.new(t.left, t.right, t.rarity, t.is_wild))
 	_tile_offers_bought.append(index)
+	SaveManager.save_run()
 	_populate_shop()
 
 func _on_toggle_removal(index: int) -> void:
@@ -1835,6 +1848,27 @@ func _refresh_hud() -> void:
 
 ## Build a preview Chain from the current selection (in click order).
 ## Stops at the first tile that fails to connect — partial chains are valid previews.
+## Update the persistent boss-effect reminder label that sits in the chain
+## info pill during boss rounds. Hidden on normal rounds and on plain
+## STAT_CUT bosses (the cinematic + visible hand/discard cuts already
+## carry that warning). Special-effect bosses get a "⚠ NAME" stamp.
+func _refresh_boss_effect_lbl() -> void:
+	if _boss_effect_lbl == null:
+		return
+	if not GameState.is_boss_round():
+		_boss_effect_lbl.visible = false
+		return
+	var effect: int = GameState.active_boss_effect()
+	if effect == Constants.BossEffect.STAT_CUT:
+		_boss_effect_lbl.visible = false
+		return
+	var etapa: int = GameState.current_etapa()
+	if etapa < 0 or etapa >= Constants.BOSS_NAMES.size():
+		_boss_effect_lbl.visible = false
+		return
+	_boss_effect_lbl.text = "⚠  %s" % Constants.BOSS_NAMES[etapa]
+	_boss_effect_lbl.visible = true
+
 ## Compare lifetime stats before/after accumulating this run's data and
 ## return a list of cores/protocols that just crossed their unlock gates.
 ## Each entry: { "kind": "Core" | "Protocol", "name": "<display name>" }.
@@ -3013,6 +3047,13 @@ func _build_chain_info_bar() -> Control:
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hbox.add_child(spacer)
+
+	# Boss-effect reminder — populated each round in _refresh_boss_effect_lbl,
+	# visible only when a special-effect boss is active.
+	_boss_effect_lbl = _make_label("", C_LOSE, 11)
+	_boss_effect_lbl.visible = false
+	FontManager.apply_mono(_boss_effect_lbl)
+	hbox.add_child(_boss_effect_lbl)
 
 	_chain_bonus_lbl = _make_label("", C_CHRONOS, 14)
 	FontManager.apply_mono(_chain_bonus_lbl)

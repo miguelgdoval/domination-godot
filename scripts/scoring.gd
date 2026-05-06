@@ -37,12 +37,22 @@ static func calculate(chain: Chain, modules: Array = []) -> Dictionary:
 			Module.EffectType.BLANK_TO_CHIPS:
 				blank_pip_value = maxi(blank_pip_value, m.effect_value)
 
+	# Boss override: MIRROR_DECAY inverts each pip's chip contribution so
+	# that a 9 scores as 0 and a 0 scores as 9. The sacrifice / doubles /
+	# module hooks all read the REAL pip values — only the raw chip total
+	# coming off each tile is mirrored. Punishes the high-pip stacks that
+	# usually win, rewards low-pip / blank-heavy chains for one round.
+	var mirror_decay: bool = (GameState.active_boss_effect()
+		== Constants.BossEffect.MIRROR_DECAY)
+
 	# --- Chip accumulation ---
 	for tile in chain.tiles:
 		var pips: int = tile.total_pips()
+		var chip_pips: int = (18 - pips) if mirror_decay and not tile.is_wild else pips
 
 		# LOW_PIP_TO_MULT (sacrifice): non-wild tiles with pips ≤ threshold contribute
 		# 0 chips and instead grant mult. Each qualifying spec adds its own mult bonus.
+		# Read REAL pips (not mirrored) so the player's strategy stays predictable.
 		if not tile.is_wild and not sacrifice_specs.is_empty():
 			var sacrificed: bool = false
 			for spec in sacrifice_specs:
@@ -55,15 +65,18 @@ static func calculate(chain: Chain, modules: Array = []) -> Dictionary:
 		# double_weight: -1 = auto (1 if double, 0 otherwise), else explicit
 		var dw: int = tile.double_weight if tile.double_weight >= 0 \
 			else (1 if tile.is_double() else 0)
-		if dw > 0:
+		if tile.is_wild:
+			# Wilds always pull base chip weight now (used to score 0 without
+			# a WILD_PIP_VALUE module). The module still upgrades them above
+			# the base, so it remains a strict improvement.
+			chips += maxi(Constants.WILD_BASE_CHIPS, wild_pip_chips)
+			if dw > 0:
+				doubles += dw
+		elif dw > 0:
 			doubles += dw
-			if tile.is_wild and wild_pip_chips > 0:
-				# Wild tile with WILD_PIP_VALUE: score face-value chips instead of 0
-				chips += wild_pip_chips
-			else:
-				chips += pips * double_pip_mult
+			chips += chip_pips * double_pip_mult
 		else:
-			chips += pips
+			chips += chip_pips
 		chips += tile.bonus_chips
 
 		# BLANK_TO_CHIPS: each 0-pip face on a non-wild tile adds flat chips

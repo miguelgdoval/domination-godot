@@ -176,6 +176,12 @@ const DOUBLE_MULT_BONUS:    int = 1   # each double  → +1 mult
 ## outscale every other build under the persistent-chain mechanic.
 const DOUBLES_FULL_THRESHOLD: int = 5
 
+## Default chip contribution for a Wild tile per scored placement. Used to
+## be 0 (wilds were tax tiles unless a WILD_PIP_VALUE module saved them);
+## now they always pull their weight at base 10 chips, and modules still
+## upgrade them above that. Roughly equivalent to a 5|5 tile.
+const WILD_BASE_CHIPS: int = 10
+
 # ---------------------------------------------------------------------------
 # Economy
 # ---------------------------------------------------------------------------
@@ -241,28 +247,29 @@ func score_target(round_index: int) -> int:
 # ---------------------------------------------------------------------------
 const BOSS_NAMES: Array[String] = [
 	"FREQUENCY DRAIN",
-	"SIGNAL DECAY",
+	"MIRROR DECAY",
 	"RESONANCE INVERSION",
 	"TOTAL ENTROPY",
 ]
 const BOSS_DESCS: Array[String] = [
 	"Your Isolation Chamber is compressed.\nHand size –1 for this round.",
-	"Discharge relays compromised.\nMaximum discards –1 for this round.",
+	"Pip values mirror across the threshold.\nEach pip scores as (9 – pip).\nLow tiles are now your strongest.",
 	"Self-referential flows have inverted polarity.\nEach double SUBTRACTS from your multiplier\ninstead of adding to it.",
 	"All systems failing at once.\nHand –1, plays –1, discards –1.",
 ]
-## Persistent-chain rebalance + boss-variety pass:
-##   • Boss 1 / Boss 2 stay as stat-cuts — fine framing for early rounds.
-##   • Boss 3 was a stat-cut (hand & plays); now it's RESONANCE_INVERSION.
-##     Doubles flip sign in the mult math, so the doubles-stack build that
-##     dominates the rest of the run becomes a liability. Player must
-##     pivot to long low-pip chains for this one round. No stat cuts.
-##   • Boss 4 still stacks all three stat pressures.
+## Boss arc:
+##   • Boss 1 — STAT_CUT. The gentle intro: small hand, normal everything.
+##   • Boss 2 — MIRROR_DECAY. Pip-chip contribution inverted. The doubles
+##     and high-pip stacks the player has been building suddenly underperform;
+##     low-pip tiles (especially blanks) become valuable.
+##   • Boss 3 — RESONANCE_INVERSION. Doubles flip sign in the mult math,
+##     so the doubles-stack build becomes a liability for one round.
+##   • Boss 4 — STAT_CUT compound; the pure-attrition rush.
 ##
 ## Delta applied to hand_size on boss rounds.
 const BOSS_HAND_DELTA:    Array[int] = [-1,  0,  0, -1]
 ## Delta applied to max_discards on boss rounds (clamped to min 0).
-const BOSS_DISCARD_DELTA: Array[int] = [ 0, -1,  0, -1]
+const BOSS_DISCARD_DELTA: Array[int] = [ 0,  0,  0, -1]
 ## Delta applied to max_hands on boss rounds (clamped to min 1).
 const BOSS_HANDS_DELTA:   Array[int] = [ 0,  0,  0, -1]
 
@@ -271,11 +278,12 @@ const BOSS_HANDS_DELTA:   Array[int] = [ 0,  0,  0, -1]
 ## special effects need scoring or display logic to honour them.
 enum BossEffect {
 	STAT_CUT,            # No special hook; uses the stat deltas only.
+	MIRROR_DECAY,        # Each pip's chip contribution is (9 - pip).
 	RESONANCE_INVERSION, # Doubles count NEGATIVELY toward mult.
 }
 const BOSS_EFFECT_TYPE: Array[int] = [
 	BossEffect.STAT_CUT,
-	BossEffect.STAT_CUT,
+	BossEffect.MIRROR_DECAY,
 	BossEffect.RESONANCE_INVERSION,
 	BossEffect.STAT_CUT,
 ]
