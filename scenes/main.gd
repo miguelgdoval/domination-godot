@@ -170,6 +170,11 @@ var _chain_branches_row: HBoxContainer
 var _lbl_preview:          Label   # equation line: "N chips × M"
 var _lbl_preview_total:    Label   # big total line: "= TOTAL" (dominant)
 var _chain_milestone_row:  HBoxContainer   # visual dot-progress bar for chain bonuses
+## Big tier-name banner above the milestone row. Shows the active tier
+## (e.g. "RESONANCE  +4 MULT") so the player can read their bonus level
+## at a glance without parsing the segment-bar colours. Empty when the
+## chain is below Pulse (length 1-3 = Fragment, no bonus).
+var _lbl_active_tier:      Label
 ## Highest tier index reached so far in the current round (-1 = none).
 ## Used to detect tier crossings and fire a celebration animation.
 var _last_tier_reached: int = -1
@@ -3454,6 +3459,13 @@ func _build_table_area() -> Control:
 	FontManager.apply_mono(_lbl_preview_total)
 	vbox.add_child(_lbl_preview_total)
 
+	# Active-tier banner — large readable label above the segment bar so
+	# the player can see their current bonus level without parsing colours.
+	_lbl_active_tier = _make_label("", C_DIM, 14)
+	_lbl_active_tier.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	FontManager.apply_mono(_lbl_active_tier)
+	vbox.add_child(_lbl_active_tier)
+
 	# Chain-length milestone — dot row: ● ● ● ● ┊+1 ○ ○ ○ ┊+2 ○
 	_chain_milestone_row = HBoxContainer.new()
 	_chain_milestone_row.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -4933,6 +4945,24 @@ func _refresh_chain_milestone(length: int) -> void:
 	if current_idx > _last_tier_reached and current_idx > 0 and current_segment != null:
 		_last_tier_reached = current_idx
 		_celebrate_tier_segment(current_segment, tiers[current_idx])
+
+	# Update the active-tier banner above the segment bar. Empty string
+	# (rather than "FRAGMENT") for chains below Pulse so the banner only
+	# appears once a tier bonus is actually live.
+	if _lbl_active_tier != null:
+		if current_idx <= 0 or length <= 0:
+			_lbl_active_tier.text = ""
+		else:
+			var tier: Dictionary = tiers[current_idx]
+			_lbl_active_tier.text = "%s   +%d MULT" % [tier["name"], tier["bonus"]]
+			# Tier index 1..5 map to Pulse / Cohesion / Resonance / Harmonic /
+			# Singularity — graduate the colour from chronos green to gold to
+			# the win/celebration tone as the tier climbs.
+			var tier_colors: Array = [C_DIM, C_CHRONOS, C_CHRONOS.lerp(C_WIN, 0.3),
+				C_MONEDAS, C_MONEDAS.lerp(C_TITLE_GLOW, 0.4), C_TITLE_GLOW]
+			var ci: int = clampi(current_idx, 0, tier_colors.size() - 1)
+			_lbl_active_tier.add_theme_color_override("font_color",
+				tier_colors[ci])
 
 ## Plays a celebration on the just-crossed tier segment: the segment scales
 ## up with a back-ease, flashes bright, and pops a "+N MULT" label above it.
