@@ -832,6 +832,64 @@ func _build_achievement_card(a: Dictionary, earned: bool) -> Control:
 
 	return panel
 
+## Etapa vignette — a brief atmospheric overlay shown the FIRST round
+## a player enters a new chamber of the Chronometer. Darkened backdrop
+## with one evocative line in the etapa's accent colour, fades in and
+## out over ~3 seconds. Fires only on round_index 5 / 10 / 15 (the
+## transition rounds).
+##
+## Entry-of-Etapa lines, indexed by etapa (0=Mahogany start, 1-3 =
+## transitions). Etapa 0 has no transition vignette — the player is
+## arriving for the first time, the title screen + tutorial + Archiver
+## already greet them.
+const ETAPA_VIGNETTE_LINES: Array[String] = [
+	"",   # Etapa 0 — no transition (you start here)
+	"The mahogany gives way to steam. The brass is dripping.",
+	"The temperature drops. The Machine breathes slower here.",
+	"You are inside the Archive now. It is inside you.",
+]
+
+func _show_etapa_vignette(etapa: int) -> void:
+	if etapa <= 0 or etapa >= ETAPA_VIGNETTE_LINES.size():
+		return
+	var line: String = ETAPA_VIGNETTE_LINES[etapa]
+	if line.is_empty():
+		return
+
+	# Build a one-shot overlay each fire — quick to construct, cheap to
+	# free. Using a fresh node avoids state leaking across vignettes.
+	var overlay := ColorRect.new()
+	overlay.color = Color(0, 0, 0, 0.0)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ui_layer.add_child(overlay)
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(center)
+
+	var accent: Color = Constants.ETAPA_ACCENT[clampi(etapa, 0, 3)]
+	var lbl := _make_label(line, accent, 22)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.modulate.a = 0.0
+	FontManager.apply_mono(lbl)
+	center.add_child(lbl)
+
+	# Fade dark backdrop in, then text, hold, then fade everything out.
+	var seq := create_tween()
+	seq.tween_property(overlay, "color:a", 0.78, 0.45) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	seq.parallel().tween_property(lbl, "modulate:a", 1.0, 0.55) \
+		.set_delay(0.12) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	seq.tween_interval(2.0)
+	seq.tween_property(lbl, "modulate:a", 0.0, 0.55) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	seq.parallel().tween_property(overlay, "color:a", 0.0, 0.55) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	seq.tween_callback(overlay.queue_free)
+
 ## Archiver transmission strip. A thin, semi-transparent banner that
 ## fades in near the top of the viewport, holds for a few seconds, then
 ## fades out — used to surface a single line of Archiver dialogue at
@@ -1708,20 +1766,34 @@ func _begin_round_play() -> void:
 	_refresh_module_rack()
 	_refresh_boss_effect_lbl()
 	_start_ambient_effects(GameState.current_etapa())
+	# Etapa vignette — fires once when the player enters a new chamber
+	# of the Chronometer (round_index 5 / 10 / 15 = first round of
+	# Etapas II / III / IV). Played BEFORE the Archiver transmission so
+	# the vignette lands first, then the Archiver speaks once it's gone.
+	var entering_new_etapa: bool = (GameState.round_index == 5
+		or GameState.round_index == 10
+		or GameState.round_index == 15)
+	if entering_new_etapa:
+		get_tree().create_timer(0.40).timeout.connect(
+			_show_etapa_vignette.bind(GameState.current_etapa()),
+			CONNECT_ONE_SHOT)
+
 	# Tutorial: show on the very first round of a brand-new run
 	if GameState.round_index == 0 and not SaveManager.is_tutorial_seen():
 		get_tree().create_timer(0.55).timeout.connect(_start_tutorial, CONNECT_ONE_SHOT)
 	# Archiver transmission. Skipped on boss rounds (the cinematic + the
 	# persistent ⚠ label already speak for the boss), and on the first
-	# round of a brand-new run while the tutorial is firing.
+	# round of a brand-new run while the tutorial is firing. When entering
+	# a new etapa, delay enough that the vignette plays out first.
 	elif not GameState.is_boss_round():
 		var lifetime: Dictionary = SaveManager.get_lifetime_stats()
 		var line: String = Archiver.line_for_round(
 			GameState.round_index, lifetime)
 		if not line.is_empty():
-			# Brief delay so the line lands AFTER the round UI has
-			# settled, not on top of the etapa-theme transition.
-			get_tree().create_timer(0.65).timeout.connect(
+			# 0.65s default delay; longer when stacked behind a vignette
+			# (vignette ~3s total, so wait it out).
+			var delay: float = 3.6 if entering_new_etapa else 0.65
+			get_tree().create_timer(delay).timeout.connect(
 				_show_transmission.bind(line), CONNECT_ONE_SHOT)
 
 func _end_round(won: bool) -> void:
