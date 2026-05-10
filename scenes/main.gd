@@ -336,6 +336,12 @@ var _help_overlay:         Control  # built lazily on first open
 var _btn_codex:            Button   # opens the Codex (lore archive)
 var _codex_overlay:        Control  # built lazily on first open
 var _codex_active_cat:     int = 0  # currently-selected category tab
+## Archiver transmission strip — thin overlay near the top of the
+## viewport that fades in with a single line from the Archiver at
+## select round-starts. Lazy-built on first use.
+var _transmission_overlay: Control
+var _transmission_label:   Label
+var _transmission_tween:   Tween
 var _settings_overlay:     Control  # volume / mute panel, accessible anywhere
 ## Mid-run pause overlay. Shown via the HUD pause button or ESC during
 ## PLAYING phase when nothing else is active. Blocks game input by sitting
@@ -808,6 +814,78 @@ func _build_achievement_card(a: Dictionary, earned: bool) -> Control:
 	col.add_child(desc_lbl)
 
 	return panel
+
+## Archiver transmission strip. A thin, semi-transparent banner that
+## fades in near the top of the viewport, holds for a few seconds, then
+## fades out — used to surface a single line of Archiver dialogue at
+## select round starts without blocking input.
+##
+## Lazy-built on first use so the scene tree stays slim if the line
+## bank returns "" (no transmission for this round).
+func _build_transmission_overlay() -> Control:
+	var outer := Control.new()
+	outer.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	outer.custom_minimum_size = Vector2(0, 80)
+	outer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	outer.add_child(center)
+
+	var pill := PanelContainer.new()
+	pill.custom_minimum_size = Vector2(560, 0)
+	pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var s := StyleBoxFlat.new()
+	s.bg_color     = Color(0.04, 0.03, 0.05, 0.92)
+	s.border_color = C_TITLE_GLOW.darkened(0.3)
+	s.set_border_width_all(1)
+	s.set_corner_radius_all(14)
+	s.set_content_margin_all(12)
+	pill.add_theme_stylebox_override("panel", s)
+	center.add_child(pill)
+
+	var hbox := HBoxContainer.new()
+	hbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	hbox.add_theme_constant_override("separation", 10)
+	pill.add_child(hbox)
+
+	# Eye glyph — the Archiver's signature (a single optical eye on brass).
+	hbox.add_child(_make_label("◉", C_TITLE_GLOW.darkened(0.1), 14))
+	hbox.add_child(_make_label("TRANSMISSION — ARCHIVE",
+		C_DIM, 10))
+	hbox.add_child(_make_label("·", C_DIM, 12))
+
+	_transmission_label = _make_label("", C_TEXT, 13)
+	_transmission_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	FontManager.apply_mono(_transmission_label)
+	hbox.add_child(_transmission_label)
+
+	outer.modulate.a = 0.0
+	return outer
+
+## Fade the transmission strip in with the given text, hold, then fade
+## out. Re-entrant: a new call interrupts any in-flight fade.
+func _show_transmission(text: String) -> void:
+	if text.is_empty():
+		return
+	if _transmission_overlay == null:
+		_transmission_overlay = _build_transmission_overlay()
+		# Parent to the UI layer so it sits above gameplay but below modals.
+		_ui_layer.add_child(_transmission_overlay)
+	if _transmission_tween != null and _transmission_tween.is_valid():
+		_transmission_tween.kill()
+	_transmission_label.text = text
+	_transmission_overlay.modulate.a = 0.0
+	_transmission_overlay.show()
+	_transmission_tween = create_tween()
+	_transmission_tween.tween_property(_transmission_overlay,
+		"modulate:a", 1.0, 0.45) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	_transmission_tween.tween_interval(3.2)
+	_transmission_tween.tween_property(_transmission_overlay,
+		"modulate:a", 0.0, 0.50) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
 
 ## Codex / Archive overlay — browsable lore archive that unlocks
 ## organically as the player encounters things across runs. Layout:
@@ -1610,6 +1688,18 @@ func _begin_round_play() -> void:
 	# Tutorial: show on the very first round of a brand-new run
 	if GameState.round_index == 0 and not SaveManager.is_tutorial_seen():
 		get_tree().create_timer(0.55).timeout.connect(_start_tutorial, CONNECT_ONE_SHOT)
+	# Archiver transmission. Skipped on boss rounds (the cinematic + the
+	# persistent ⚠ label already speak for the boss), and on the first
+	# round of a brand-new run while the tutorial is firing.
+	elif not GameState.is_boss_round():
+		var lifetime: Dictionary = SaveManager.get_lifetime_stats()
+		var line: String = Archiver.line_for_round(
+			GameState.round_index, lifetime)
+		if not line.is_empty():
+			# Brief delay so the line lands AFTER the round UI has
+			# settled, not on top of the etapa-theme transition.
+			get_tree().create_timer(0.65).timeout.connect(
+				_show_transmission.bind(line), CONNECT_ONE_SHOT)
 
 func _end_round(won: bool) -> void:
 	if won:
