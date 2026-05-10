@@ -14,6 +14,15 @@ static func all() -> Array[Directive]:
 		_make(Directive.Type.NO_DOUBLES,       "Play a chain of 3+ tiles with no doubles",    2),
 		_make(Directive.Type.WIN_HANDS_LEFT_2, "Win the round with 2+ plays remaining",       3),
 		_make(Directive.Type.NO_DISCARDS_USED, "Win the round without discarding",            2),
+		# ── Persistent-chain era directives ─────────────────────────────────
+		_make(Directive.Type.CHAIN_LENGTH_11,  "Reach Resonance tier (chain of 11+)",         5),
+		_make(Directive.Type.CHAIN_LENGTH_16,  "Reach Harmonic tier (chain of 16+)",          7),
+		_make(Directive.Type.TOTAL_1000,       "Score 1000+ Chronos in a single Pulse",       5),
+		_make(Directive.Type.MULT_10,          "Achieve a ×10 or higher multiplier",          5),
+		_make(Directive.Type.NO_DOUBLES_LONG,  "Play a chain of 7+ tiles with no doubles",    5),
+		_make(Directive.Type.HIGH_PIP_CHAIN,   "Chain of 5+ tiles, avg ≥6 pips per tile",     4),
+		_make(Directive.Type.WILD_USED,        "Use a wild tile in a chain",                  3),
+		_make(Directive.Type.BRANCH_USED,      "Land a tile on a branch (extra open end)",    4),
 	]
 
 static func _make(t: Directive.Type, text: String, reward: int) -> Directive:

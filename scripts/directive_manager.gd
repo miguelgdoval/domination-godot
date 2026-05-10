@@ -54,12 +54,60 @@ func _eval_play(d: Directive, r: Dictionary) -> bool:
 		Directive.Type.CHAIN_DOUBLES_3:  return r["doubles"] >= 3
 		Directive.Type.CHAIN_LENGTH_5:   return r["length"]  >= 5
 		Directive.Type.CHAIN_LENGTH_7:   return r["length"]  >= 7
+		Directive.Type.CHAIN_LENGTH_11:  return r["length"]  >= 11
+		Directive.Type.CHAIN_LENGTH_16:  return r["length"]  >= 16
 		Directive.Type.CHIPS_60:         return r["chips"]   >= 60
 		Directive.Type.TOTAL_250:        return r["total"]   >= 250
 		Directive.Type.TOTAL_500:        return r["total"]   >= 500
+		Directive.Type.TOTAL_1000:       return r["total"]   >= 1000
 		Directive.Type.MULT_5:           return r["mult"]    >= 5
+		Directive.Type.MULT_10:          return r["mult"]    >= 10
 		Directive.Type.NO_DOUBLES:       return r["doubles"] == 0 and r["length"] >= 3
+		Directive.Type.NO_DOUBLES_LONG:  return r["doubles"] == 0 and r["length"] >= 7
+		Directive.Type.HIGH_PIP_CHAIN:   return _high_pip_chain_check(r)
+		Directive.Type.WILD_USED:        return _chain_has_wild()
+		Directive.Type.BRANCH_USED:      return _chain_branch_was_used()
 		_: return false
+
+## True if the chain is at least 5 tiles AND its average non-wild pip
+## total per tile is ≥ 6. Reads the live current_chain rather than the
+## scoring result so we can inspect tile pips directly.
+func _high_pip_chain_check(r: Dictionary) -> bool:
+	if r["length"] < 5:
+		return false
+	if _rm == null or _rm.current_chain == null:
+		return false
+	var sum_pips: int = 0
+	var count:    int = 0
+	for tile in _rm.current_chain.tiles:
+		if tile.is_wild:
+			continue
+		sum_pips += tile.total_pips()
+		count    += 1
+	if count == 0:
+		return false
+	return sum_pips >= count * 6
+
+func _chain_has_wild() -> bool:
+	if _rm == null or _rm.current_chain == null:
+		return false
+	for tile in _rm.current_chain.tiles:
+		if tile.is_wild:
+			return true
+	return false
+
+## True when the chain has consumed at least one branch end this round.
+## Detect by total doubles placed > extra_ends still open: every double
+## adds an extra_end, every branch use removes one. If doubles_placed
+## exceeds the live extra_ends count, at least one branch was consumed.
+func _chain_branch_was_used() -> bool:
+	if _rm == null or _rm.current_chain == null:
+		return false
+	var doubles_placed: int = 0
+	for tile in _rm.current_chain.tiles:
+		if not tile.is_wild and tile.is_double():
+			doubles_placed += 1
+	return doubles_placed > _rm.current_chain.extra_ends.size()
 
 func _eval_end(d: Directive) -> bool:
 	match d.type:

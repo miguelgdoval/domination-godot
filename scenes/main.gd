@@ -331,12 +331,18 @@ var _btn_achievements:     Button   # opens the achievements overlay
 var _achievements_overlay: Control  # built lazily on first open
 var _btn_stats:            Button   # opens the lifetime statistics overlay
 var _stats_overlay:        Control  # built lazily on first open
+var _btn_help:             Button   # opens the help / glossary overlay
+var _help_overlay:         Control  # built lazily on first open
 var _settings_overlay:     Control  # volume / mute panel, accessible anywhere
 ## Mid-run pause overlay. Shown via the HUD pause button or ESC during
 ## PLAYING phase when nothing else is active. Blocks game input by sitting
 ## on the UI layer; "RESUME" hides it, "QUIT" returns to the title screen
 ## without clearing the saved run (so Continue still works on reload).
 var _pause_overlay:        Control
+## Confirmation modal shown when quitting a daily run (forfeit warning).
+## Lazy-built on first daily-run quit; sits on top of the pause overlay
+## so cancelling drops back to the pause menu without losing context.
+var _quit_confirm_overlay: Control
 
 # ---------------------------------------------------------------------------
 # Design-image layout refs
@@ -449,6 +455,16 @@ func _on_stats_pressed() -> void:
 func _on_stats_close_pressed() -> void:
 	if _stats_overlay != null:
 		_stats_overlay.hide()
+
+func _on_help_pressed() -> void:
+	if _help_overlay == null:
+		_help_overlay = _build_help_overlay()
+		_title_overlay.get_parent().add_child(_help_overlay)
+	_help_overlay.show()
+
+func _on_help_close_pressed() -> void:
+	if _help_overlay != null:
+		_help_overlay.hide()
 
 ## Copy today's daily result to the OS clipboard so the player can
 ## paste it into chat / social. Format is compact and recognisable —
@@ -775,6 +791,150 @@ func _build_achievement_card(a: Dictionary, earned: bool) -> Control:
 
 	return panel
 
+## Help / glossary overlay — quick reference for game terms and rules.
+## Replaces the player's reliance on the one-time tutorial. Sectioned by
+## topic so the player can scan-find what they need without reading the
+## whole document.
+func _build_help_overlay() -> Control:
+	var overlay := ColorRect.new()
+	overlay.color = Color(0, 0, 0, 0.88)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(680, 600)
+	var ps := StyleBoxFlat.new()
+	ps.bg_color     = Color(0.07, 0.06, 0.05, 0.98)
+	ps.border_color = C_TITLE_GLOW.darkened(0.2)
+	ps.set_border_width_all(2)
+	ps.set_corner_radius_all(8)
+	panel.add_theme_stylebox_override("panel", ps)
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 12)
+	panel.add_child(vbox)
+
+	var title := _make_label("HELP & GLOSSARY", C_TITLE_GLOW, 22)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(title)
+
+	vbox.add_child(_make_hsep())
+
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(640, 460)
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(scroll)
+
+	var content := VBoxContainer.new()
+	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content.add_theme_constant_override("separation", 14)
+	scroll.add_child(content)
+
+	# Sections — keys and short bodies. Multi-line bodies use \n.
+	var sections: Array = [
+		["THE BASICS", [
+			["Objective",
+				"Reach the round's Chronos target. Build a chain of dominoes; chain score = chips × multiplier."],
+			["Persistent Chain",
+				"The chain is shared across all hands in a round. Every play extends the same chain — it doesn't reset.\nThe round target is checked against the chain's final score."],
+			["Hands & Discards",
+				"Each round you have a fixed number of plays (hands) and discards. Use them sparingly — running out without hitting target ends the run."],
+		]],
+		["TIER BONUSES", [
+			["Pulse",       "4-6 tiles → +1 mult"],
+			["Cohesion",    "7-10 tiles → +2 mult"],
+			["Resonance",   "11-15 tiles → +4 mult"],
+			["Harmonic",    "16-20 tiles → +7 mult"],
+			["Singularity", "21+ tiles → +12 mult"],
+		]],
+		["DOUBLES & BRANCHING", [
+			["Doubles",
+				"A double tile (e.g. 5|5) grants +1 mult per double in the chain.\nThe first 5 doubles count fully; further doubles count for half (so all-doubles builds don't run away)."],
+			["Branching",
+				"When a double is placed, its pip value becomes a NEW open end.\nFuture tiles can match the chain's left end, right end, OR any branch end. Branches are shown as small badges above the chain."],
+		]],
+		["ROUND ACTIONS", [
+			["Play",        "Commit the selected tiles to the chain. Scores the full chain."],
+			["Discard",     "Return selected tiles to the box and draw replacements. Targeted re-draw — fitting tiles are surfaced first when possible."],
+			["Stand",       "Once you've crossed the round target, lock in your score. Banks any unused hands as bonus Monedas."],
+			["Pass Hand",   "Anti-softlock: if no tile fits and no productive discard exists, burn one hand and redraw."],
+		]],
+		["BOSS EFFECTS", [
+			["Frequency Drain (Boss 1)",
+				"Hand size −1 for the round."],
+			["Mirror Decay (Boss 2)",
+				"Each pip's chip contribution is INVERTED — a 9 scores as 0, a 0 scores as 9. Lean low-pip / blank-heavy this round."],
+			["Resonance Inversion (Boss 3)",
+				"Doubles SUBTRACT from your multiplier instead of adding. Avoid stacking doubles for one round."],
+			["Ghost Chain (Boss 4)",
+				"A third of your placed tiles fade from view. Trust your memory."],
+		]],
+		["MODULES & ARCHETYPES", [
+			["Modules",
+				"Bought at the Brass Emporium / Artisan's Workshop. Modify scoring, economy, or rules. Up to 4 active slots (some modules grant +1 slot)."],
+			["Archetypes",
+				"Each module belongs to an archetype: Doubles, Long-Chain, High-Pip, Blanks, Sacrifice, Economy, Utility.\nThe shop biases toward archetypes you already own — synergy builds form naturally."],
+		]],
+		["MONEDAS", [
+			["Earning",
+				"Round-clear bonus + 1 per unused hand + boss bonus + module income + directive rewards."],
+			["Spending",
+				"Modules at the Emporium, special tiles + tile removals at the Workshop."],
+		]],
+	]
+
+	for sec in sections:
+		var section_title: String = sec[0]
+		var entries: Array = sec[1]
+		content.add_child(_build_help_section_header(section_title))
+		for entry in entries:
+			content.add_child(_build_help_row(entry[0], entry[1]))
+
+	vbox.add_child(_make_hsep())
+
+	var btn_row := HBoxContainer.new()
+	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_child(btn_row)
+	btn_row.add_child(_make_button("CLOSE",
+		_on_help_close_pressed, Vector2(160, 44)))
+
+	return overlay
+
+func _build_help_section_header(text: String) -> Control:
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 8)
+	var lbl := _make_label(text, C_TITLE_GLOW, 14)
+	FontManager.apply_mono(lbl)
+	hbox.add_child(lbl)
+	var line := ColorRect.new()
+	line.color = C_TITLE_GLOW.darkened(0.5)
+	line.custom_minimum_size = Vector2(0, 1)
+	line.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	line.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	hbox.add_child(line)
+	return hbox
+
+func _build_help_row(key: String, body: String) -> Control:
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 2)
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var k := _make_label(key, C_MONEDAS, 13)
+	FontManager.apply_mono(k)
+	vbox.add_child(k)
+
+	var b := _make_label(body, C_TEXT, 12)
+	b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	b.custom_minimum_size = Vector2(620, 0)
+	vbox.add_child(b)
+
+	return vbox
+
 ## Lifetime statistics overlay — browsable breakdown of every stat
 ## SaveManager tracks across runs. Sections:
 ##
@@ -974,20 +1134,42 @@ func _on_pause_settings_pressed() -> void:
 		_pause_overlay.hide()
 	_on_settings_btn_pressed()
 
-## Quit the current run back to the title screen. Doesn't clear the
-## saved-run flag, so the Continue button on the title remains active
-## and the player can resume later. Daily runs are an exception — they
-## don't auto-save, so quitting forfeits today's attempt cleanly.
+## Quit the current run back to the title screen. Daily runs forfeit
+## today's attempt as a loss (one-attempt-per-day rule prevents rage-
+## quitting bad starts), so we route through a confirm dialog first.
+## Regular runs auto-save; quit is non-destructive so it goes straight.
 func _on_pause_quit_pressed() -> void:
 	if GameState.is_daily_run:
-		# Forfeit today's daily as a loss — same as if they'd lost a hand.
-		# Otherwise the player could "rage-quit" out of a bad daily start.
+		_show_quit_confirm()
+		return
+	_quit_to_title()
+
+## Actually perform the quit. Called from _on_pause_quit_pressed for
+## regular runs and from the confirm dialog's "QUIT" branch for dailies.
+func _quit_to_title() -> void:
+	if GameState.is_daily_run:
 		SaveManager.record_daily_attempt(false,
 			GameState.total_chronos, GameState.round_index)
 	if _pause_overlay != null:
 		_pause_overlay.hide()
+	if _quit_confirm_overlay != null:
+		_quit_confirm_overlay.hide()
 	_phase = Phase.TITLE
 	_show_title()
+
+## Lazy-built modal that warns the player today's daily will be
+## recorded as a loss. Two buttons: KEEP PLAYING (cancel) and FORFEIT
+## (proceed to _quit_to_title). Sits over the pause overlay rather than
+## replacing it, so cancelling drops back to the pause menu.
+func _show_quit_confirm() -> void:
+	if _quit_confirm_overlay == null:
+		_quit_confirm_overlay = _build_quit_confirm_overlay()
+		_title_overlay.get_parent().add_child(_quit_confirm_overlay)
+	_quit_confirm_overlay.show()
+
+func _on_quit_confirm_cancel() -> void:
+	if _quit_confirm_overlay != null:
+		_quit_confirm_overlay.hide()
 
 func _on_core_card_pressed(index: int) -> void:
 	_pending_core = index
@@ -2146,9 +2328,14 @@ func _show_run_end(victory: bool) -> void:
 	_lbl_run_end_title.modulate.a = 0.0
 
 	# ── Sub line ─────────────────────────────────────────────────────────────
-	_lbl_run_end_sub.text = \
-		"Entropy contained. The age persists." if victory else \
-		"The Chronometer cannot be recovered."
+	# On defeat, attribute the loss to the actual cause so the player
+	# learns from it instead of getting a generic "you died" line. The
+	# most informative datum is "you needed N more Chronos" — turns the
+	# loss into a tangible delta the player can chase next attempt.
+	if victory:
+		_lbl_run_end_sub.text = "Entropy contained. The age persists."
+	else:
+		_lbl_run_end_sub.text = _build_defeat_attribution()
 	_lbl_run_end_sub.modulate.a = 0.0
 
 	# ── Stats ─────────────────────────────────────────────────────────────────
@@ -2585,6 +2772,28 @@ func _refresh_boss_effect_lbl() -> void:
 		return
 	_boss_effect_lbl.text = "⚠  %s" % Constants.BOSS_NAMES[etapa]
 	_boss_effect_lbl.visible = true
+
+## Build the defeat sub-line shown on the run-end overlay. Pulls the
+## last round's chronos vs target so the player sees HOW close they got,
+## plus a flavour quote that rotates based on the gap. Turns a flat
+## "you lost" into "you missed by N — try again".
+func _build_defeat_attribution() -> String:
+	var chronos: int = _rm.chronos if _rm != null else 0
+	var target:  int = _rm.target  if _rm != null else 0
+	var gap:     int = maxi(0, target - chronos)
+
+	# Last round's pulse-by-pulse facts so the line is concrete
+	var line_a := "The Chronometer cannot be recovered."
+	if _rm != null and target > 0:
+		if gap == 0:
+			line_a = "You reached the target — but ran out of plays."
+		elif gap < target * 0.10:
+			line_a = "%d Chronos short. So close." % gap
+		elif gap < target * 0.30:
+			line_a = "%d Chronos short. Sharpen the chain." % gap
+		else:
+			line_a = "%d Chronos short. The Entropy held." % gap
+	return line_a
 
 ## Compare lifetime stats before/after accumulating this run's data and
 ## return any achievements that crossed their gate. Achievements use the
@@ -4799,6 +5008,22 @@ func _build_title_overlay() -> Control:
 	_btn_stats.add_theme_stylebox_override("hover", st_hov)
 	btn_row.add_child(_btn_stats)
 
+	# Help / glossary — gold-styled to match the title-glow border on
+	# the help overlay. Reference for game terms and rules at any time.
+	_btn_help = _make_button("?",
+		_on_help_pressed, Vector2(54, 54))
+	var hp_style := StyleBoxFlat.new()
+	hp_style.bg_color     = Color(0.13, 0.10, 0.04)
+	hp_style.border_color = C_TITLE_GLOW.darkened(0.2)
+	hp_style.set_border_width_all(2)
+	hp_style.set_corner_radius_all(6)
+	hp_style.set_content_margin_all(10)
+	_btn_help.add_theme_stylebox_override("normal", hp_style)
+	var hp_hov := hp_style.duplicate() as StyleBoxFlat
+	hp_hov.bg_color = Color(0.18, 0.14, 0.06)
+	_btn_help.add_theme_stylebox_override("hover", hp_hov)
+	btn_row.add_child(_btn_help)
+
 	# "Continue Run" — hidden until SaveManager confirms a mid-run save exists
 	_btn_continue_run = _make_button(
 		"CONTINUE RUN  ↩", _on_continue_run_pressed, Vector2(200, 54))
@@ -6373,6 +6598,72 @@ func _build_pause_overlay() -> Control:
 
 	return overlay
 
+## Daily-run forfeit warning. Shown when the player taps QUIT TO TITLE
+## during a daily run — daily mode records the attempt as a loss when
+## you quit (anti-rage-quit on bad seeds), so the player gets a heads
+## up before the destructive action.
+func _build_quit_confirm_overlay() -> Control:
+	var overlay := ColorRect.new()
+	overlay.color = Color(0, 0, 0, 0.85)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(440, 0)
+	var ps := StyleBoxFlat.new()
+	ps.bg_color     = Color(0.10, 0.05, 0.05, 0.98)
+	ps.border_color = C_LOSE
+	ps.set_border_width_all(2)
+	ps.set_corner_radius_all(8)
+	panel.add_theme_stylebox_override("panel", ps)
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_theme_constant_override("separation", 14)
+	panel.add_child(vbox)
+
+	var title := _make_label("FORFEIT TODAY'S DAILY?", C_LOSE, 20)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(title)
+
+	var body := _make_label(
+		"You only get one attempt per day. Quitting now\n" +
+		"records this run as a loss. Tomorrow's seed will\n" +
+		"be different.", C_TEXT, 13)
+	body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(body)
+
+	vbox.add_child(_make_hsep())
+
+	var btn_row := HBoxContainer.new()
+	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	btn_row.add_theme_constant_override("separation", 12)
+	vbox.add_child(btn_row)
+	btn_row.add_child(_make_button("KEEP PLAYING",
+		_on_quit_confirm_cancel, Vector2(180, 44)))
+	# Distinct red styling on the destructive option so a quick
+	# muscle-memory click doesn't blow up the run.
+	var forfeit_btn := _make_button("FORFEIT",
+		_quit_to_title, Vector2(180, 44))
+	var fs := StyleBoxFlat.new()
+	fs.bg_color     = Color(0.20, 0.06, 0.06)
+	fs.border_color = C_LOSE
+	fs.set_border_width_all(2)
+	fs.set_corner_radius_all(6)
+	fs.set_content_margin_all(10)
+	forfeit_btn.add_theme_stylebox_override("normal", fs)
+	var fs_hov := fs.duplicate() as StyleBoxFlat
+	fs_hov.bg_color = Color(0.28, 0.08, 0.08)
+	forfeit_btn.add_theme_stylebox_override("hover", fs_hov)
+	btn_row.add_child(forfeit_btn)
+
+	return overlay
+
 func _build_settings_overlay() -> Control:
 	var overlay := ColorRect.new()
 	overlay.color = Color(0, 0, 0, 0.82)
@@ -6458,12 +6749,106 @@ func _build_settings_overlay() -> Control:
 
 	vbox.add_child(_make_hsep())
 
+	# Display section header
+	var disp_hdr := _make_label("DISPLAY", C_DIM, 11)
+	vbox.add_child(disp_hdr)
+
+	# Fullscreen toggle
+	var fs_row := HBoxContainer.new()
+	fs_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	fs_row.add_theme_constant_override("separation", 12)
+	var fs_lbl := _make_label("Fullscreen", C_TEXT, 14)
+	fs_row.add_child(fs_lbl)
+	var fs_btn := CheckButton.new()
+	fs_btn.button_pressed = (DisplayServer.window_get_mode() ==
+		DisplayServer.WINDOW_MODE_FULLSCREEN)
+	fs_btn.toggled.connect(func(b: bool):
+		DisplayServer.window_set_mode(
+			DisplayServer.WINDOW_MODE_FULLSCREEN if b
+			else DisplayServer.WINDOW_MODE_WINDOWED)
+	)
+	fs_row.add_child(fs_btn)
+	vbox.add_child(fs_row)
+
+	vbox.add_child(_make_hsep())
+
+	# Danger zone — wipes all save data after confirmation. Distinct
+	# styling so it's not mistaken for a normal close button.
+	var reset_hdr := _make_label("RESET", C_DIM, 11)
+	vbox.add_child(reset_hdr)
+
+	var reset_btn := _make_button("ERASE ALL PROGRESS",
+		_on_reset_progress_pressed, Vector2(280, 40))
+	var rs := StyleBoxFlat.new()
+	rs.bg_color     = Color(0.20, 0.06, 0.06)
+	rs.border_color = C_LOSE
+	rs.set_border_width_all(2)
+	rs.set_corner_radius_all(6)
+	rs.set_content_margin_all(8)
+	reset_btn.add_theme_stylebox_override("normal", rs)
+	var rs_hov := rs.duplicate() as StyleBoxFlat
+	rs_hov.bg_color = Color(0.28, 0.08, 0.08)
+	reset_btn.add_theme_stylebox_override("hover", rs_hov)
+	vbox.add_child(reset_btn)
+
+	# Inline confirm shown only after the player taps "ERASE ALL".
+	# Two-step pattern avoids needing yet another modal.
+	var reset_confirm := HBoxContainer.new()
+	reset_confirm.alignment = BoxContainer.ALIGNMENT_CENTER
+	reset_confirm.add_theme_constant_override("separation", 8)
+	reset_confirm.visible = false
+	overlay.set_meta("reset_confirm_row", reset_confirm)
+	var rc_lbl := _make_label("Are you sure? This wipes EVERYTHING.",
+		C_LOSE, 12)
+	reset_confirm.add_child(rc_lbl)
+	var rc_yes := _make_button("YES, ERASE",
+		_on_reset_progress_confirm, Vector2(120, 36))
+	rc_yes.add_theme_stylebox_override("normal", rs)
+	rc_yes.add_theme_stylebox_override("hover", rs_hov)
+	reset_confirm.add_child(rc_yes)
+	var rc_no := _make_button("Cancel",
+		_on_reset_progress_cancel, Vector2(80, 36))
+	reset_confirm.add_child(rc_no)
+	vbox.add_child(reset_confirm)
+
+	vbox.add_child(_make_hsep())
+
 	# Close button
 	vbox.add_child(_make_button("CLOSE", func():
 		_settings_overlay.hide()
 	, Vector2(160, 44)))
 
 	return overlay
+
+## Reveal the inline confirm row under the ERASE ALL PROGRESS button.
+## Two-step pattern: tap once to surface the confirm row, tap again to
+## actually erase. Cancel hides the row.
+func _on_reset_progress_pressed() -> void:
+	if _settings_overlay == null:
+		return
+	var row = _settings_overlay.get_meta("reset_confirm_row", null)
+	if row != null:
+		row.visible = true
+
+func _on_reset_progress_cancel() -> void:
+	if _settings_overlay == null:
+		return
+	var row = _settings_overlay.get_meta("reset_confirm_row", null)
+	if row != null:
+		row.visible = false
+
+## Wipe ALL save data — settings, run state, lifetime stats, achievements,
+## daily history. Returns to title with a fresh state.
+func _on_reset_progress_confirm() -> void:
+	# Clear in-memory state, write empty save, return to title
+	SaveManager._data = {}
+	SaveManager._save_to_disk()
+	if _settings_overlay != null:
+		_settings_overlay.hide()
+	if _pause_overlay != null:
+		_pause_overlay.hide()
+	_phase = Phase.TITLE
+	_show_title()
 
 func _refresh_settings_overlay() -> void:
 	if _settings_overlay == null:

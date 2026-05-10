@@ -14,6 +14,15 @@ enum Type {
 	NO_DOUBLES,         # play a chain of 3+ tiles with no doubles
 	WIN_HANDS_LEFT_2,   # win the round with 2+ plays remaining
 	NO_DISCARDS_USED,   # win the round without discarding
+	# ── Persistent-chain expansion ─────────────────────────────────────
+	CHAIN_LENGTH_11,    # reach Resonance tier (chain ≥ 11)
+	CHAIN_LENGTH_16,    # reach Harmonic tier (chain ≥ 16)
+	TOTAL_1000,         # score 1000+ Chronos in a single Pulse
+	MULT_10,            # achieve ×10 or higher multiplier
+	NO_DOUBLES_LONG,    # play a chain of 7+ tiles with no doubles
+	HIGH_PIP_CHAIN,     # chain ≥ 5 tiles, average pip per tile ≥ 6
+	WILD_USED,          # play a chain that contains a wild tile
+	BRANCH_USED,        # play a chain that uses a branch (extra_end)
 }
 
 var type:      Type
