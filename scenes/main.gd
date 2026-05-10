@@ -2573,19 +2573,28 @@ func _show_run_end(victory: bool) -> void:
 	_lbl_run_end_glyph.modulate.a = 0.0
 
 	# ── Title ────────────────────────────────────────────────────────────────
-	var title_text: String  = "THE CHRONOMETER STABILIZES" if victory else "REINITIALIZING PROTOCOL"
-	var title_color: Color  = C_MONEDAS if victory else C_LOSE
+	# Title text escalates with the lifetime failure count. The Operator's
+	# anonymity wears off — by the 100th Failure the Machine addresses
+	# them directly. lt_before is the snapshot taken just above; the
+	# pending Failure makes the count `runs - wins + 1` on a loss.
+	var title_text: String
+	var title_color: Color = C_MONEDAS if victory else C_LOSE
+	if victory:
+		title_text = _build_victory_title(lt_before)
+	else:
+		var pending_failures: int = maxi(0,
+			int(lt_before.get("runs", 0)) + 1 -
+			int(lt_before.get("wins", 0)))
+		title_text = _build_defeat_title(pending_failures)
 	_lbl_run_end_title.text = ""   # will be typewritten
 	_lbl_run_end_title.add_theme_color_override("font_color", title_color)
 	_lbl_run_end_title.modulate.a = 0.0
 
 	# ── Sub line ─────────────────────────────────────────────────────────────
-	# On defeat, attribute the loss to the actual cause so the player
-	# learns from it instead of getting a generic "you died" line. The
-	# most informative datum is "you needed N more Chronos" — turns the
-	# loss into a tangible delta the player can chase next attempt.
+	# Defeat: "N Chronos short" + tone shift; victory: "Entropy contained".
+	# At very high failure / win counts the line grows more intimate.
 	if victory:
-		_lbl_run_end_sub.text = "Entropy contained. The age persists."
+		_lbl_run_end_sub.text = _build_victory_subline(lt_before)
 	else:
 		_lbl_run_end_sub.text = _build_defeat_attribution()
 	_lbl_run_end_sub.modulate.a = 0.0
@@ -3026,15 +3035,15 @@ func _refresh_boss_effect_lbl() -> void:
 	_boss_effect_lbl.visible = true
 
 ## Build the defeat sub-line shown on the run-end overlay. Pulls the
-## last round's chronos vs target so the player sees HOW close they got,
-## plus a flavour quote that rotates based on the gap. Turns a flat
-## "you lost" into "you missed by N — try again".
+## last round's chronos vs target so the player sees HOW close they got.
+## At high lifetime failure counts, appends an additional intimate line
+## from the Archive — the Machine begins to notice you.
 func _build_defeat_attribution() -> String:
 	var chronos: int = _rm.chronos if _rm != null else 0
 	var target:  int = _rm.target  if _rm != null else 0
 	var gap:     int = maxi(0, target - chronos)
 
-	# Last round's pulse-by-pulse facts so the line is concrete
+	# Concrete delta line first.
 	var line_a := "The Chronometer cannot be recovered."
 	if _rm != null and target > 0:
 		if gap == 0:
@@ -3045,7 +3054,72 @@ func _build_defeat_attribution() -> String:
 			line_a = "%d Chronos short. Sharpen the chain." % gap
 		else:
 			line_a = "%d Chronos short. The Entropy held." % gap
-	return line_a
+
+	# Atmospheric overlay line as the failure count climbs. Each tier of
+	# the player's lifetime failure count adds a different second line —
+	# the Archive's tone shifting from clinical to personal to haunted.
+	var lt: Dictionary = SaveManager.get_lifetime_stats()
+	var fails: int = maxi(0, int(lt.get("runs", 0)) + 1 -
+		int(lt.get("wins", 0)))
+	var line_b: String = ""
+	if fails >= 200:
+		line_b = "Yo--ou have never left. You understand this, do you not?"
+	elif fails >= 100:
+		line_b = "The Chronometer remembers you, Operator."
+	elif fails >= 50:
+		line_b = "(Operator endurance: under review.)"
+	elif fails >= 25:
+		line_b = "Data preserved. Continuity-- continuity preserved."
+	# Below 25 we keep the line sparse — the Operator is still anonymous.
+
+	if line_b.is_empty():
+		return line_a
+	return line_a + "\n" + line_b
+
+## Build the defeat title — the headline above the stats. Escalates with
+## lifetime failure count so a repeat-failing run feels heavier than the
+## first one. At high counts the title glitches and starts to address
+## the Operator directly.
+func _build_defeat_title(pending_failures: int) -> String:
+	if pending_failures >= 200:
+		return "OPERATOR. THE MACHINE WANTS A WORD."
+	if pending_failures >= 100:
+		return "FAILURE PROTOCOL #%d.  RECURRENCE NOTED." % pending_failures
+	if pending_failures >= 50:
+		return "REINITIALIZ--gng--PROTOCOL  #%d" % pending_failures
+	if pending_failures >= 25:
+		return "REINITIALIZING PROTOCOL  #%d" % pending_failures
+	if pending_failures >= 10:
+		return "REINITIALIZING PROTOCOL  (#%d)" % pending_failures
+	return "REINITIALIZING PROTOCOL"
+
+## Victory title — first win is generic, the Society's standard text.
+## Later wins shift in tone as the Archive becomes more invested in
+## the Operator's specific record.
+func _build_victory_title(lt: Dictionary) -> String:
+	var wins: int = int(lt.get("wins", 0))
+	# Note: this run's win hasn't been accumulated yet, so `wins` is
+	# the count BEFORE this victory. The pending win is wins + 1.
+	var w: int = wins + 1
+	if w >= 50:
+		return "THE CHRONOMETER REMEMBERS YOU."
+	if w >= 25:
+		return "RECALIBRATION SECURED.  (CYCLE %d.)" % w
+	if w >= 10:
+		return "RECALIBRATION CONFIRMED.  (CYCLE %d.)" % w
+	return "THE CHRONOMETER STABILIZES"
+
+## Victory sub-line. Below 5 wins, the Society's standard congratulation.
+## Past that, the Archive begins addressing the Operator personally.
+func _build_victory_subline(lt: Dictionary) -> String:
+	var w: int = int(lt.get("wins", 0)) + 1
+	if w >= 50:
+		return "You are the constant. The simulations are not."
+	if w >= 25:
+		return "The Archive has logged your %d Recalibrations." % w
+	if w >= 10:
+		return "Reliable Operator. The Architects approve."
+	return "Entropy contained. The age persists."
 
 ## Compare lifetime stats before/after accumulating this run's data and
 ## return any achievements that crossed their gate. Achievements use the
