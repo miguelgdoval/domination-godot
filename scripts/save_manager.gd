@@ -190,6 +190,27 @@ func today_daily_seed() -> int:
 	var d: Dictionary = Time.get_date_dict_from_system()
 	return int(d.year) * 10000 + int(d.month) * 100 + int(d.day)
 
+## Operator number for a given date — derived deterministically from
+## the date key so every player sees the same Operator-N for the same
+## calendar day. Lore: each daily seed is a memorial for a fallen
+## Operator from the Society's records, replayed across the timelines.
+##
+## Range 1-999. The collision risk over the lifetime of the game is
+## acceptable — the lore intentionally implies many Operators have
+## fallen and some numbers may recur.
+func daily_operator_number(date_key: String = "") -> int:
+	var key: String = date_key if not date_key.is_empty() else today_date_key()
+	# Stable hash from the YYYY-MM-DD string. Sum of digits and char codes
+	# is good enough for a 1-999 spread per day.
+	var h: int = 0
+	for i in range(key.length()):
+		h = (h * 31 + key.unicode_at(i)) % 1000
+	return (h % 999) + 1
+
+## Returns "Operator-N" string for the given date (defaults to today).
+func daily_operator_name(date_key: String = "") -> String:
+	return "Operator-%d" % daily_operator_number(date_key)
+
 ## Has the player already used their one attempt at today's daily?
 func daily_attempted_today() -> bool:
 	var hist: Dictionary = _data.get("daily_history", {})

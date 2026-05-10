@@ -327,6 +327,9 @@ var _btn_continue_run:     Button   # shown only when SaveManager has a saved ru
 var _btn_daily_trial:      Button   # one attempt per day, deterministic seed
 var _btn_daily_history:    Button   # opens the daily-history overlay
 var _daily_history_overlay: Control # built lazily on first open
+## Small caption under the title-screen button row that names today's
+## fallen Operator — the memorial each Daily Cycle honours.
+var _lbl_daily_memorial:   Label
 var _btn_achievements:     Button   # opens the achievements overlay
 var _achievements_overlay: Control  # built lazily on first open
 var _btn_stats:            Button   # opens the lifetime statistics overlay
@@ -504,11 +507,14 @@ func _on_daily_share_pressed() -> void:
 	var date_s: String = SaveManager.today_date_key()
 	var streak: int   = SaveManager.daily_streak()
 	# Compact, scannable. Seed lets others run the same daily for
-	# verification; streak gives a brag hook.
+	# verification; the operator name carries the lore framing
+	# ("memorial cycle for a fallen Operator").
 	var icon: String = "✓" if won else "✗"
+	var op:   String = SaveManager.daily_operator_name(date_s)
+	var verb: String = "honoured" if won else "fell again"
 	var lines := [
-		"Domination — Daily %s" % date_s,
-		"%s  R%d  —  %d Chronos" % [icon, round_r, score],
+		"Domination — Memorial Cycle %s" % date_s,
+		"%s  %s %s.  R%d — %d Chronos" % [icon, op, verb, round_r, score],
 		"Seed: %d" % seed_n,
 	]
 	if streak > 1:
@@ -564,7 +570,7 @@ func _build_daily_history_overlay() -> Control:
 	vbox.set_meta("history_root", true)
 	panel.add_child(vbox)
 
-	var title := _make_label("DAILY TRIAL HISTORY", C_TITLE_GLOW, 22)
+	var title := _make_label("MEMORIAL CYCLES", C_TITLE_GLOW, 22)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(title)
 
@@ -666,10 +672,21 @@ func _build_daily_history_row(entry: Dictionary) -> Control:
 	icon.custom_minimum_size = Vector2(24, 0)
 	row.add_child(icon)
 
-	var date_lbl := _make_label(entry.get("date", "?"), C_TEXT, 13)
-	date_lbl.custom_minimum_size = Vector2(120, 0)
+	var date_str: String = String(entry.get("date", "?"))
+	var date_lbl := _make_label(date_str, C_TEXT, 13)
+	date_lbl.custom_minimum_size = Vector2(110, 0)
 	FontManager.apply_mono(date_lbl)
 	row.add_child(date_lbl)
+
+	# Operator number — the fallen Operator whose memorial this Cycle
+	# honoured. Same date always shows the same Operator across all
+	# players (deterministic hash of the date key).
+	var op_lbl := _make_label(
+		SaveManager.daily_operator_name(date_str),
+		C_TITLE_GLOW.darkened(0.2), 12)
+	op_lbl.custom_minimum_size = Vector2(110, 0)
+	FontManager.apply_mono(op_lbl)
+	row.add_child(op_lbl)
 
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1414,14 +1431,20 @@ func _build_stats_row(key: String, value: String) -> Control:
 func _refresh_daily_trial_button() -> void:
 	if _btn_daily_trial == null:
 		return
+	var op: String = SaveManager.daily_operator_name()
 	if SaveManager.daily_attempted_today():
 		var d: Dictionary = SaveManager.get_daily_today()
 		var icon: String = "✓" if d.get("won", false) else "✗"
 		_btn_daily_trial.text     = "DAILY TRIAL  %s" % icon
 		_btn_daily_trial.disabled = true
+		if _lbl_daily_memorial != null:
+			var verb: String = "honoured" if d.get("won", false) else "fell again"
+			_lbl_daily_memorial.text = "Today: %s — %s." % [op, verb]
 	else:
 		_btn_daily_trial.text     = "DAILY TRIAL  ↺"
 		_btn_daily_trial.disabled = false
+		if _lbl_daily_memorial != null:
+			_lbl_daily_memorial.text = "Today's Memorial: %s." % op
 
 func _on_settings_btn_pressed() -> void:
 	_refresh_settings_overlay()
@@ -5447,6 +5470,15 @@ func _build_title_overlay() -> Control:
 	_btn_codex.add_theme_stylebox_override("normal", hp_style)
 	_btn_codex.add_theme_stylebox_override("hover", hp_hov)
 	btn_row.add_child(_btn_codex)
+
+	# Memorial caption — names today's fallen Operator. Updated each
+	# call to _refresh_daily_trial_button. Sits beneath the button row
+	# so the title screen has a piece of always-shifting daily lore
+	# without crowding the buttons themselves.
+	_lbl_daily_memorial = _make_label("", C_DIM, 11)
+	_lbl_daily_memorial.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	FontManager.apply_mono(_lbl_daily_memorial)
+	vbox.add_child(_lbl_daily_memorial)
 
 	# "Continue Run" — hidden until SaveManager confirms a mid-run save exists
 	_btn_continue_run = _make_button(
