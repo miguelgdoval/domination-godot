@@ -3878,12 +3878,32 @@ func _build_table_area() -> Control:
 	vbox.add_child(_chain_branches_row)
 
 	# Chain tiles — VBox of rows. Each row is built fresh in _refresh_chain_display.
+	#
+	# Wrapped in a height-capped Control so a long serpentine chain
+	# (5+ rows) can't push the table area past its allotted vertical
+	# budget and shove the hand zone off-screen. Plain Control reports
+	# only its own custom_minimum_size to the parent layout — content
+	# inside is free to be larger; a ScrollContainer handles the
+	# overflow with vertical scroll.
+	var chain_outer := Control.new()
+	chain_outer.custom_minimum_size      = Vector2(0, 220)
+	chain_outer.size_flags_horizontal    = Control.SIZE_EXPAND_FILL
+	chain_outer.size_flags_vertical      = Control.SIZE_SHRINK_CENTER
+	chain_outer.clip_contents            = true
+	chain_outer.mouse_filter             = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(chain_outer)
+
+	var chain_scroll := ScrollContainer.new()
+	chain_scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	chain_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	chain_outer.add_child(chain_scroll)
+
 	_chain_container = VBoxContainer.new()
 	_chain_container.alignment             = BoxContainer.ALIGNMENT_CENTER
 	_chain_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_chain_container.size_flags_vertical   = Control.SIZE_SHRINK_CENTER
 	_chain_container.add_theme_constant_override("separation", 6)
-	vbox.add_child(_chain_container)
+	chain_scroll.add_child(_chain_container)
 
 	# Score preview — two lines: equation (dim, small) + total (green, large)
 	_lbl_preview = _make_label("", C_DIM, 13)
@@ -5748,6 +5768,10 @@ func _run_scoring_sequence(overlay_infos: Array, result: Dictionary,
 		# When a module fired on this specific tile, pop short tags above it
 		# so the player can see WHICH tile triggered which bonus.
 		var tags: Array = info.get("tags", [])
+		# Per-tile pitch ramp so the scoring cascade rises tonally across
+		# the chain — each tile is +2% pitch over the previous, capped so
+		# even a 30-tile chain stays inside reasonable musical range.
+		var tile_pitch: float = clampf(1.0 + ti * 0.02, 1.0, 1.6)
 		seq.tween_callback(func():
 			if panel == null or not is_instance_valid(panel):
 				return
@@ -5757,6 +5781,7 @@ func _run_scoring_sequence(overlay_infos: Array, result: Dictionary,
 				.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 			pulse.tween_property(panel, "scale", Vector2(1.18, 1.18), 0.12) \
 				.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+			AudioManager.play_sfx("tile_score", tile_pitch)
 			if is_dbl:
 				_do_chain_spark(center, C_MONEDAS)
 			# Stagger tags so multiple modules firing on one tile read as
