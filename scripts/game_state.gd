@@ -69,6 +69,10 @@ func _apply_core_profile(p_core: int) -> void:
 			if m.id == String(mid):
 				modules.append(m)
 				module_slots += m.extra_slots
+				# Codex: preloaded modules count as discovered too —
+				# the Operator equips them at the Window before play
+				# begins, same encounter trigger as a shop purchase.
+				SaveManager.unlock_codex("module_" + m.id)
 				break
 
 ## Begin a daily-trial run. Reseeds Godot's RNG with today's deterministic

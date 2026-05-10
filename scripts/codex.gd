@@ -12,13 +12,16 @@ enum Category {
 	PEOPLE,        # NPCs the Operator encounters
 	PLACES,        # Etapas / chambers of the Chronometer
 	CONCEPTS,      # game-term glossary with lore framing
-	ANOMALIES,     # rare tiles, illegal modules, paradoxes
+	MODULES,       # Calibration Modules — unlocked on first equip
+	TILES,         # Special Temporal Flow Components — unlocked on first acquire
+	ANOMALIES,     # system-level oddities (Wild face, Branch Ends)
 	FAILURES,      # boss effects + simulation-failure flavour
 	TRANSMISSIONS, # cryptic broadcasts unlocked by milestones
 }
 
 const CATEGORY_NAMES: Array[String] = [
-	"PEOPLE", "PLACES", "CONCEPTS", "ANOMALIES", "FAILURES", "TRANSMISSIONS",
+	"PEOPLE", "PLACES", "CONCEPTS", "MODULES", "TILES",
+	"ANOMALIES", "FAILURES", "TRANSMISSIONS",
 ]
 
 ## Entry schema:
@@ -389,41 +392,7 @@ const ENTRIES: Array[Dictionary] = [
 + "as inputs because the Machine accepts everything. The Renegade Mechanic "
 + "disagrees. He says the Wilds are intentional.\n\n"
 + "He has not said by whom.",
-		"unlock": {"type": "always", "value": 0,
-			"hint": ""},
-	},
-	{
-		"id": "the_crown", "category": Category.ANOMALIES,
-		"name": "The Crown",
-		"summary": "An Obsidian-tier Wild. A signature.",
-		"body":
-"The Crown was not minted. The Crown was found, in the same condition it "
-+ "currently exists, by an Operator whose name has been struck from the "
-+ "Society's records.\n\n"
-+ "It is the only tile in the entire set that does not register on the "
-+ "Architects' inventory. The Master of the Forge stocks it in the Artisan's "
-+ "Workshop without comment. Operators who purchase it are not asked where "
-+ "they obtained the Monedas.\n\n"
-+ "When placed in a Cohesion Pulse, the Crown counts as three doubles for "
-+ "resonance. The Machine does not protest. This is, in itself, alarming.",
-		"unlock": {"type": "best_round", "value": 10,
-			"hint": "Reach Etapa II."},
-	},
-	{
-		"id": "the_dominator", "category": Category.ANOMALIES,
-		"name": "Module CO-9 (\"The Dominator\")",
-		"summary": "Illegal. Recovered from an empty Calibration Core.",
-		"body":
-"The Renegade Mechanic carved this with his own hands. He vanished from "
-+ "the Forge for one Trial Cycle the day after its first appearance. He "
-+ "has not been asked where he went.\n\n"
-+ "Module CO-9 doubles the chip output of every double in the Operator's "
-+ "Cohesion Pulse. It also expands the Operator's Module slots by one — a "
-+ "capacity the Architects have not authorised any other Module to grant.\n\n"
-+ "The Archiver has filed a Notice of Withdrawal against CO-9 in every "
-+ "Trial Cycle since its discovery. The Notice has never been signed.",
-		"unlock": {"type": "best_round", "value": 5,
-			"hint": "Reach the Artisan's Workshop."},
+		"unlock": {"type": "always", "value": 0, "hint": ""},
 	},
 	{
 		"id": "extra_ends", "category": Category.ANOMALIES,
@@ -442,6 +411,595 @@ const ENTRIES: Array[Dictionary] = [
 + "before the rules of dominoes were codified.",
 		"unlock": {"type": "best_round", "value": 4,
 			"hint": "Place a double in a chain."},
+	},
+
+	# ─── MODULES ─────────────────────────────────────────────────────────
+	# Discovery entries for every Calibration Module. Unlocked the first
+	# time the Operator equips one — either by purchase at a shop or by
+	# starting a run on a Core that preloads it. Hint text is generic
+	# ("Equip this Module.") because each Module has its own acquisition
+	# context and the hint shouldn't fight that.
+
+	# Bone tier
+	{
+		"id": "module_brass_gear", "category": Category.MODULES,
+		"name": "Brass Gear (CB-1)",
+		"summary": "A simple gear salvaged from a broken chronometer.",
+		"body":
+"The Society's Module Catalogue does not bother to list it. Every Operator "
++ "finds one in their first Trial Cycle. The gear's teeth still bear the "
++ "fittings of a larger assembly the records can no longer identify.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_copper_coil", "category": Category.MODULES,
+		"name": "Copper Coil",
+		"summary": "Stores residual Chronos charge between insertions.",
+		"body":
+"A Copper Guild artisan signs every Coil with three small dots — proof of "
++ "authentic minting. The dots wear off with use. The Guild has not been "
++ "asked what happens to a Coil whose dots have worn entirely.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_worn_sprocket", "category": Category.MODULES,
+		"name": "Worn Sprocket",
+		"summary": "Still functional. Barely.",
+		"body":
+"The Renegade Mechanic refers to these as 'witness sprockets' — Modules "
++ "that have been recovered from previous Trial Cycles. The Society does "
++ "not acknowledge that frame. They issue them anyway.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_flux_capacitor", "category": Category.MODULES,
+		"name": "Flux Capacitor",
+		"summary": "Salvaged from the first calibration collapse.",
+		"body":
+"The label reads CONTAINMENT-CRITICAL but the seal is broken. The charge "
++ "is small and the seal would not hold a real charge. The Operator equips "
++ "it anyway.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_timing_chain", "category": Category.MODULES,
+		"name": "Timing Chain",
+		"summary": "Even small coherence deserves recognition.",
+		"body":
+"A Society-issued tracker that activates only when a Cohesion Pulse "
++ "exceeds three Components. The Architects believe in encouraging baseline "
++ "competence before rewarding ambition.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_temporal_accumulator", "category": Category.MODULES,
+		"name": "Temporal Accumulator",
+		"summary": "Patience is a form of power.",
+		"body":
+"The Accumulator does nothing in the early Etapas. It does more in each "
++ "subsequent Etapa. The Architects' note in the catalogue: 'The Mechanism "
++ "remembers.' The Architects do not elaborate.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_momentum_coil", "category": Category.MODULES,
+		"name": "Momentum Coil",
+		"summary": "Round by round, the coil tightens.",
+		"body":
+"A Copper Guild artifact. Each round cleared adds compound interest. The "
++ "Guild does not loan; the Coil is its only credit instrument. Operators "
++ "who fail to clear rounds receive the Coil with the dividends still "
++ "intact, but unaccrued.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_null_recoder", "category": Category.MODULES,
+		"name": "Null Recoder",
+		"summary": "Blank faces hold latent potential.",
+		"body":
+"The first device the Chronometer built without an Architect's approval. "
++ "The blueprints are not on file. The Module continues to function "
++ "regardless. The Architects' Inventory Department considers the Recoder "
++ "an open question.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_coin_magnet", "category": Category.MODULES,
+		"name": "Coin Magnet",
+		"summary": "Residual Chronos bleeds into the stipend.",
+		"body":
+"The Copper Guild stamps its sigil into the back. The sigil is the Greek "
++ "letter Ksi. The Guild's apprentices are not told why. They learn it "
++ "anyway, by carving it.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_resonant_stride", "category": Category.MODULES,
+		"name": "Resonant Stride",
+		"summary": "Even moderate frequencies carry weight.",
+		"body":
+"A field tuner intended for Specialist-Core deployments. Surplus stock "
++ "circulates among Bone-tier offerings; the Architects consider it "
++ "adequate for any high-pip build, and inadequate for anything else.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_triage_engine", "category": Category.MODULES,
+		"name": "Triage Engine",
+		"summary": "The smallest signals are not worth scoring.",
+		"body":
+"A field surgeon's gear, repurposed. The smallest signals are not worth "
++ "scoring; they are worth burning. The Engine performs the calculus. "
++ "The Operator does not need to.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+
+	# Carved tier
+	{
+		"id": "module_signal_amp", "category": Category.MODULES,
+		"name": "Signal Amp",
+		"summary": "Standard Society issue.",
+		"body":
+"The Architects have built thousands of these and assume they will build "
++ "thousands more. They are correct.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_resonance_chamber", "category": Category.MODULES,
+		"name": "Resonance Chamber",
+		"summary": "Self-referential loops double their output.",
+		"body":
+"The Renegade Mechanic claims to have invented the principle. The Society's "
++ "records show otherwise — but only by a few decades. The Mechanic does "
++ "not acknowledge the Society's records.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_data_shard", "category": Category.MODULES,
+		"name": "Data Shard",
+		"summary": "A fragment of encoded temporal data.",
+		"body":
+"Still warm to the touch. The Operator who tries to read the data finds "
++ "nothing; the data is not for reading. The data is for the Machine, and "
++ "the Machine accepts it.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_resonant_loop", "category": Category.MODULES,
+		"name": "Resonant Loop",
+		"summary": "More data, more signal. More signal, more control.",
+		"body":
+"The Architects' standard pitch. Operators who hear it three times in a "
++ "Trial Cycle begin to notice the cadence. The cadence does not change "
++ "between Operators.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_echo_chamber_mod", "category": Category.MODULES,
+		"name": "Echo Chamber",
+		"summary": "The signal echoes once. Use it.",
+		"body":
+"The Echo persists between insertions. The Society discourages reliance on "
++ "it; the Echo is not the signal. The Operators who rely on it anyway "
++ "tend to score higher than the Operators who do not.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_discharge_relay", "category": Category.MODULES,
+		"name": "Discharge Relay",
+		"summary": "Release what does not serve the Chronometer.",
+		"body":
+"The Relay handles the disposal — silently, completely, with no record of "
++ "what was released. The Operator does not need to know. The Operator is "
++ "encouraged not to ask.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_harmonic_filter", "category": Category.MODULES,
+		"name": "Harmonic Filter",
+		"summary": "At six nodes the filter locks in.",
+		"body":
+"Operators report that the Filter emits a faint tone when this happens. "
++ "The Architects insist this is psychosomatic. The Renegade Mechanic "
++ "agrees with them, then asks the Operator what note the tone hit.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_resonant_threshold", "category": Category.MODULES,
+		"name": "Resonant Threshold",
+		"summary": "The heaviest Nodes resonate at higher frequencies.",
+		"body":
+"The Threshold listens for them. Lighter signals pass through unnoticed. "
++ "The Architects describe this as 'discrimination'; the Mechanic prefers "
++ "'preference'.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_finisher_protocol", "category": Category.MODULES,
+		"name": "Finisher Protocol",
+		"summary": "A closed circuit releases all stored energy at once.",
+		"body":
+"The Society's Finisher Protocol is older than electronics; the Mechanism "
++ "predates the metaphor. The Module's name was retroactively applied to "
++ "match contemporary technical vocabulary.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_void_tribute", "category": Category.MODULES,
+		"name": "Void Tribute",
+		"summary": "What the Void takes, it returns as signal.",
+		"body":
+"The Tribute determines the exchange rate. The Operator does not. This is, "
++ "the Mechanic notes, more or less the standard arrangement.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_zero_point_array", "category": Category.MODULES,
+		"name": "Zero-Point Array",
+		"summary": "Empty nodes resonate louder than expected.",
+		"body":
+"The Array is calibrated to capture the resonance. The Architects approved "
++ "the design without testing — the calibration tests would have required "
++ "decommissioning a working Trial Cycle.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_temporal_spiral", "category": Category.MODULES,
+		"name": "Temporal Spiral",
+		"summary": "The spiral has no end. Only acceleration.",
+		"body":
+"The Operator who acquires a Spiral late in a Trial Cycle is rewarded; "
++ "the Operator who acquires one early hasn't realised the design. The "
++ "Renegade Mechanic considers this a feature.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_accelerator_gem", "category": Category.MODULES,
+		"name": "Accelerator Gem",
+		"summary": "The market bends for those who know the right frequencies.",
+		"body":
+"The Copper Guild does not endorse this Gem. The Copper Guild also does "
++ "not recall it. The Gem continues to circulate.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_transmutation_amulet", "category": Category.MODULES,
+		"name": "Transmutation Amulet",
+		"summary": "Doubles connect to any open pip value.",
+		"body":
+"When both faces echo the same signal, the chain accepts them without "
++ "question. The Amulet's stone is a single chip of obsidian set in brass. "
++ "The provenance is unrecorded.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_fortune_gauntlet", "category": Category.MODULES,
+		"name": "Fortune Gauntlet",
+		"summary": "The longer the pulse, the greater the dividend.",
+		"body":
+"The Copper Guild's longest-running contract. Three or more Components in "
++ "a Pulse, and the Guild pays a small dividend. The dividends compound. "
++ "The Guild survives on these compounds.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+
+	# Ivory tier
+	{
+		"id": "module_chain_reaction", "category": Category.MODULES,
+		"name": "Chain Reaction",
+		"summary": "Extended cohesion triggers a cascade.",
+		"body":
+"The Society's pitch describes the Cascade as 'the Operator's reward'. "
++ "The Renegade Mechanic prefers 'the Machine's permission'. Both descriptions "
++ "are technically accurate.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_precision_lens", "category": Category.MODULES,
+		"name": "Precision Lens",
+		"summary": "Ground from crystallised chronite. Perfectly aligned.",
+		"body":
+"The Lens is a Society-issued precision tool. It is also the most copied "
++ "design in the Mechanic's workshop. The Mechanic has not been asked why.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_entropy_sink", "category": Category.MODULES,
+		"name": "Entropy Sink",
+		"summary": "Captures wasted Chronos bleed.",
+		"body":
+"The Sink does not store. The Sink redirects. The Architects have not "
++ "fully traced where the redirected Chronos goes; the redirection is "
++ "the point.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_chronos_lens", "category": Category.MODULES,
+		"name": "Chronos Lens",
+		"summary": "Each node in the array contributes its measure.",
+		"body":
+"The Architects' explicit rebuke to Operators who chase doubles at the "
++ "expense of length. The rebuke is gentle. The Module is not.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_overclock_array", "category": Category.MODULES,
+		"name": "Overclock Array",
+		"summary": "Push the resonance past its rated frequency.",
+		"body":
+"The Array is rated; the Operator is not. The Society does not record what "
++ "happens to Operators who lean on this Module too long. The Renegade "
++ "Mechanic does.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_cascade_lens", "category": Category.MODULES,
+		"name": "Cascade Lens",
+		"summary": "A full eight-node array approaches the resonance threshold.",
+		"body":
+"The Architects describe the threshold as 'where the Machine begins to "
++ "listen back'. They do not describe what the Machine does after it has "
++ "listened.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_void_channeler", "category": Category.MODULES,
+		"name": "Void Channeler",
+		"summary": "The Void is not empty. It hums.",
+		"body":
+"The Channeler tunes the hum into chips. The Society does not endorse "
++ "the technique. The Channeler continues to be sold at the Brass Emporium "
++ "regardless.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_harmonic_apex", "category": Category.MODULES,
+		"name": "Harmonic Apex",
+		"summary": "At maximum resonance, the signal becomes self-sustaining.",
+		"body":
+"The Apex captures the moment of self-sustenance. After it passes, only "
++ "the readings remain. The Operator who collects the readings learns to "
++ "expect the next Apex sooner.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_entropy_pact", "category": Category.MODULES,
+		"name": "Entropy Pact",
+		"summary": "The weak become leverage.",
+		"body":
+"The Pact is signed by the Operator's first use; the terms are not "
++ "disclosed. Operators who later attempt to terminate the Pact discover "
++ "that the contract does not contain a termination clause.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_resonant_null", "category": Category.MODULES,
+		"name": "Resonant Null",
+		"summary": "The Chronometer found signal in the silence first.",
+		"body":
+"The Null was the Mechanism's second discovery. The rest of the Mechanism "
++ "followed. The Architects have not been able to identify the first "
++ "discovery; the Chronometer's earliest records are damaged.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_vault_connection", "category": Category.MODULES,
+		"name": "Vault Connection",
+		"summary": "A direct line to the Copper Guild's vaults.",
+		"body":
+"Discretion is presumed. The Operator who explicitly asks for a discount "
++ "is no longer offered the Connection in subsequent Cycles. The Operators "
++ "who learn this rule do not share it.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+
+	# Obsidian tier
+	{
+		"id": "module_the_dominator", "category": Category.MODULES,
+		"name": "Module CO-9 (\"The Dominator\")",
+		"summary": "Illegal. Recovered from an empty Calibration Core.",
+		"body":
+"The Renegade Mechanic carved this with his own hands. He vanished from "
++ "the Forge for one Trial Cycle the day after its first appearance. He "
++ "has not been asked where he went.\n\n"
++ "Module CO-9 doubles the chip output of every double in the Operator's "
++ "Cohesion Pulse. It also expands the Operator's Module slots by one — a "
++ "capacity the Architects have not authorised any other Module to grant.\n\n"
++ "The Archiver has filed a Notice of Withdrawal against CO-9 in every "
++ "Trial Cycle since its discovery. The Notice has never been signed.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_chronos_amp", "category": Category.MODULES,
+		"name": "Chronos Amplifier",
+		"summary": "Maximum coherence output. Unstable in the wrong hands.",
+		"body":
+"The Society holds three of these. The Renegade Mechanic admits to having "
++ "made the rest. The Society's count and the Mechanic's count do not "
++ "agree on the total.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_the_singularity", "category": Category.MODULES,
+		"name": "The Singularity (Module)",
+		"summary": "When entropy reaches zero, all multipliers converge.",
+		"body":
+"The Module's name is also the third Etapa's name. The naming is not "
++ "coincidence. The Mechanic insists this is one of the Society's few "
++ "honest cataloguing decisions.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_void_amplifier", "category": Category.MODULES,
+		"name": "Void Amplifier",
+		"summary": "The Void does not merely connect. It amplifies.",
+		"body":
+"The Amplifier is an attempt to formalise that property. The formalisation "
++ "is partial at best. The Void has not been informed of the formalisation; "
++ "the Void is not the formalising kind.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_entropy_harvester", "category": Category.MODULES,
+		"name": "Entropy Harvester",
+		"summary": "It does not fight entropy. It feeds on it.",
+		"body":
+"The Harvester grows stronger as the Trial Cycle proceeds. The Operator "
++ "who acquires it early sees the growth most clearly. The Operator who "
++ "acquires it late sees only the harvest.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_obsidian_sacrifice", "category": Category.MODULES,
+		"name": "Obsidian Sacrifice",
+		"summary": "Feed it the small ones. It will give you the cascade.",
+		"body":
+"The Sacrifice is not metaphorical. The Operator who uses it learns this. "
++ "The Architects, asked to comment, declined.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_counting_house", "category": Category.MODULES,
+		"name": "Counting House",
+		"summary": "The wealth was already there.",
+		"body":
+"\"You only learned to see it.\" The Copper Guild did not authorise the "
++ "Counting House. The Copper Guild's auditors do not investigate it. The "
++ "Counting House continues to deposit Monedas in the Operator's accounts.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_blank_coalescer", "category": Category.MODULES,
+		"name": "Blank Coalescer",
+		"summary": "The Void was singing all along.",
+		"body":
+"\"Only the deaf called it empty.\" The Coalescer hears every blank. There "
++ "is no surplus the Coalescer does not capture. The Operator who uses it "
++ "for many Cycles begins to hear the same hum, even with the Module "
++ "unequipped.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+	{
+		"id": "module_apex_resonator", "category": Category.MODULES,
+		"name": "Apex Resonator",
+		"summary": "The peak frequencies do not amplify. They become.",
+		"body":
+"The Resonator harvests the becoming. The Operator who relies on it does "
++ "not always survive its harvest. The Operators who do survive do not "
++ "discuss what they have become.",
+		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
+	},
+
+	# ─── TILES ───────────────────────────────────────────────────────────
+	# Discovery entries for every special Temporal Flow Component. Unlocked
+	# on first acquisition (purchased at the Artisan's Workshop).
+	{
+		"id": "tile_anchor", "category": Category.TILES,
+		"name": "The Anchor",
+		"summary": "Even entropy has a floor.",
+		"body":
+"A 0|0 that refuses to be worthless. The Anchor adds 15 chips regardless "
++ "of context. The Architects approved the design with a note: 'May be "
++ "retired pending review.' The review has not been scheduled.",
+		"unlock": {"type": "event", "value": 0, "hint": "Acquire this tile."},
+	},
+	{
+		"id": "tile_echo", "category": Category.TILES,
+		"name": "The Echo",
+		"summary": "Two signal layers from one tile.",
+		"body":
+"\"Its frequency rings across two signal layers simultaneously.\" The Echo "
++ "counts as two Doubles for resonance. Operators report a faint hum when "
++ "the Echo enters a Pulse. The Architects' position is that the hum is "
++ "'within nominal range'.",
+		"unlock": {"type": "event", "value": 0, "hint": "Acquire this tile."},
+	},
+	{
+		"id": "tile_gilded_shard", "category": Category.TILES,
+		"name": "The Gilded Shard",
+		"summary": "Salvaged from the third calibration collapse.",
+		"body":
+"The Shard is coated in chronometric alloy — stable, valuable, untestable. "
++ "The Society stopped trying to identify the alloy in the seventh Trial "
++ "Cycle. The alloy continues to behave as if identified.",
+		"unlock": {"type": "event", "value": 0, "hint": "Acquire this tile."},
+	},
+	{
+		"id": "tile_prism", "category": Category.TILES,
+		"name": "The Prism",
+		"summary": "Light entering becomes light multiplied.",
+		"body":
+"The Prism's pip values disagree, but the Machine treats it as a Double "
++ "anyway. The Prism does not explain itself. The Society's catalogue lists "
++ "the Prism without an explanation; the catalogue acknowledges this is "
++ "unusual.",
+		"unlock": {"type": "event", "value": 0, "hint": "Acquire this tile."},
+	},
+	{
+		"id": "tile_void_eye", "category": Category.TILES,
+		"name": "The Void Eye",
+		"summary": "It sees all connections and makes them real.",
+		"body":
+"The Void Eye is the only Wild that scores chips on its own merits — five "
++ "of them. The Renegade Mechanic claims to have placed it in the Catalogue. "
++ "The Catalogue's compiler does not remember accepting it.",
+		"unlock": {"type": "event", "value": 0, "hint": "Acquire this tile."},
+	},
+	{
+		"id": "tile_spark", "category": Category.TILES,
+		"name": "The Spark",
+		"summary": "The cascade has to start somewhere.",
+		"body":
+"A Society-issued teaching tile, distributed to every new Operator at the "
++ "start of their training. The Operator's first Pulse usually contains "
++ "one. The tile is small. The cascade is not.",
+		"unlock": {"type": "event", "value": 0, "hint": "Acquire this tile."},
+	},
+	{
+		"id": "tile_hollow", "category": Category.TILES,
+		"name": "The Hollow",
+		"summary": "An empty channel still carries a tone.",
+		"body":
+"A cheaper Anchor — six bonus chips instead of fifteen, priced accordingly "
++ "by the Copper Guild. The Architects consider it a 'practice instrument'. "
++ "The Hollow does not consider itself anything.",
+		"unlock": {"type": "event", "value": 0, "hint": "Acquire this tile."},
+	},
+	{
+		"id": "tile_bridge", "category": Category.TILES,
+		"name": "The Bridge",
+		"summary": "Two flows, one channel.",
+		"body":
+"The Bridge does not choose sides. The pip values disagree, but the "
++ "Machine treats it as a Double for resonance. The Bridge's purpose is to "
++ "fill in where natural Doubles fail to manifest.",
+		"unlock": {"type": "event", "value": 0, "hint": "Acquire this tile."},
+	},
+	{
+		"id": "tile_pinnacle", "category": Category.TILES,
+		"name": "The Pinnacle",
+		"summary": "The peak of resonance.",
+		"body":
+"A 9|9 that counts as three Doubles for multiplier purposes — a Society-"
++ "issued artifact reserved for Operators with Recalibration history. Its "
++ "presence in a Pulse is recorded; its acquisition is celebrated.",
+		"unlock": {"type": "event", "value": 0, "hint": "Acquire this tile."},
+	},
+	{
+		"id": "tile_crown", "category": Category.TILES,
+		"name": "The Crown",
+		"summary": "It does not need to match. The chain matches it.",
+		"body":
+"The Crown was not minted. The Crown was found, in the same condition it "
++ "currently exists, by an Operator whose name has been struck from the "
++ "Society's records.\n\n"
++ "It is the only tile in the entire set that does not register on the "
++ "Architects' inventory. The Master of the Forge stocks it in the "
++ "Artisan's Workshop without comment. Operators who purchase it are not "
++ "asked where they obtained the Monedas.\n\n"
++ "When placed in a Cohesion Pulse, the Crown counts as three doubles for "
++ "resonance. The Machine does not protest. This is, in itself, alarming.",
+		"unlock": {"type": "event", "value": 0, "hint": "Acquire this tile."},
 	},
 
 	# ─── FAILURES ────────────────────────────────────────────────────────

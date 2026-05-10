@@ -1920,10 +1920,11 @@ func _show_shop() -> void:
 		_removal_selected.clear()
 		_artisan_section.show()
 		# Codex: meeting the Workshop crew. The Forge's keeper plus the
-		# unsanctioned Mechanic both appear here post-boss.
+		# unsanctioned Mechanic both appear here post-boss. Module
+		# discoveries are gated on actual purchase / equip, not just
+		# encountering the shop.
 		SaveManager.unlock_codex("master_of_forge")
 		SaveManager.unlock_codex("renegade_mechanic")
-		SaveManager.unlock_codex("the_dominator")
 	else:
 		_lbl_shop_title.text = "THE BRASS EMPORIUM"
 		_lbl_shop_greeting.text = EMPORIUM_GREETINGS[clampi(etapa, 0, 3)]
@@ -2639,6 +2640,9 @@ func _on_buy_pressed(entry: Dictionary) -> void:
 	GameState.add_module(m)
 	AudioManager.play_sfx("module_equip")
 	_shop_bought.append(m.id)
+	# Codex: discovery entry unlocks on first equip. Idempotent —
+	# subsequent purchases of the same module are no-ops.
+	SaveManager.unlock_codex("module_" + m.id)
 	# Auto-save after every purchase so a mid-shop crash doesn't lose the
 	# upgrade. Save is cheap (single JSON write) and idempotent.
 	SaveManager.save_run()
@@ -2658,8 +2662,26 @@ func _on_buy_tile_pressed(index: int) -> void:
 	var t: Domino = entry["tile"]
 	GameState.box.add_tile(Domino.new(t.left, t.right, t.rarity, t.is_wild))
 	_tile_offers_bought.append(index)
+	# Codex: discovery entry unlocks on acquire. Slug derived from the
+	# tile's custom_name ("The Anchor" → "tile_anchor").
+	var slug: String = _codex_slug_for_tile(t)
+	if not slug.is_empty():
+		SaveManager.unlock_codex(slug)
 	SaveManager.save_run()
 	_populate_shop()
+
+## Derive the Codex entry id for a special tile from its custom_name.
+## Returns "" if the tile has no custom_name (a regular numbered tile,
+## which has no Codex entry).
+func _codex_slug_for_tile(t: Domino) -> String:
+	if t == null or t.custom_name.is_empty():
+		return ""
+	var s: String = t.custom_name.to_lower()
+	# Strip the leading "the " article so "The Anchor" → "anchor".
+	if s.begins_with("the "):
+		s = s.substr(4)
+	s = s.replace(" ", "_").strip_edges()
+	return "tile_" + s
 
 func _on_toggle_removal(index: int) -> void:
 	if index in _removal_selected:
