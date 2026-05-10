@@ -3863,11 +3863,6 @@ func _build_table_area() -> Control:
 	_contract_bar.hide()
 	vbox.add_child(_contract_bar)
 
-	# Spacer pushes chain to vertical centre
-	var top_spacer := Control.new()
-	top_spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vbox.add_child(top_spacer)
-
 	# Branch indicators — populated when the chain has live extra_ends
 	# (open branch values from previously-placed doubles). Sits above the
 	# chain so the player can see at a glance which pip values can still
@@ -3879,16 +3874,22 @@ func _build_table_area() -> Control:
 
 	# Chain tiles — VBox of rows. Each row is built fresh in _refresh_chain_display.
 	#
-	# Wrapped in a height-capped Control so a long serpentine chain
-	# (5+ rows) can't push the table area past its allotted vertical
-	# budget and shove the hand zone off-screen. Plain Control reports
-	# only its own custom_minimum_size to the parent layout — content
-	# inside is free to be larger; a ScrollContainer handles the
-	# overflow with vertical scroll.
+	# Wrapped in a flex-sized Control that:
+	#   • reports a small custom_minimum_size (80 px) to the parent layout,
+	#     so the table never demands more vertical space than available
+	#     (which would push the bottom hand zone past the viewport);
+	#   • EXPAND_FILLs vertically inside the table so it absorbs whatever
+	#     space the rest of the table panel doesn't claim;
+	#   • clips overflow + delegates to a ScrollContainer so a long
+	#     serpentine chain still scrolls cleanly when it's taller than the
+	#     visible area allows.
+	#
+	# Plain Control doesn't propagate child min_sizes — the chain VBox
+	# inside can be any height without forcing the parent to grow.
 	var chain_outer := Control.new()
-	chain_outer.custom_minimum_size      = Vector2(0, 220)
+	chain_outer.custom_minimum_size      = Vector2(0, 80)
 	chain_outer.size_flags_horizontal    = Control.SIZE_EXPAND_FILL
-	chain_outer.size_flags_vertical      = Control.SIZE_SHRINK_CENTER
+	chain_outer.size_flags_vertical      = Control.SIZE_EXPAND_FILL
 	chain_outer.clip_contents            = true
 	chain_outer.mouse_filter             = Control.MOUSE_FILTER_IGNORE
 	vbox.add_child(chain_outer)
@@ -3929,10 +3930,9 @@ func _build_table_area() -> Control:
 	_chain_milestone_row.add_theme_constant_override("separation", 4)
 	vbox.add_child(_chain_milestone_row)
 
-	# Spacer below keeps last-hand result pinned to the bottom
-	var bot_spacer := Control.new()
-	bot_spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vbox.add_child(bot_spacer)
+	# (bot_spacer removed — chain_outer is now EXPAND_FILL and absorbs
+	# any extra vertical space inside the table panel; an extra spacer
+	# would steal expand budget from the chain area.)
 
 	# Last-hand result — pinned at bottom of table
 	_lbl_last_hand = _make_label("", C_LAST_HAND, 14)
