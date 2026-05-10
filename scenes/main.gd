@@ -2146,11 +2146,12 @@ func _on_play_pressed() -> void:
 
 	AudioManager.play_sfx("chain_play")
 	# Validate: the selected tiles must extend the PERSISTENT chain legally.
-	# Seed the validator with the committed chain so the first selected tile
-	# is checked against the real open ends, not against an empty chain.
-	var preview := Chain.new()
-	for tile in _rm.current_chain.tiles:
-		preview.add(tile)
+	# Use Chain.clone() to seed with the actual committed chain state
+	# (tiles + ends + extra_ends + history). Re-running .add() on each
+	# committed tile would re-route branch-placed tiles through
+	# fits_right/fits_left, producing a different extra_ends state and
+	# silently rejecting otherwise-legal selections.
+	var preview: Chain = _rm.current_chain.clone()
 	var seeded_len: int = preview.length()
 	var tiles_to_play: Array = []
 	for idx in _selected_tiles:
@@ -3458,13 +3459,22 @@ func _format_open_ends(c: Chain) -> String:
 
 ## Builds the chain that would result from playing the current selection
 ## on top of the persistent chain. Used for both visual rendering and
-## live score projection. The committed portion is seeded first so the
-## preview reflects the actual chain state, not just the selection.
+## live score projection.
+##
+## Uses Chain.clone() to seed the preview with a faithful copy of the
+## committed chain's state — including every live extra_end. Replaying
+## the chain via repeated .add() calls (the old approach) re-routed
+## branch-placed tiles through fits_right/fits_left, producing a
+## different extra_ends state in the preview than in the actual chain.
+## That divergence silently disabled the Play button on otherwise-legal
+## plays whenever a downstream selection depended on the real branch
+## state.
 func _build_preview_chain() -> Chain:
-	var preview := Chain.new()
+	var preview: Chain
 	if _rm != null and _rm.current_chain != null:
-		for tile in _rm.current_chain.tiles:
-			preview.add(tile)
+		preview = _rm.current_chain.clone()
+	else:
+		preview = Chain.new()
 	for idx in _selected_tiles:
 		if idx < _rm.hand.size():
 			if not preview.add(_rm.hand[idx]):

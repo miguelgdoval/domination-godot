@@ -131,6 +131,28 @@ func clear() -> void:
 	left_end  = EMPTY
 	right_end = EMPTY
 
+## Returns a new Chain that's a faithful copy of this one's state —
+## tiles, display orientations, both ends, every live extra_end, and the
+## undo history. Used by the preview-chain builder so that a chain
+## containing branch-consumed tiles replays correctly.
+##
+## The earlier preview path rebuilt the chain by re-running .add() per
+## tile, which ALWAYS uses fits_right/fits_left first before checking
+## extra_ends. A tile originally placed via a branch end would be
+## re-routed through right/left in the preview, producing a different
+## extra_ends state — and any subsequent tile that depended on the real
+## branch state would silently fail to fit, leaving the Play button
+## disabled even on a legal play.
+func clone() -> Chain:
+	var c := Chain.new()
+	c.tiles         = tiles.duplicate()
+	c.tile_displays = tile_displays.duplicate()
+	c.left_end      = left_end
+	c.right_end     = right_end
+	c.extra_ends    = extra_ends.duplicate()
+	c._history      = _history.duplicate(true)
+	return c
+
 # ---------------------------------------------------------------------------
 # Display (text fallback — main UI uses tile_displays directly)
 # ---------------------------------------------------------------------------
