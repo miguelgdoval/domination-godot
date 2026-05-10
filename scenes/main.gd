@@ -333,6 +333,9 @@ var _btn_stats:            Button   # opens the lifetime statistics overlay
 var _stats_overlay:        Control  # built lazily on first open
 var _btn_help:             Button   # opens the help / glossary overlay
 var _help_overlay:         Control  # built lazily on first open
+var _btn_codex:            Button   # opens the Codex (lore archive)
+var _codex_overlay:        Control  # built lazily on first open
+var _codex_active_cat:     int = 0  # currently-selected category tab
 var _settings_overlay:     Control  # volume / mute panel, accessible anywhere
 ## Mid-run pause overlay. Shown via the HUD pause button or ESC during
 ## PLAYING phase when nothing else is active. Blocks game input by sitting
@@ -465,6 +468,21 @@ func _on_help_pressed() -> void:
 func _on_help_close_pressed() -> void:
 	if _help_overlay != null:
 		_help_overlay.hide()
+
+func _on_codex_pressed() -> void:
+	if _codex_overlay == null:
+		_codex_overlay = _build_codex_overlay()
+		_title_overlay.get_parent().add_child(_codex_overlay)
+	_refresh_codex_overlay()
+	_codex_overlay.show()
+
+func _on_codex_close_pressed() -> void:
+	if _codex_overlay != null:
+		_codex_overlay.hide()
+
+func _on_codex_tab_pressed(cat: int) -> void:
+	_codex_active_cat = cat
+	_refresh_codex_overlay()
 
 ## Copy today's daily result to the OS clipboard so the player can
 ## paste it into chat / social. Format is compact and recognisable —
@@ -790,6 +808,228 @@ func _build_achievement_card(a: Dictionary, earned: bool) -> Control:
 	col.add_child(desc_lbl)
 
 	return panel
+
+## Codex / Archive overlay — browsable lore archive that unlocks
+## organically as the player encounters things across runs. Layout:
+##
+##   ┌───────────────────────────────────────────────┐
+##   │  THE ARCHIVE                                  │
+##   ├───────────────────────────────────────────────┤
+##   │  PEOPLE  PLACES  CONCEPTS  ANOM.  FAIL.  TX.  │  ← tab strip
+##   ├───────────────────────────────────────────────┤
+##   │                                               │
+##   │   Entry name              X / Y unlocked      │
+##   │   ──────────────────────                      │
+##   │   <body text, scrollable>                     │
+##   │                                               │
+##   │   [previous]  [next entry]                    │
+##   ├───────────────────────────────────────────────┤
+##   │                  [ CLOSE ]                    │
+##   └───────────────────────────────────────────────┘
+##
+## Locked entries appear in the list as "???" — selectable so the
+## player sees the unlock hint, but with no body until earned.
+func _build_codex_overlay() -> Control:
+	var overlay := ColorRect.new()
+	overlay.color = Color(0, 0, 0, 0.92)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(820, 640)
+	var ps := StyleBoxFlat.new()
+	ps.bg_color     = Color(0.07, 0.05, 0.04, 0.98)
+	ps.border_color = C_TITLE_GLOW.darkened(0.2)
+	ps.set_border_width_all(2)
+	ps.set_corner_radius_all(8)
+	panel.add_theme_stylebox_override("panel", ps)
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 10)
+	panel.add_child(vbox)
+
+	# Title strip
+	var title := _make_label("THE ARCHIVE", C_TITLE_GLOW, 24)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	FontManager.apply_mono(title)
+	vbox.add_child(title)
+
+	vbox.add_child(_make_hsep())
+
+	# Category tabs — rebuilt each refresh so the active highlight + the
+	# X/Y progress counter stays current.
+	var tab_strip := HBoxContainer.new()
+	tab_strip.alignment = BoxContainer.ALIGNMENT_CENTER
+	tab_strip.add_theme_constant_override("separation", 4)
+	vbox.add_child(tab_strip)
+	vbox.set_meta("codex_tabs", tab_strip)
+
+	vbox.add_child(_make_hsep())
+
+	# Two-column body: list of entry titles on the left, detail of the
+	# selected entry on the right. The selected entry index is tracked
+	# in tab_strip's meta so a category change can reset it.
+	var body_hbox := HBoxContainer.new()
+	body_hbox.add_theme_constant_override("separation", 12)
+	body_hbox.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(body_hbox)
+
+	var list_scroll := ScrollContainer.new()
+	list_scroll.custom_minimum_size = Vector2(240, 480)
+	list_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	list_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	body_hbox.add_child(list_scroll)
+	var list_col := VBoxContainer.new()
+	list_col.add_theme_constant_override("separation", 2)
+	list_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list_scroll.add_child(list_col)
+	vbox.set_meta("codex_list", list_col)
+
+	var detail_scroll := ScrollContainer.new()
+	detail_scroll.custom_minimum_size = Vector2(540, 480)
+	detail_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	detail_scroll.size_flags_vertical   = Control.SIZE_EXPAND_FILL
+	detail_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	body_hbox.add_child(detail_scroll)
+	var detail_col := VBoxContainer.new()
+	detail_col.add_theme_constant_override("separation", 10)
+	detail_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	detail_scroll.add_child(detail_col)
+	vbox.set_meta("codex_detail", detail_col)
+
+	vbox.add_child(_make_hsep())
+
+	var btn_row := HBoxContainer.new()
+	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_child(btn_row)
+	btn_row.add_child(_make_button("CLOSE",
+		_on_codex_close_pressed, Vector2(160, 44)))
+
+	return overlay
+
+func _refresh_codex_overlay() -> void:
+	if _codex_overlay == null:
+		return
+	var root: Node = _codex_overlay.get_child(0).get_child(0).get_child(0)
+	var lifetime: Dictionary = SaveManager.get_lifetime_stats()
+	var seen:     Array      = SaveManager.codex_seen()
+	var streak:   int        = SaveManager.daily_streak()
+
+	# Rebuild the tab strip with current progress per category.
+	var tabs: HBoxContainer = root.get_meta("codex_tabs")
+	for child in tabs.get_children():
+		child.queue_free()
+	for cat in range(Codex.CATEGORY_NAMES.size()):
+		var name: String = Codex.CATEGORY_NAMES[cat]
+		var total: int   = Codex.count_in_category(cat)
+		var got:   int   = Codex.unlocked_in_category(cat, lifetime, seen, streak)
+		var label: String = "%s  %d/%d" % [name, got, total]
+		var btn := Button.new()
+		btn.text = label
+		btn.add_theme_font_size_override("font_size", 11)
+		btn.custom_minimum_size = Vector2(0, 32)
+		btn.pressed.connect(_on_codex_tab_pressed.bind(cat))
+		# Active tab — chronos-green border for distinction
+		var s := StyleBoxFlat.new()
+		s.bg_color     = Color(0.10, 0.08, 0.06) if cat != _codex_active_cat \
+			else Color(0.10, 0.18, 0.13)
+		s.border_color = C_DIM if cat != _codex_active_cat \
+			else C_CHRONOS
+		s.set_border_width_all(1 if cat != _codex_active_cat else 2)
+		s.set_corner_radius_all(4)
+		s.set_content_margin_all(6)
+		btn.add_theme_stylebox_override("normal", s)
+		btn.add_theme_stylebox_override("hover", s)
+		tabs.add_child(btn)
+
+	# Find entries in the active category, build the list.
+	var list_col: VBoxContainer = root.get_meta("codex_list")
+	for child in list_col.get_children():
+		child.queue_free()
+	var entries_in_cat: Array = []
+	for i in range(Codex.ENTRIES.size()):
+		if int(Codex.ENTRIES[i].get("category", -1)) == _codex_active_cat:
+			entries_in_cat.append(i)
+	# Selection: persist within this overlay session. Reset on tab change.
+	var selected_idx: int = root.get_meta("codex_selected", -1)
+	if not selected_idx in entries_in_cat:
+		selected_idx = entries_in_cat[0] if not entries_in_cat.is_empty() else -1
+		root.set_meta("codex_selected", selected_idx)
+
+	for entry_idx in entries_in_cat:
+		var unlocked: bool = Codex.is_unlocked(entry_idx, lifetime, seen, streak)
+		var entry: Dictionary = Codex.ENTRIES[entry_idx]
+		var btn := _build_codex_list_entry(entry, unlocked,
+			entry_idx == selected_idx, entry_idx)
+		list_col.add_child(btn)
+
+	# Detail panel for the selected entry.
+	var detail_col: VBoxContainer = root.get_meta("codex_detail")
+	for child in detail_col.get_children():
+		child.queue_free()
+	if selected_idx >= 0:
+		var entry: Dictionary = Codex.ENTRIES[selected_idx]
+		var unlocked: bool = Codex.is_unlocked(selected_idx, lifetime, seen, streak)
+		var name_lbl: Label = _make_label(
+			entry["name"] if unlocked else "??? ??? ???",
+			C_TITLE_GLOW if unlocked else C_DIM, 18)
+		FontManager.apply_mono(name_lbl)
+		detail_col.add_child(name_lbl)
+
+		var sep := ColorRect.new()
+		sep.color = C_TITLE_GLOW.darkened(0.5)
+		sep.custom_minimum_size = Vector2(0, 1)
+		detail_col.add_child(sep)
+
+		var body_text: String
+		if unlocked:
+			body_text = String(entry.get("body", ""))
+		else:
+			body_text = "Undiscovered.\n\n" + \
+				String(entry.get("unlock", {}).get("hint", ""))
+		var body_lbl: Label = _make_label(body_text, C_TEXT, 13)
+		body_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		body_lbl.custom_minimum_size = Vector2(520, 0)
+		detail_col.add_child(body_lbl)
+
+func _build_codex_list_entry(entry: Dictionary, unlocked: bool,
+		selected: bool, entry_idx: int) -> Control:
+	var btn := Button.new()
+	btn.text = entry["name"] if unlocked else "???"
+	btn.add_theme_font_size_override("font_size", 12)
+	btn.custom_minimum_size = Vector2(0, 30)
+	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	btn.pressed.connect(_on_codex_entry_pressed.bind(entry_idx))
+	var s := StyleBoxFlat.new()
+	if selected:
+		s.bg_color     = Color(0.10, 0.18, 0.13)
+		s.border_color = C_CHRONOS
+		s.set_border_width_all(1)
+	else:
+		s.bg_color     = Color(0.09, 0.07, 0.05) if unlocked \
+			else Color(0.06, 0.05, 0.04)
+		s.border_color = Color(0.25, 0.20, 0.12) if unlocked \
+			else Color(0.18, 0.15, 0.10)
+		s.set_border_width_all(1)
+	s.set_corner_radius_all(3)
+	s.set_content_margin_all(6)
+	btn.add_theme_stylebox_override("normal", s)
+	btn.add_theme_stylebox_override("hover", s)
+	if not unlocked:
+		btn.add_theme_color_override("font_color", C_DIM)
+	return btn
+
+func _on_codex_entry_pressed(entry_idx: int) -> void:
+	if _codex_overlay == null:
+		return
+	var root: Node = _codex_overlay.get_child(0).get_child(0).get_child(0)
+	root.set_meta("codex_selected", entry_idx)
+	_refresh_codex_overlay()
 
 ## Help / glossary overlay — quick reference for game terms and rules.
 ## Replaces the player's reliance on the one-time tutorial. Sectioned by
@@ -1379,6 +1619,11 @@ func _end_round(won: bool) -> void:
 		var dir_bonus: int = _dm.check_round_win()
 		GameState.monedas += dir_bonus
 		var earned: int = GameState.award_monedas(_rm.unused_hands())
+		# Codex: first round-clear introduces the Guild and their currency.
+		# Failure entries auto-unlock via their `best_round` stat gates
+		# at boss-encounter time, so no explicit hook needed there.
+		SaveManager.unlock_codex("copper_guild")
+		SaveManager.unlock_codex("monedas")
 		_lbl_result.text = "RECALIBRATION SUCCESSFUL"
 		_lbl_result.add_theme_color_override("font_color", C_WIN)
 		_lbl_result_sub.text = _build_round_summary_text(earned, dir_bonus)
@@ -1489,11 +1734,18 @@ func _show_shop() -> void:
 		_removal_candidates = TileShopManager.generate_removal_candidates(GameState.box, 8)
 		_removal_selected.clear()
 		_artisan_section.show()
+		# Codex: meeting the Workshop crew. The Forge's keeper plus the
+		# unsanctioned Mechanic both appear here post-boss.
+		SaveManager.unlock_codex("master_of_forge")
+		SaveManager.unlock_codex("renegade_mechanic")
+		SaveManager.unlock_codex("the_dominator")
 	else:
 		_lbl_shop_title.text = "THE BRASS EMPORIUM"
 		_lbl_shop_greeting.text = EMPORIUM_GREETINGS[clampi(etapa, 0, 3)]
 		_shop_inventory = ShopManager.generate_emporium(3, owned_ids, owned_modules)
 		_artisan_section.hide()
+		# Codex: first contact with the Emporium's automated terminal.
+		SaveManager.unlock_codex("emporium_voice")
 
 	_shop_bought.clear()
 	_populate_shop()
@@ -5023,6 +5275,14 @@ func _build_title_overlay() -> Control:
 	hp_hov.bg_color = Color(0.18, 0.14, 0.06)
 	_btn_help.add_theme_stylebox_override("hover", hp_hov)
 	btn_row.add_child(_btn_help)
+
+	# Codex / Archive — the lore archive. Same modal pattern as the other
+	# title-screen browsers; styled with the title-glow accent.
+	_btn_codex = _make_button("⬡",
+		_on_codex_pressed, Vector2(54, 54))
+	_btn_codex.add_theme_stylebox_override("normal", hp_style)
+	_btn_codex.add_theme_stylebox_override("hover", hp_hov)
+	btn_row.add_child(_btn_codex)
 
 	# "Continue Run" — hidden until SaveManager confirms a mid-run save exists
 	_btn_continue_run = _make_button(

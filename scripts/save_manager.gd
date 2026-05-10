@@ -267,6 +267,31 @@ func daily_history_sorted() -> Array:
 func _date_key_from_dict(d: Dictionary) -> String:
 	return "%04d-%02d-%02d" % [int(d.year), int(d.month), int(d.day)]
 
+# ---------------------------------------------------------------------------
+# Codex — lore entries unlocked across runs
+# ---------------------------------------------------------------------------
+
+## Returns the set of Codex entry IDs the player has unlocked through
+## explicit events (visiting shops, beating bosses, etc.). Stat-gated
+## unlocks aren't stored here — they're derived from lifetime_stats.
+func codex_seen() -> Array:
+	return _data.get("codex_seen", [])
+
+## Mark a Codex entry as unlocked. Used for "event"-type gates that
+## fire on specific in-game moments (first shop visit, first round
+## clear, encountering a specific boss). Idempotent — duplicate calls
+## with the same id are no-ops.
+func unlock_codex(id: String) -> bool:
+	if id.is_empty():
+		return false
+	var seen: Array = _data.get("codex_seen", [])
+	if id in seen:
+		return false
+	seen.append(id)
+	_data["codex_seen"] = seen
+	_save_to_disk()
+	return true
+
 ## Returns lifetime stats dict. Always has the standard keys (defaulted to
 ## 0 if the player has never finished a run).
 func get_lifetime_stats() -> Dictionary:
