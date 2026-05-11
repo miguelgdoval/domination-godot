@@ -179,7 +179,7 @@ var _last_committed_len: int = 0
 ## collapses into a clickable pill so both ends + recent action stay
 ## visible without horizontal scrolling. Click the pill to open the
 ## inspector overlay (full chain, horizontal scroll inside).
-const CHAIN_COLLAPSE_THRESHOLD: int  = 5
+const CHAIN_COLLAPSE_THRESHOLD: int  = 4
 const CHAIN_COLLAPSE_ENDS_VISIBLE: int = 2
 ## Lazy-built inspector overlay shown when the player clicks the
 ## collapse pill. Renders the full chain at full size inside a centred
@@ -3845,16 +3845,13 @@ func _layout_chain_linear(chain: Chain) -> void:
 	for i in range(n):
 		_chain_tile_panels[i] = null
 
-	# Collapse decision. Long chains hide their middle behind a clickable
-	# pill so both ends stay visible. We force-uncollapse for the duration
-	# of the scoring cascade (commit_just_happened or _scoring_active) so
-	# every tile gets its chip-pop animation — the cascade is the moment
-	# the player cares about per-tile breakdown. Once scoring resolves
-	# and the chain settles, collapse takes over.
-	var commit_just_happened: bool = committed_len > _last_committed_len
-	var should_collapse: bool = committed_len > CHAIN_COLLAPSE_THRESHOLD \
-		and not commit_just_happened \
-		and not _scoring_active
+	# Collapse decision. Hard rule: the chain area shows at most
+	# CHAIN_COLLAPSE_ENDS_VISIBLE × 2 inline tiles + the collapse pill,
+	# at every moment — committed state, mid-cascade, while previewing
+	# a long selection. We use the preview length n (committed + selected)
+	# so a multi-tile selection that pushes the visible chain past the
+	# cap also collapses; the last 2 picks always stay in the tail.
+	var should_collapse: bool = n > CHAIN_COLLAPSE_THRESHOLD
 
 	# GHOST_CHAIN: a deterministic third of the placed tiles render at
 	# very low opacity. The rule (`(idx + 1) % 3 == 0`) is stable across
@@ -3867,20 +3864,22 @@ func _layout_chain_linear(chain: Chain) -> void:
 			_rm.current_chain.left_end, half_size, true))
 
 	if should_collapse:
-		# Head: first ENDS_VISIBLE committed tiles.
+		# Head: first ENDS_VISIBLE tiles of the full chain (always
+		# committed tiles since the chain head is the oldest part).
 		for tile_idx in range(CHAIN_COLLAPSE_ENDS_VISIBLE):
 			_add_chain_tile_at(chain, tile_idx, committed_len,
 				target_chain_idx, half_size, ghosting)
 
 		# Collapse pill in place of the hidden middle.
 		var hidden_lo: int = CHAIN_COLLAPSE_ENDS_VISIBLE
-		var hidden_hi: int = committed_len - CHAIN_COLLAPSE_ENDS_VISIBLE
+		var hidden_hi: int = n - CHAIN_COLLAPSE_ENDS_VISIBLE
 		var hidden_count: int = hidden_hi - hidden_lo
 		_chain_container.add_child(_make_collapse_pill(hidden_count, half_size))
 
-		# Tail of committed tiles + every preview tile, all visible at
-		# the right so the player's current selection always stays in
-		# view regardless of how long the chain is.
+		# Tail: last ENDS_VISIBLE tiles of the full chain — could be
+		# late committed tiles, preview tiles, or a mix. _add_chain_tile_at
+		# tags each correctly via the is_committed check so preview tiles
+		# keep their dashed-style styling.
 		for tile_idx in range(hidden_hi, n):
 			_add_chain_tile_at(chain, tile_idx, committed_len,
 				target_chain_idx, half_size, ghosting)
