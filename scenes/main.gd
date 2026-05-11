@@ -179,7 +179,7 @@ var _last_committed_len: int = 0
 ## collapses into a clickable pill so both ends + recent action stay
 ## visible without horizontal scrolling. Click the pill to open the
 ## inspector overlay (full chain, horizontal scroll inside).
-const CHAIN_COLLAPSE_THRESHOLD: int  = 6
+const CHAIN_COLLAPSE_THRESHOLD: int  = 5
 const CHAIN_COLLAPSE_ENDS_VISIBLE: int = 1
 ## Lazy-built inspector overlay shown when the player clicks the
 ## collapse pill. Renders the full chain at full size inside a centred
