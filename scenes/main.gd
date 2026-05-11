@@ -171,6 +171,14 @@ var _chain_tile_panels: Array[Control] = []
 ## pip value the chain can match next via that branch. Empty when no
 ## branches are open.
 var _chain_branches_row: HBoxContainer
+## Cached scroll container around the chain — kept so we can auto-scroll
+## to the newest tile after a commit grows the chain past the visible
+## area. Wired in _build_play_area.
+var _chain_scroll: ScrollContainer
+## Committed chain length at the last render. When the next render's
+## committed length is greater, the newly-arrived tiles get a slide-in
+## animation. Reset to 0 at round start (_begin_round_play).
+var _last_committed_len: int = 0
 var _lbl_preview:          Label   # equation line: "N chips × M"
 var _lbl_preview_total:    Label   # big total line: "= TOTAL" (dominant)
 var _chain_milestone_row:  HBoxContainer   # visual dot-progress bar for chain bonuses
@@ -1753,6 +1761,10 @@ func _begin_round_play() -> void:
 	# milestones independently.
 	_last_tier_reached = -1
 	_target_celebrated = false
+	# Reset the chain-commit watermark so the first placement in this
+	# round still triggers the slide-in animation (otherwise tiles from
+	# a previous round's commit count keep the animation suppressed).
+	_last_committed_len = 0
 
 	_dm = DirectiveManager.new()
 	# Per-core directive count override (The Runner core starts with 3
@@ -3856,6 +3868,22 @@ func _create_hand_tile(tile: Domino, index: int) -> Button:
 ## tile by chain index regardless of which row it ended up in.
 func _layout_chain_serpentine(chain: Chain) -> void:
 	var n: int = chain.length()
+	var committed_len: int = _rm.current_chain.length() if _rm != null else 0
+
+	# Where would the first selected tile attach? Highlighted with a gold
+	# border on the receiving chain end so the player gets a spatial cue.
+	# Phase-1 scope: only the linear left_end / right_end. Branches
+	# (extra_ends) get their own visual pass later.
+	var target_chain_idx: int = -1
+	if not _selected_tiles.is_empty() and not _rm.current_chain.is_empty():
+		var first_sel: int = _selected_tiles[0]
+		if first_sel >= 0 and first_sel < _rm.hand.size():
+			var first_tile: Domino = _rm.hand[first_sel]
+			# Right end is the natural default — both-ends ties go right.
+			if _tile_fits_right(first_tile, _rm.current_chain.right_end):
+				target_chain_idx = committed_len - 1
+			elif _tile_fits_left(first_tile, _rm.current_chain.left_end):
+				target_chain_idx = 0
 
 	# Adaptive sizing — half = one pip face's edge length.
 	# Each tile is a SQUARE slot of (2*half + sep) on each side. With no
@@ -3891,8 +3919,11 @@ func _layout_chain_serpentine(chain: Chain) -> void:
 
 	for r_idx in range(rows.size()):
 		var row := HBoxContainer.new()
-		row.alignment = BoxContainer.ALIGNMENT_CENTER
-		row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		# Left-anchor (F): rows extend rightward as the chain grows, so
+		# previously-placed tiles never shift horizontally to recenter.
+		# The row itself fills the width of the chain container.
+		row.alignment = BoxContainer.ALIGNMENT_BEGIN
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		# Slots abut directly — no row gap. Each tile's faint outline (set
 		# in _build_chain_tile) provides the visible seam between adjacent
 		# pieces, so they read as touching but distinct.
@@ -3904,6 +3935,12 @@ func _layout_chain_serpentine(chain: Chain) -> void:
 		if reverse:
 			indices.reverse()
 
+		# Left end-cap (A): only on the first row, before its first tile.
+		# Anchors the player to "the chain accepts a matching tile here".
+		if r_idx == 0 and committed_len > 0:
+			row.add_child(_make_chain_end_cap(
+				_rm.current_chain.left_end, half_size, true))
+
 		# GHOST_CHAIN: a deterministic third of the placed tiles render at
 		# very low opacity. The rule (`(idx + 1) % 3 == 0`) is stable across
 		# renders within a round so the player can lock in which tiles are
@@ -3913,6 +3950,8 @@ func _layout_chain_serpentine(chain: Chain) -> void:
 		for tile_idx in indices:
 			var d: Vector2i = chain.tile_displays[tile_idx]
 			var is_double: bool = (d.x == d.y)
+			var is_committed: bool = tile_idx < committed_len
+			var is_target: bool    = tile_idx == target_chain_idx
 			# Double  → render perpendicular (vertical) in this horizontal row.
 			# Single  → render along the row (horizontal).
 			# When the row is reversed (right-to-left), swap left/right faces
@@ -3920,13 +3959,42 @@ func _layout_chain_serpentine(chain: Chain) -> void:
 			var left_pip:  int = d.y if reverse else d.x
 			var right_pip: int = d.x if reverse else d.y
 			var tile_panel: Control = _build_chain_tile(
-				left_pip, right_pip, half_size, is_double)
+				left_pip, right_pip, half_size, is_double,
+				is_committed, is_target)
 			if ghosting and (tile_idx + 1) % 3 == 0:
 				tile_panel.modulate.a = 0.18
 			row.add_child(tile_panel)
 			_chain_tile_panels[tile_idx] = tile_panel
 
+		# Right end-cap (A): only on the last row, beside the row's
+		# chain-tail tile. In a reversed last row, the chain tail is the
+		# FIRST visual child (left edge of the row), so we prepend.
+		# In a forward last row, the tail is the LAST visual child, so
+		# we append. The cap always sits at the open mouth of the chain.
+		if r_idx == rows.size() - 1 and committed_len > 0:
+			var right_cap := _make_chain_end_cap(
+				_rm.current_chain.right_end, half_size, false)
+			row.add_child(right_cap)
+			if reverse:
+				# Move to index 0 of the row — first visual position.
+				row.move_child(right_cap, 0)
+
 		_chain_container.add_child(row)
+
+	# Slide-in animation (E): if the committed length grew since the last
+	# render, animate the newly-arrived committed tiles. Skip for preview
+	# tiles (their come-and-go on every selection click would be noisy).
+	if committed_len > _last_committed_len:
+		for idx in range(_last_committed_len, committed_len):
+			if idx < _chain_tile_panels.size() and is_instance_valid(_chain_tile_panels[idx]):
+				_animate_chain_slide_in(_chain_tile_panels[idx])
+	_last_committed_len = committed_len
+
+	# Auto-scroll so the newest tile is always in view, even when the
+	# chain has wrapped to a new row. Deferred a frame so the scroll
+	# bar has the layout's final max_value before we read it.
+	if _chain_scroll != null:
+		_scroll_chain_to_bottom.call_deferred()
 
 ## Build a chain tile in either orientation.
 ##   vertical=true  → double tile, halves stacked top/bottom (perpendicular).
@@ -3943,7 +4011,8 @@ func _layout_chain_serpentine(chain: Chain) -> void:
 ## `half_size` is the edge length of one pip face on a non-double tile. Pip
 ## dot size, border, corner, and padding all scale from it.
 func _build_chain_tile(disp_left: int, disp_right: int,
-		half_size: int = 60, vertical: bool = true) -> Control:
+		half_size: int = 60, vertical: bool = true,
+		is_committed: bool = true, is_target: bool = false) -> Control:
 	var sep_thickness: int = 2
 	var dot_size: int = maxi(4, int(half_size * 0.18))
 
@@ -3956,24 +4025,59 @@ func _build_chain_tile(disp_left: int, disp_right: int,
 	var slot: int = half_size * 2 + sep_thickness
 	var slot_w: int = half_size if vertical else slot
 
+	# Outer wrapper Control so we can overlay decorations (doubles badge,
+	# future branch markers) without fighting PanelContainer's mandatory
+	# fit-children-to-rect layout. The wrapper carries the slot size; the
+	# inner stylebox panel anchors to fill it.
+	var tile_root := Control.new()
+	tile_root.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	tile_root.size_flags_vertical   = Control.SIZE_SHRINK_CENTER
+	tile_root.custom_minimum_size = Vector2(slot_w, slot)
+	tile_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
 	var panel := PanelContainer.new()
-	panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	panel.size_flags_vertical   = Control.SIZE_SHRINK_CENTER
-	panel.custom_minimum_size = Vector2(slot_w, slot)
+	panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	# Faint outline only — no fill, no shadow. This is enough to give each
-	# tile a visible silhouette so adjacent tiles don't read as one blob,
-	# without bringing back the heavy ebony frame.
+	# Tile state styling — three layers stack:
+	#   - is_committed=false → preview tile (selected, not yet played).
+	#       Dashed feel via lighter dotted border + 88% opacity.
+	#   - vertical=true (double) → gold-tinted border accent so the
+	#       double's identity reads at a glance instead of being a
+	#       look-alike square.
+	#   - is_target=true → bright gold border + thicker stroke so the
+	#       player sees which end the first-selected hand tile will
+	#       attach to.
 	var style := StyleBoxFlat.new()
 	style.bg_color     = Color(0, 0, 0, 0)
 	style.border_color = Color(0.05, 0.04, 0.03, 0.55)
 	style.set_border_width_all(1)
 	style.set_corner_radius_all(2)
 	style.set_content_margin_all(0)
+	if not is_committed:
+		style.border_color = C_GOLD_RIM.lerp(C_TEXT, 0.30)
+		style.set_border_width_all(1)
+		style.set_corner_radius_all(3)
+		panel.modulate.a = 0.88
+	if vertical:
+		# Doubles always have a gold accent — visible at every chain
+		# length without breaking the muted table aesthetic.
+		style.border_color = C_GOLD_TITLE if is_committed else \
+			C_GOLD_TITLE.lerp(C_TEXT, 0.40)
+		style.set_border_width_all(2)
+	if is_target:
+		style.border_color = C_TILE_BORDER_SEL
+		style.set_border_width_all(3)
 	panel.add_theme_stylebox_override("panel", style)
+	# Mirror meta on both the inner panel and the outer wrapper. Outer
+	# wrapper is what _chain_tile_panels stores, so the breathe / scoring
+	# tweens look up meta there. Inner panel keeps the style reference
+	# for any future code that introspects via the PanelContainer.
 	panel.set_meta("border_style",      style)
 	panel.set_meta("base_border_color", style.border_color)
+	tile_root.set_meta("border_style",      style)
+	tile_root.set_meta("base_border_color", style.border_color)
+	tile_root.add_child(panel)
 
 	# Centered content keeps every face exactly half_size × half_size square,
 	# regardless of orientation. The inner box sits at its natural minimum
@@ -4023,7 +4127,113 @@ func _build_chain_tile(disp_left: int, disp_right: int,
 	second_panel.add_child(_make_pip_display(disp_right, dot_size, second_dot_color))
 	box.add_child(second_panel)
 
-	return panel
+	# Doubles badge (D): a small gold "✦" anchored to the top-right
+	# corner of the tile. Lives on tile_root (a plain Control, not a
+	# Container) so its anchors aren't overridden by auto-layout. Skipped
+	# on the tiniest tiles where the overlay would crowd the pip face.
+	if vertical and half_size >= 18:
+		var badge := Label.new()
+		badge.text = "✦"
+		badge.add_theme_font_size_override("font_size",
+			maxi(10, int(half_size * 0.32)))
+		badge.add_theme_color_override("font_color", C_GOLD_TITLE)
+		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		badge.z_index = 5
+		FontManager.apply_semibold(badge)
+		badge.anchor_left   = 1.0
+		badge.anchor_top    = 0.0
+		badge.anchor_right  = 1.0
+		badge.anchor_bottom = 0.0
+		badge.offset_left   = -int(half_size * 0.55)
+		badge.offset_top    = -2
+		tile_root.add_child(badge)
+
+	return tile_root
+
+## Small pip-badge anchored at an open end of the chain. Visualises the
+## value a new tile needs to match to attach there. Renders next to the
+## tile that owns that end — left-cap before the first chain tile,
+## right-cap after the last (in chain order, regardless of row reversal).
+func _make_chain_end_cap(pip_value: int, half_size: int,
+		is_left_cap: bool) -> Control:
+	var cap_size: int = maxi(18, int(half_size * 0.85))
+	var wrap := CenterContainer.new()
+	wrap.custom_minimum_size = Vector2(cap_size + 8, half_size * 2 + 2)
+	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var pill := PanelContainer.new()
+	pill.custom_minimum_size = Vector2(cap_size, cap_size)
+	pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var s := StyleBoxFlat.new()
+	s.bg_color     = Color(0.08, 0.07, 0.05, 0.85)
+	s.border_color = C_GOLD_TITLE
+	s.set_border_width_all(1)
+	s.set_corner_radius_all(cap_size / 2)
+	s.set_content_margin_all(2)
+	pill.add_theme_stylebox_override("panel", s)
+	wrap.add_child(pill)
+
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 2)
+	hb.alignment = BoxContainer.ALIGNMENT_CENTER
+	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pill.add_child(hb)
+
+	# Direction glyph — pointed inward toward the chain so the player
+	# reads "this is where matching tiles flow IN".
+	var arrow := Label.new()
+	arrow.text = "▶" if is_left_cap else "◀"
+	arrow.add_theme_font_size_override("font_size", maxi(8, int(cap_size * 0.45)))
+	arrow.add_theme_color_override("font_color", C_GOLD_TITLE)
+	arrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	FontManager.apply_semibold(arrow)
+	# Pip value the chain is waiting for. WILD shows as a star to match
+	# the in-chain wild rendering convention.
+	var pip_lbl := Label.new()
+	pip_lbl.text = "★" if pip_value < 0 else str(pip_value)
+	pip_lbl.add_theme_font_size_override("font_size",
+		maxi(10, int(cap_size * 0.55)))
+	pip_lbl.add_theme_color_override("font_color", C_TEXT)
+	pip_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	FontManager.apply_semibold(pip_lbl)
+	# Caps face inward: left-cap shows "▶ N" (arrow points into the
+	# chain); right-cap shows "N ◀".
+	if is_left_cap:
+		hb.add_child(arrow)
+		hb.add_child(pip_lbl)
+	else:
+		hb.add_child(pip_lbl)
+		hb.add_child(arrow)
+	return wrap
+
+## Deferred companion to the layout that scrolls the chain to its
+## bottom row. Reading max_value before the deferred call would return
+## the previous frame's value, leaving wrapped tiles off-screen.
+func _scroll_chain_to_bottom() -> void:
+	if _chain_scroll == null:
+		return
+	_chain_scroll.scroll_vertical = int(
+		_chain_scroll.get_v_scroll_bar().max_value)
+
+## Slide-in animation for a freshly-committed chain tile. Scale + fade
+## pop from 70%→100% over a short window scaled by the user's anim-speed
+## preference. Skips if the panel was already animated (re-render in the
+## same frame won't trigger another pop).
+func _animate_chain_slide_in(panel: Control) -> void:
+	if panel == null or not is_instance_valid(panel):
+		return
+	if panel.has_meta("_slid_in"):
+		return
+	panel.set_meta("_slid_in", true)
+	panel.pivot_offset = panel.size * 0.5
+	panel.modulate.a = 0.0
+	panel.scale = Vector2(0.7, 0.7)
+	var dur: float = 0.26 / maxf(0.5, _anim_speed())
+	var t := panel.create_tween().set_parallel(true)
+	t.tween_property(panel, "modulate:a", 1.0, dur) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	t.tween_property(panel, "scale", Vector2.ONE, dur) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 ## Override the face panel's stylebox content margin to a small value so the
 ## panel's own minimum size is dominated by the pip-display content rather
@@ -4863,6 +5073,7 @@ func _build_table_area() -> Control:
 	chain_scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	chain_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	chain_outer.add_child(chain_scroll)
+	_chain_scroll = chain_scroll
 
 	_chain_container = VBoxContainer.new()
 	_chain_container.alignment             = BoxContainer.ALIGNMENT_CENTER
