@@ -3887,6 +3887,12 @@ func _create_hand_tile(tile: Domino, index: int) -> Button:
 func _layout_chain_serpentine(chain: Chain) -> void:
 	var n: int = chain.length()
 	var committed_len: int = _rm.current_chain.length() if _rm != null else 0
+	# Per-tile placement sides — "extra" marks branch tiles. Phase 3 uses
+	# this to render them with a distinct teal accent so the player can
+	# read main-spine vs branch at a glance, even though the geometric
+	# layout still flows the chain linearly (true perpendicular layout
+	# deferred to a follow-up that needs interactive iteration).
+	var sides: Array[String] = chain.get_placement_sides()
 
 	# Where would the first selected tile attach? Highlighted with a gold
 	# border on the receiving chain end so the player gets a spatial cue.
@@ -4001,9 +4007,11 @@ func _layout_chain_serpentine(chain: Chain) -> void:
 			var left_pip:  int = d.y if reverse else d.x
 			var right_pip: int = d.x if reverse else d.y
 			var branch_pip: int = int(branch_value_by_idx.get(tile_idx, -2))
+			var is_branch: bool = tile_idx < sides.size() \
+				and sides[tile_idx] == "extra"
 			var tile_panel: Control = _build_chain_tile(
 				left_pip, right_pip, half_size, is_double,
-				is_committed, is_target, branch_pip)
+				is_committed, is_target, branch_pip, is_branch)
 			if ghosting and (tile_idx + 1) % 3 == 0:
 				tile_panel.modulate.a = 0.18
 			row.add_child(tile_panel)
@@ -4056,7 +4064,7 @@ func _layout_chain_serpentine(chain: Chain) -> void:
 func _build_chain_tile(disp_left: int, disp_right: int,
 		half_size: int = 60, vertical: bool = true,
 		is_committed: bool = true, is_target: bool = false,
-		branch_pip: int = -2) -> Control:
+		branch_pip: int = -2, is_branch_tile: bool = false) -> Control:
 	var sep_thickness: int = 2
 	var dot_size: int = maxi(4, int(half_size * 0.18))
 
@@ -4108,6 +4116,14 @@ func _build_chain_tile(disp_left: int, disp_right: int,
 		# length without breaking the muted table aesthetic.
 		style.border_color = C_GOLD_TITLE if is_committed else \
 			C_GOLD_TITLE.lerp(C_TEXT, 0.40)
+		style.set_border_width_all(2)
+	if is_branch_tile:
+		# Phase 3: branch tiles get the teal "branching" tint. Overrides
+		# any double/preview accent — being a branch tile is the most
+		# important visual claim. Target highlight (next block) can still
+		# override this when the player has it selected as the next play.
+		style.border_color = C_TARGETING if is_committed else \
+			C_TARGETING.lerp(C_TEXT, 0.35)
 		style.set_border_width_all(2)
 	if is_target:
 		style.border_color = C_TILE_BORDER_SEL
@@ -4191,6 +4207,27 @@ func _build_chain_tile(disp_left: int, disp_right: int,
 		badge.offset_left   = -int(half_size * 0.55)
 		badge.offset_top    = -2
 		tile_root.add_child(badge)
+
+	# Branch-tile glyph (Phase 3): tiles that landed via a branching
+	# extra_end get a small "↳" in the top-left corner — opposite the ✦
+	# double badge so doubles-that-are-also-branches stay readable. Tile
+	# also already has the teal border accent applied above.
+	if is_branch_tile and half_size >= 18:
+		var lineage := Label.new()
+		lineage.text = "↳"
+		lineage.add_theme_font_size_override("font_size",
+			maxi(10, int(half_size * 0.34)))
+		lineage.add_theme_color_override("font_color", C_TARGETING)
+		lineage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		lineage.z_index = 5
+		FontManager.apply_semibold(lineage)
+		lineage.anchor_left   = 0.0
+		lineage.anchor_top    = 0.0
+		lineage.anchor_right  = 0.0
+		lineage.anchor_bottom = 0.0
+		lineage.offset_left   = 2
+		lineage.offset_top    = -2
+		tile_root.add_child(lineage)
 
 	# Branch badge (G): for doubles whose extra_end is still live, a small
 	# pill floats above the tile showing the pip value the branch is

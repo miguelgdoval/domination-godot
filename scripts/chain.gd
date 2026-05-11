@@ -131,6 +131,17 @@ func clear() -> void:
 	left_end  = EMPTY
 	right_end = EMPTY
 
+## Per-tile placement side for the entire chain, in chain order. Values
+## are "first", "right", "left", or "extra" — the latter marks a tile
+## that landed via a branching open end (created by a previously-placed
+## double) instead of the linear left/right ends. The chain renderer
+## uses this to visually distinguish branch tiles from spine tiles.
+func get_placement_sides() -> Array[String]:
+	var out: Array[String] = []
+	for h in _history:
+		out.append(String(h.get("side", "")))
+	return out
+
 ## Returns a new Chain that's a faithful copy of this one's state —
 ## tiles, display orientations, both ends, every live extra_end, and the
 ## undo history. Used by the preview-chain builder so that a chain
