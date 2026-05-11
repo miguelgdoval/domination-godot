@@ -3846,12 +3846,15 @@ func _layout_chain_linear(chain: Chain) -> void:
 		_chain_tile_panels[i] = null
 
 	# Collapse decision. Long chains hide their middle behind a clickable
-	# pill so both ends stay visible — every render, including the one
-	# that fires the scoring cascade. The cascade will skip animations
-	# on the hidden middle tiles (their panels aren't built; the cascade
-	# loop's is_instance_valid guard drops them silently), which is a
-	# small visual cost for the consistent "always max 2+pill+2" read.
-	var should_collapse: bool = committed_len > CHAIN_COLLAPSE_THRESHOLD
+	# pill so both ends stay visible. We force-uncollapse for the duration
+	# of the scoring cascade (commit_just_happened or _scoring_active) so
+	# every tile gets its chip-pop animation — the cascade is the moment
+	# the player cares about per-tile breakdown. Once scoring resolves
+	# and the chain settles, collapse takes over.
+	var commit_just_happened: bool = committed_len > _last_committed_len
+	var should_collapse: bool = committed_len > CHAIN_COLLAPSE_THRESHOLD \
+		and not commit_just_happened \
+		and not _scoring_active
 
 	# GHOST_CHAIN: a deterministic third of the placed tiles render at
 	# very low opacity. The rule (`(idx + 1) % 3 == 0`) is stable across
