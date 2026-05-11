@@ -174,6 +174,17 @@ var _chain_scroll: ScrollContainer
 ## committed length is greater, the newly-arrived tiles get a slide-in
 ## animation. Reset to 0 at round start (_begin_round_play).
 var _last_committed_len: int = 0
+## Collapse threshold and ends-visible count for long-chain rendering.
+## When the committed chain crosses COLLAPSE_THRESHOLD tiles, the middle
+## collapses into a clickable pill so both ends + recent action stay
+## visible without horizontal scrolling. Click the pill to open the
+## inspector overlay (full chain, horizontal scroll inside).
+const CHAIN_COLLAPSE_THRESHOLD: int  = 12
+const CHAIN_COLLAPSE_ENDS_VISIBLE: int = 4
+## Lazy-built inspector overlay shown when the player clicks the
+## collapse pill. Renders the full chain at full size inside a centred
+## panel with horizontal scroll.
+var _chain_inspector_overlay: Control = null
 var _lbl_preview:          Label   # equation line: "N chips × M"
 var _lbl_preview_total:    Label   # big total line: "= TOTAL" (dominant)
 var _chain_milestone_row:  HBoxContainer   # visual dot-progress bar for chain bonuses
@@ -3819,35 +3830,58 @@ func _layout_chain_linear(chain: Chain) -> void:
 			elif _tile_fits_left(first_tile, _rm.current_chain.left_end):
 				target_chain_idx = 0
 
-	# Fixed tile size. We no longer shrink for length — horizontal scroll
-	# handles overflow. ~30 px halves keep pips legible at any chain
-	# length and fit comfortably within the 96-px chain area height.
+	# Fixed tile size. We no longer shrink for length — collapse + scroll
+	# handle overflow. ~30 px halves keep pips legible at any chain length
+	# and fit comfortably within the 96-px chain area height.
 	var half_size: int = 30
 
 	_chain_tile_panels.resize(n)
+	# Reset any stale slots from a previous render so collapsed-out
+	# indices read as null rather than as last frame's freed panel.
+	for i in range(n):
+		_chain_tile_panels[i] = null
 
-	# Left end-cap once, at the start of the row.
-	if committed_len > 0:
-		_chain_container.add_child(_make_chain_end_cap(
-			_rm.current_chain.left_end, half_size, true))
+	# Collapse decision. Long chains hide their middle behind a clickable
+	# pill so both ends stay visible. We force-uncollapse on the render
+	# that immediately follows a commit (committed_len grew) so the
+	# scoring cascade can animate every tile on-screen — collapse comes
+	# back on the next render once _last_committed_len is updated.
+	var commit_just_happened: bool = committed_len > _last_committed_len
+	var should_collapse: bool = committed_len > CHAIN_COLLAPSE_THRESHOLD \
+		and not commit_just_happened
 
 	# GHOST_CHAIN: a deterministic third of the placed tiles render at
 	# very low opacity. The rule (`(idx + 1) % 3 == 0`) is stable across
 	# renders within a round.
 	var ghosting: bool = GameState.active_boss_effect() == Constants.BossEffect.GHOST_CHAIN
 
-	for tile_idx in range(n):
-		var d: Vector2i = chain.tile_displays[tile_idx]
-		var is_double: bool = (d.x == d.y)
-		var is_committed: bool = tile_idx < committed_len
-		var is_target: bool    = tile_idx == target_chain_idx
-		var tile_panel: Control = _build_chain_tile(
-			d.x, d.y, half_size, is_double,
-			is_committed, is_target)
-		if ghosting and (tile_idx + 1) % 3 == 0:
-			tile_panel.modulate.a = 0.18
-		_chain_container.add_child(tile_panel)
-		_chain_tile_panels[tile_idx] = tile_panel
+	# Left end-cap once, at the start of the row.
+	if committed_len > 0:
+		_chain_container.add_child(_make_chain_end_cap(
+			_rm.current_chain.left_end, half_size, true))
+
+	if should_collapse:
+		# Head: first ENDS_VISIBLE committed tiles.
+		for tile_idx in range(CHAIN_COLLAPSE_ENDS_VISIBLE):
+			_add_chain_tile_at(chain, tile_idx, committed_len,
+				target_chain_idx, half_size, ghosting)
+
+		# Collapse pill in place of the hidden middle.
+		var hidden_lo: int = CHAIN_COLLAPSE_ENDS_VISIBLE
+		var hidden_hi: int = committed_len - CHAIN_COLLAPSE_ENDS_VISIBLE
+		var hidden_count: int = hidden_hi - hidden_lo
+		_chain_container.add_child(_make_collapse_pill(hidden_count, half_size))
+
+		# Tail of committed tiles + every preview tile, all visible at
+		# the right so the player's current selection always stays in
+		# view regardless of how long the chain is.
+		for tile_idx in range(hidden_hi, n):
+			_add_chain_tile_at(chain, tile_idx, committed_len,
+				target_chain_idx, half_size, ghosting)
+	else:
+		for tile_idx in range(n):
+			_add_chain_tile_at(chain, tile_idx, committed_len,
+				target_chain_idx, half_size, ghosting)
 
 	# Right end-cap once, at the end of the row.
 	if committed_len > 0:
@@ -4110,6 +4144,173 @@ func _animate_chain_slide_in(panel: Control) -> void:
 	t.tween_property(panel, "scale", Vector2.ONE, dur) \
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
+## Per-tile-build dispatch used by both the collapsed and uncollapsed
+## render paths. Builds the chain tile with the right state flags and
+## stores the panel in _chain_tile_panels at its chain index.
+func _add_chain_tile_at(chain: Chain, tile_idx: int, committed_len: int,
+		target_chain_idx: int, half_size: int, ghosting: bool) -> void:
+	var d: Vector2i = chain.tile_displays[tile_idx]
+	var is_double: bool = (d.x == d.y)
+	var is_committed: bool = tile_idx < committed_len
+	var is_target: bool    = tile_idx == target_chain_idx
+	var tile_panel: Control = _build_chain_tile(
+		d.x, d.y, half_size, is_double, is_committed, is_target)
+	if ghosting and (tile_idx + 1) % 3 == 0:
+		tile_panel.modulate.a = 0.18
+	_chain_container.add_child(tile_panel)
+	_chain_tile_panels[tile_idx] = tile_panel
+
+## Clickable "N tiles hidden" pill rendered in place of the chain's
+## middle when the chain crosses CHAIN_COLLAPSE_THRESHOLD. Same height
+## as a chain tile so the row baseline stays uniform. Clicking opens
+## the inspector overlay with the full chain at full size.
+func _make_collapse_pill(hidden_count: int, half_size: int) -> Control:
+	var slot: int = half_size * 2 + 2
+	var pill := Button.new()
+	pill.custom_minimum_size = Vector2(int(half_size * 2.6), slot)
+	pill.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	pill.size_flags_vertical   = Control.SIZE_SHRINK_CENTER
+	pill.focus_mode = Control.FOCUS_NONE
+	pill.tooltip_text = "Click to view the full chain"
+	pill.pressed.connect(_open_chain_inspector)
+
+	var s := StyleBoxFlat.new()
+	s.bg_color     = Color(0.10, 0.09, 0.07, 0.92)
+	s.border_color = C_GOLD_RIM
+	s.set_border_width_all(1)
+	s.set_corner_radius_all(int(slot * 0.45))
+	s.set_content_margin_all(6)
+	pill.add_theme_stylebox_override("normal", s)
+
+	var s_hover := s.duplicate() as StyleBoxFlat
+	s_hover.bg_color     = Color(0.14, 0.12, 0.08, 0.95)
+	s_hover.border_color = C_GOLD_TITLE
+	pill.add_theme_stylebox_override("hover", s_hover)
+	pill.add_theme_stylebox_override("pressed", s_hover)
+
+	# Text — "⋯ N ⋯" reads as "more here" without needing a tooltip.
+	pill.text = "⋯  %d  ⋯" % hidden_count
+	pill.add_theme_color_override("font_color", C_GOLD_TITLE)
+	pill.add_theme_color_override("font_hover_color", C_GOLD_TITLE.lightened(0.20))
+	pill.add_theme_font_size_override("font_size",
+		maxi(11, int(round(13 * SaveManager.get_text_scale()))))
+	FontManager.apply_semibold(pill)
+	return pill
+
+## Lazy-builds and shows the inspector. Renders the FULL chain at the
+## standard tile size with horizontal scroll inside a centred panel so
+## the player can scan the entire chain at once when the on-table view
+## is collapsed.
+func _open_chain_inspector() -> void:
+	if _rm == null or _rm.current_chain == null:
+		return
+	if _chain_inspector_overlay == null:
+		_chain_inspector_overlay = _build_chain_inspector_overlay()
+		# Sits on the same UI layer as the tooltip / pause overlays so
+		# it renders above every gameplay control.
+		_tooltip_panel.get_parent().add_child(_chain_inspector_overlay)
+	_populate_chain_inspector()
+	_chain_inspector_overlay.show()
+
+func _close_chain_inspector() -> void:
+	if _chain_inspector_overlay != null:
+		_chain_inspector_overlay.hide()
+
+func _build_chain_inspector_overlay() -> Control:
+	var root := ColorRect.new()
+	root.color = Color(0, 0, 0, 0.65)
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_STOP
+	root.z_index = 95
+	# Click on the dimmed backdrop dismisses — same affordance as the
+	# pause / settings overlays elsewhere in the UI.
+	root.gui_input.connect(func(e: InputEvent):
+		if e is InputEventMouseButton and (e as InputEventMouseButton).pressed:
+			_close_chain_inspector()
+	)
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(900, 0)
+	# Clicks on the panel itself shouldn't propagate to the backdrop's
+	# dismiss handler.
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	var ps := StyleBoxFlat.new()
+	ps.bg_color     = Color(0.08, 0.07, 0.05, 0.98)
+	ps.border_color = C_GOLD_RIM
+	ps.set_border_width_all(2)
+	ps.set_corner_radius_all(10)
+	ps.set_content_margin_all(20)
+	panel.add_theme_stylebox_override("panel", ps)
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 14)
+	panel.add_child(vbox)
+
+	var hdr_row := HBoxContainer.new()
+	hdr_row.add_theme_constant_override("separation", 12)
+	var hdr := _make_label("COHESION PULSE — Full View", C_GOLD_TITLE, 16)
+	hdr.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hdr_row.add_child(hdr)
+	var close_btn := _make_button("✕", _close_chain_inspector, Vector2(48, 36))
+	hdr_row.add_child(close_btn)
+	vbox.add_child(hdr_row)
+	vbox.add_child(_make_hsep())
+
+	# Scroll viewport for the full chain.
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(860, 110)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	scroll.vertical_scroll_mode   = ScrollContainer.SCROLL_MODE_DISABLED
+	vbox.add_child(scroll)
+	root.set_meta("chain_scroll", scroll)
+
+	var chain_row := HBoxContainer.new()
+	chain_row.alignment = BoxContainer.ALIGNMENT_BEGIN
+	chain_row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	chain_row.add_theme_constant_override("separation", 0)
+	chain_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	scroll.add_child(chain_row)
+	root.set_meta("chain_row", chain_row)
+
+	var hint := _make_label(
+		"Click outside or press Esc to close.", C_DIM, 11)
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(hint)
+	return root
+
+## Repopulate the inspector's chain row from the current committed +
+## previewed chain state. Tiles render at the standard chain size with
+## end-caps; doubles still get the ✦ badge / gold border.
+func _populate_chain_inspector() -> void:
+	if _chain_inspector_overlay == null:
+		return
+	var row: HBoxContainer = _chain_inspector_overlay.get_meta("chain_row", null)
+	if row == null:
+		return
+	for child in row.get_children():
+		child.queue_free()
+	var preview: Chain = _build_preview_chain()
+	if preview.is_empty():
+		return
+	var half_size: int = 30
+	if _rm.current_chain.length() > 0:
+		row.add_child(_make_chain_end_cap(
+			_rm.current_chain.left_end, half_size, true))
+	for i in range(preview.length()):
+		var dd: Vector2i = preview.tile_displays[i]
+		var is_dbl: bool = (dd.x == dd.y)
+		var is_committed: bool = i < _rm.current_chain.length()
+		var p := _build_chain_tile(dd.x, dd.y, half_size, is_dbl, is_committed, false)
+		row.add_child(p)
+	if _rm.current_chain.length() > 0:
+		row.add_child(_make_chain_end_cap(
+			_rm.current_chain.right_end, half_size, false))
+
 ## Override the face panel's stylebox content margin to a small value so the
 ## panel's own minimum size is dominated by the pip-display content rather
 ## than its texture padding. Used by the chain tile builder so vertical
@@ -4338,6 +4539,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if _scoring_active:
 		return
+	# Inspector open — only the Esc-to-close path below should run. Block
+	# Play / Undo / Discard so the player can't accidentally commit a hand
+	# while reading the full chain.
+	if _chain_inspector_overlay != null and _chain_inspector_overlay.visible:
+		if (event as InputEventKey).keycode == KEY_ESCAPE:
+			_close_chain_inspector()
+		return
 	match (event as InputEventKey).keycode:
 		KEY_SPACE, KEY_ENTER:
 			_on_play_pressed()
@@ -4357,7 +4565,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			# ESC priority: cancel modal-like states first, fall through to
 			# clearing selection, finally open the pause overlay if there's
 			# nothing else to dismiss. Pressing ESC again closes pause.
-			if _pause_overlay != null and _pause_overlay.visible:
+			if _chain_inspector_overlay != null \
+					and _chain_inspector_overlay.visible:
+				_close_chain_inspector()
+			elif _pause_overlay != null and _pause_overlay.visible:
 				_on_pause_resume_pressed()
 			elif _compass_overlay != null:
 				_on_compass_cancel()
