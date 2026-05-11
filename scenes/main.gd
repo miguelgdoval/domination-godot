@@ -3527,8 +3527,12 @@ func _refresh_chain_display() -> void:
 		_chain_container.add_child(lbl)
 	else:
 		_layout_chain_linear(preview)
-		# Idle breathing on every tile (random phase per tile for organic feel)
+		# Idle breathing on every tile (random phase per tile for organic feel).
+		# Skip null slots — when the chain is collapsed, hidden tile panels
+		# are intentionally not built, leaving those indices unpopulated.
 		for tile_panel in _chain_tile_panels:
+			if tile_panel == null or not is_instance_valid(tile_panel):
+				continue
 			var idle := _start_tile_breathe(tile_panel)
 			if idle != null:
 				_chain_idle_tweens.append(idle)
@@ -8478,6 +8482,8 @@ func _kill_chain_idle_tweens() -> void:
 ## Returns the Tween so the caller can store and later kill it.
 ## Panels lacking the stored "border_style" meta are skipped (returns null).
 func _start_tile_breathe(panel: Control) -> Tween:
+	if panel == null or not is_instance_valid(panel):
+		return null
 	if not panel.has_meta("border_style"):
 		return null
 	var style: StyleBoxFlat = panel.get_meta("border_style") as StyleBoxFlat
