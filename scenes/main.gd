@@ -5170,7 +5170,7 @@ func _build_table_area() -> Control:
 	# left and tiles only travel one way (offscreen-right once chain
 	# overflows; auto-scroll keeps the newest in view).
 	_chain_container = HBoxContainer.new()
-	_chain_container.alignment             = BoxContainer.ALIGNMENT_BEGIN
+	_chain_container.alignment             = BoxContainer.ALIGNMENT_CENTER
 	_chain_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_chain_container.size_flags_vertical   = Control.SIZE_SHRINK_CENTER
 	_chain_container.add_theme_constant_override("separation", 0)
