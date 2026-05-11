@@ -11,15 +11,23 @@ const SAVE_PATH := "user://save.json"
 # Default structures
 # ---------------------------------------------------------------------------
 const DEFAULT_SETTINGS := {
-	"sfx_volume":   1.0,
-	"music_volume": 0.70,
-	"muted":        false,
-	"anim_speed":   1.0,
+	"sfx_volume":    1.0,
+	"music_volume":  0.70,
+	"muted":         false,
+	"anim_speed":    1.0,
+	"text_scale":    1.0,
+	"pip_numerals":  false,
 }
 
 # Allowed animation-speed presets. Settings overlay cycles through these.
 const ANIM_SPEED_PRESETS: Array[float] = [1.0, 2.0, 4.0]
 const ANIM_SPEED_LABELS:  Array[String] = ["NORMAL", "FAST", "FASTER"]
+
+# Text-scale presets. Applied multiplicatively to every label / button
+# font size at construction time — takes effect on the next UI rebuild
+# (round start, shop visit, etc.), not retroactively on live widgets.
+const TEXT_SCALE_PRESETS: Array[float]  = [1.0, 1.15, 1.30]
+const TEXT_SCALE_LABELS:  Array[String] = ["100%", "115%", "130%"]
 
 const DEFAULT_SCORES := {
 	# key: "difficulty_N" → { round_reached, total_chronos, modules_count }
@@ -60,6 +68,32 @@ func get_anim_speed() -> float:
 func set_anim_speed(v: float) -> void:
 	var s: Dictionary = _data.get("settings", DEFAULT_SETTINGS.duplicate())
 	s["anim_speed"] = v
+	_data["settings"] = s
+	_save_to_disk()
+
+## Text-scale multiplier applied to every label / button at creation
+## time. Persists across sessions, so a player who needs larger text
+## doesn't have to dig into Settings every run.
+func get_text_scale() -> float:
+	var s: Dictionary = _data.get("settings", {})
+	return float(s.get("text_scale", DEFAULT_SETTINGS["text_scale"]))
+
+func set_text_scale(v: float) -> void:
+	var s: Dictionary = _data.get("settings", DEFAULT_SETTINGS.duplicate())
+	s["text_scale"] = v
+	_data["settings"] = s
+	_save_to_disk()
+
+## Toggle for showing numeric pip values alongside the dot pattern on
+## every domino. Helps players who can't quickly count 8-9 dots, plus
+## anyone scanning a long chain at a glance.
+func get_pip_numerals() -> bool:
+	var s: Dictionary = _data.get("settings", {})
+	return bool(s.get("pip_numerals", DEFAULT_SETTINGS["pip_numerals"]))
+
+func set_pip_numerals(b: bool) -> void:
+	var s: Dictionary = _data.get("settings", DEFAULT_SETTINGS.duplicate())
+	s["pip_numerals"] = b
 	_data["settings"] = s
 	_save_to_disk()
 

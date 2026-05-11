@@ -4096,6 +4096,28 @@ func _make_pip_display(pip: int, dot_size: int, dot_color: Color) -> Control:
 	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	wrap.size_flags_vertical   = Control.SIZE_EXPAND_FILL
 	wrap.add_child(grid)
+	# Optional numeral overlay — anchored top-left of the parent face,
+	# small + tinted to match the dot colour so it reads as part of the
+	# tile rather than as a stamped label. Toggle is in Settings.
+	if SaveManager.get_pip_numerals() and dot_size >= 7:
+		var outer := Control.new()
+		outer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		outer.size_flags_vertical   = Control.SIZE_EXPAND_FILL
+		outer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		# The dot grid fills the whole outer so its CenterContainer logic
+		# still centres relative to the parent face.
+		wrap.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		outer.add_child(wrap)
+		var num := Label.new()
+		num.text = str(pip)
+		num.add_theme_font_size_override("font_size", maxi(9, dot_size + 1))
+		num.add_theme_color_override("font_color", dot_color)
+		num.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		# Top-left corner with a tiny inset.
+		num.position = Vector2(1, -1)
+		FontManager.apply_semibold(num)
+		outer.add_child(num)
+		return outer
 	return wrap
 
 # ===========================================================================
@@ -7240,7 +7262,11 @@ func _make_hud_label(text: String, color: Color) -> Label:
 func _make_label(text: String, color: Color, size: int = 14) -> Label:
 	var lbl := Label.new()
 	lbl.text = text
-	lbl.add_theme_font_size_override("font_size", size)
+	# Scale at construction time so the user's text-scale preference
+	# touches every label that flows through this builder. Takes effect
+	# on the next UI rebuild — live labels keep their original size.
+	var scaled: int = maxi(8, int(round(size * SaveManager.get_text_scale())))
+	lbl.add_theme_font_size_override("font_size", scaled)
 	lbl.add_theme_color_override("font_color", color)
 	FontManager.apply_for_size(lbl, size)
 	return lbl
@@ -7262,6 +7288,10 @@ func _make_button(label: String, callback: Callable,
 	btn.custom_minimum_size = min_size
 	btn.pressed.connect(callback)
 	FontManager.apply_semibold(btn)
+	# Match label scaling so text-scale touches every UI element. Button's
+	# default font_size lives on the theme, so we set it explicitly here.
+	btn.add_theme_font_size_override("font_size",
+		int(round(16 * SaveManager.get_text_scale())))
 	return btn
 
 func _make_hsep() -> Control:
@@ -7562,6 +7592,44 @@ func _build_settings_overlay() -> Control:
 	skip_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vbox.add_child(skip_hint)
 
+	# Text Size — scales every label / button at construction time. Live
+	# widgets keep their existing size; the change applies the next time
+	# the UI rebuilds (next round / shop visit), which the hint flags.
+	var text_row := HBoxContainer.new()
+	text_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	text_row.add_theme_constant_override("separation", 8)
+	var text_lbl := _make_label("Text Size", C_TEXT, 14)
+	text_lbl.custom_minimum_size = Vector2(160, 0)
+	text_row.add_child(text_lbl)
+	var text_btn := _make_button(_text_scale_button_label(),
+		_on_text_scale_cycle_pressed, Vector2(120, 36))
+	overlay.set_meta("text_btn", text_btn)
+	text_row.add_child(text_btn)
+	vbox.add_child(text_row)
+
+	# Pip Numerals — overlay numeric pip values on every domino face.
+	var pip_row := HBoxContainer.new()
+	pip_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	pip_row.add_theme_constant_override("separation", 8)
+	var pip_lbl := _make_label("Pip Numerals", C_TEXT, 14)
+	pip_lbl.custom_minimum_size = Vector2(160, 0)
+	pip_row.add_child(pip_lbl)
+	var pip_chk := CheckButton.new()
+	pip_chk.button_pressed = SaveManager.get_pip_numerals()
+	pip_chk.toggled.connect(func(b: bool):
+		SaveManager.set_pip_numerals(b)
+	)
+	overlay.set_meta("pip_chk", pip_chk)
+	pip_row.add_child(pip_chk)
+	vbox.add_child(pip_row)
+
+	var access_hint := _make_label(
+		"Text size and pip numerals take effect on the next round / shop.",
+		C_DIM, 11)
+	access_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	access_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vbox.add_child(access_hint)
+
 	vbox.add_child(_make_hsep())
 
 	# Display section header
@@ -7680,6 +7748,12 @@ func _refresh_settings_overlay() -> void:
 	var speed_b = _settings_overlay.get_meta("speed_btn", null)
 	if speed_b != null:
 		speed_b.text = _anim_speed_button_label()
+	var text_b = _settings_overlay.get_meta("text_btn", null)
+	if text_b != null:
+		text_b.text = _text_scale_button_label()
+	var pip_b = _settings_overlay.get_meta("pip_chk", null)
+	if pip_b != null:
+		pip_b.button_pressed = SaveManager.get_pip_numerals()
 
 func _on_settings_slider_changed(value: float, slider: HSlider) -> void:
 	var t: String = slider.get_meta("type", "")
@@ -7731,6 +7805,37 @@ func _on_anim_speed_cycle_pressed() -> void:
 		var b = _settings_overlay.get_meta("speed_btn", null)
 		if b != null:
 			b.text = _anim_speed_button_label()
+
+## Mirror helpers for the Text Size cycle. Same shape as the anim-speed
+## pair — picks the closest preset, advances, persists. The text-scale
+## change won't update widgets already on screen; the settings hint line
+## flags that to the player.
+func _text_scale_button_label() -> String:
+	var cur: float = SaveManager.get_text_scale()
+	var idx: int = 0
+	var best: float = 1e9
+	for i in range(SaveManager.TEXT_SCALE_PRESETS.size()):
+		var d: float = absf(SaveManager.TEXT_SCALE_PRESETS[i] - cur)
+		if d < best:
+			best = d
+			idx  = i
+	return SaveManager.TEXT_SCALE_LABELS[idx]
+
+func _on_text_scale_cycle_pressed() -> void:
+	var cur: float = SaveManager.get_text_scale()
+	var idx: int = 0
+	var best: float = 1e9
+	for i in range(SaveManager.TEXT_SCALE_PRESETS.size()):
+		var d: float = absf(SaveManager.TEXT_SCALE_PRESETS[i] - cur)
+		if d < best:
+			best = d
+			idx  = i
+	idx = (idx + 1) % SaveManager.TEXT_SCALE_PRESETS.size()
+	SaveManager.set_text_scale(SaveManager.TEXT_SCALE_PRESETS[idx])
+	if _settings_overlay != null:
+		var b = _settings_overlay.get_meta("text_btn", null)
+		if b != null:
+			b.text = _text_scale_button_label()
 
 # ===========================================================================
 # Tutorial overlay
