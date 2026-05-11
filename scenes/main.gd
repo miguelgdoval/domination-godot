@@ -161,7 +161,7 @@ var _discards_dot_row: HBoxContainer
 ## rows (serpentine: even rows L→R, odd rows R→L) so 21+ tile chains fit.
 ## Doubles render perpendicular to the row direction (vertical in a horizontal
 ## row), matching physical-domino aesthetics.
-var _chain_container:  VBoxContainer
+var _chain_container:  HBoxContainer
 ## Ordered list of tile PanelContainers — index i maps to current_chain.tiles[i].
 ## Used by the scoring sequence to find each tile's screen position regardless
 ## of which row it landed in.
@@ -3515,7 +3515,7 @@ func _refresh_chain_display() -> void:
 		lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		_chain_container.add_child(lbl)
 	else:
-		_layout_chain_serpentine(preview)
+		_layout_chain_linear(preview)
 		# Idle breathing on every tile (random phase per tile for organic feel)
 		for tile_panel in _chain_tile_panels:
 			var idle := _start_tile_breathe(tile_panel)
@@ -3795,17 +3795,14 @@ func _create_hand_tile(tile: Domino, index: int) -> Button:
 	btn.pressed.connect(_on_tile_left_click.bind(index))
 	return btn
 
-## Lay out the chain into one or more rows with serpentine direction:
-##   row 0 → left-to-right, row 1 → right-to-left, row 2 → left-to-right, …
-## Doubles render perpendicular to the row (vertical when chain is horizontal),
-## matching how physical dominoes are placed on a table.
+## Lay out the chain as a single horizontal row. Long chains overflow
+## the visible area and scroll horizontally — they never wrap to a
+## second line. Doubles still render perpendicular (square slot), the
+## non-double tiles render as 2:1 rectangles along the row.
 ##
-## Tile size scales down for longer chains so 21+ tile chains still fit
-## comfortably inside the table panel without horizontal overflow.
-##
-## Populates `_chain_tile_panels` so the scoring sequence can locate each
-## tile by chain index regardless of which row it ended up in.
-func _layout_chain_serpentine(chain: Chain) -> void:
+## Populates `_chain_tile_panels` so the scoring sequence can locate
+## each tile by chain index.
+func _layout_chain_linear(chain: Chain) -> void:
 	var n: int = chain.length()
 	var committed_len: int = _rm.current_chain.length() if _rm != null else 0
 
@@ -3822,119 +3819,56 @@ func _layout_chain_serpentine(chain: Chain) -> void:
 			elif _tile_fits_left(first_tile, _rm.current_chain.left_end):
 				target_chain_idx = 0
 
-	# Adaptive sizing — half = one pip face's edge length.
-	# Each tile is a SQUARE slot of (2*half + sep) on each side. With no
-	# outer padding, slots in a row sit flush against each other, so the
-	# pip halves touch neighbours edge-to-edge.
-	#
-	# Phase 2 (H): floored at 22 px. Beyond ~30 tiles the chain wraps to
-	# more rows and the chain_scroll handles overflow vertically. The
-	# old 16-px tier made long chains visually unreadable; the floor
-	# trades a few extra rows for legible pips.
-	var half_size: int
-	var per_row:   int
-	if n <= 8:
-		half_size = 36 ; per_row = 8
-	elif n <= 14:
-		half_size = 30 ; per_row = 9
-	elif n <= 22:
-		half_size = 26 ; per_row = 11
-	else:
-		half_size = 22 ; per_row = 13
+	# Fixed tile size. We no longer shrink for length — horizontal scroll
+	# handles overflow. ~30 px halves keep pips legible at any chain
+	# length and fit comfortably within the 96-px chain area height.
+	var half_size: int = 30
 
-	# Group indices into rows (serpentine direction handled at render time).
-	var rows: Array = []
-	var current: Array = []
-	for i in range(n):
-		current.append(i)
-		if current.size() >= per_row and i < n - 1:
-			rows.append(current)
-			current = []
-	if current.size() > 0:
-		rows.append(current)
-
-	# Pre-allocate tile panels so we can fill _chain_tile_panels in chain order
-	# even when odd rows render right-to-left.
 	_chain_tile_panels.resize(n)
 
-	for r_idx in range(rows.size()):
-		var row := HBoxContainer.new()
-		# Left-anchor (F): rows extend rightward as the chain grows, so
-		# previously-placed tiles never shift horizontally to recenter.
-		# The row itself fills the width of the chain container.
-		row.alignment = BoxContainer.ALIGNMENT_BEGIN
-		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		# Slots abut directly — no row gap. Each tile's faint outline (set
-		# in _build_chain_tile) provides the visible seam between adjacent
-		# pieces, so they read as touching but distinct.
-		row.add_theme_constant_override("separation", 0)
-		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Left end-cap once, at the start of the row.
+	if committed_len > 0:
+		_chain_container.add_child(_make_chain_end_cap(
+			_rm.current_chain.left_end, half_size, true))
 
-		var indices: Array = rows[r_idx].duplicate()
-		var reverse: bool = (r_idx % 2) == 1
-		if reverse:
-			indices.reverse()
+	# GHOST_CHAIN: a deterministic third of the placed tiles render at
+	# very low opacity. The rule (`(idx + 1) % 3 == 0`) is stable across
+	# renders within a round.
+	var ghosting: bool = GameState.active_boss_effect() == Constants.BossEffect.GHOST_CHAIN
 
-		# Left end-cap (A): only on the first row, before its first tile.
-		# Anchors the player to "the chain accepts a matching tile here".
-		if r_idx == 0 and committed_len > 0:
-			row.add_child(_make_chain_end_cap(
-				_rm.current_chain.left_end, half_size, true))
+	for tile_idx in range(n):
+		var d: Vector2i = chain.tile_displays[tile_idx]
+		var is_double: bool = (d.x == d.y)
+		var is_committed: bool = tile_idx < committed_len
+		var is_target: bool    = tile_idx == target_chain_idx
+		var tile_panel: Control = _build_chain_tile(
+			d.x, d.y, half_size, is_double,
+			is_committed, is_target)
+		if ghosting and (tile_idx + 1) % 3 == 0:
+			tile_panel.modulate.a = 0.18
+		_chain_container.add_child(tile_panel)
+		_chain_tile_panels[tile_idx] = tile_panel
 
-		# GHOST_CHAIN: a deterministic third of the placed tiles render at
-		# very low opacity. The rule (`(idx + 1) % 3 == 0`) is stable across
-		# renders within a round so the player can lock in which tiles are
-		# ghosted and remember them — but they look near-blank, no pip
-		# values readable.
-		var ghosting: bool = GameState.active_boss_effect() == Constants.BossEffect.GHOST_CHAIN
-		for tile_idx in indices:
-			var d: Vector2i = chain.tile_displays[tile_idx]
-			var is_double: bool = (d.x == d.y)
-			var is_committed: bool = tile_idx < committed_len
-			var is_target: bool    = tile_idx == target_chain_idx
-			# Double  → render perpendicular (vertical) in this horizontal row.
-			# Single  → render along the row (horizontal).
-			# When the row is reversed (right-to-left), swap left/right faces
-			# so the connecting edges still meet correctly visually.
-			var left_pip:  int = d.y if reverse else d.x
-			var right_pip: int = d.x if reverse else d.y
-			var tile_panel: Control = _build_chain_tile(
-				left_pip, right_pip, half_size, is_double,
-				is_committed, is_target)
-			if ghosting and (tile_idx + 1) % 3 == 0:
-				tile_panel.modulate.a = 0.18
-			row.add_child(tile_panel)
-			_chain_tile_panels[tile_idx] = tile_panel
+	# Right end-cap once, at the end of the row.
+	if committed_len > 0:
+		_chain_container.add_child(_make_chain_end_cap(
+			_rm.current_chain.right_end, half_size, false))
 
-		# Right end-cap (A): only on the last row, beside the row's
-		# chain-tail tile. In a reversed last row, the chain tail is the
-		# FIRST visual child (left edge of the row), so we prepend.
-		# In a forward last row, the tail is the LAST visual child, so
-		# we append. The cap always sits at the open mouth of the chain.
-		if r_idx == rows.size() - 1 and committed_len > 0:
-			var right_cap := _make_chain_end_cap(
-				_rm.current_chain.right_end, half_size, false)
-			row.add_child(right_cap)
-			if reverse:
-				# Move to index 0 of the row — first visual position.
-				row.move_child(right_cap, 0)
-
-		_chain_container.add_child(row)
-
-	# Slide-in animation (E): if the committed length grew since the last
-	# render, animate the newly-arrived committed tiles. Skip for preview
-	# tiles (their come-and-go on every selection click would be noisy).
+	# Slide-in animation: only fire on the tiles that newly arrived in
+	# the committed chain (player just hit Play). Preview tiles don't
+	# animate — their come-and-go on every selection click would be
+	# visual noise.
 	if committed_len > _last_committed_len:
 		for idx in range(_last_committed_len, committed_len):
 			if idx < _chain_tile_panels.size() and is_instance_valid(_chain_tile_panels[idx]):
 				_animate_chain_slide_in(_chain_tile_panels[idx])
 	_last_committed_len = committed_len
 
-	# Auto-scroll so the newest tile is always in view, even when the
-	# chain has wrapped to a new row. Deferred a frame so the scroll
-	# bar has the layout's final max_value before we read it.
+	# Auto-scroll horizontally so the newest tile stays in view as the
+	# chain grows past the visible width. Deferred a frame so the scroll
+	# bar's max_value reflects the freshly-laid-out content.
 	if _chain_scroll != null:
-		_scroll_chain_to_bottom.call_deferred()
+		_scroll_chain_to_newest.call_deferred()
 
 ## Build a chain tile in either orientation.
 ##   vertical=true  → double tile, halves stacked top/bottom (perpendicular).
@@ -4146,14 +4080,15 @@ func _make_chain_end_cap(pip_value: int, half_size: int,
 		hb.add_child(arrow)
 	return wrap
 
-## Deferred companion to the layout that scrolls the chain to its
-## bottom row. Reading max_value before the deferred call would return
-## the previous frame's value, leaving wrapped tiles off-screen.
-func _scroll_chain_to_bottom() -> void:
+## Deferred companion to the layout that scrolls the chain horizontally
+## to the right edge so the newest tile + right end-cap stay in view.
+## Reading max_value before the deferred call would return the previous
+## frame's value, leaving the newest tile offscreen.
+func _scroll_chain_to_newest() -> void:
 	if _chain_scroll == null:
 		return
-	_chain_scroll.scroll_vertical = int(
-		_chain_scroll.get_v_scroll_bar().max_value)
+	_chain_scroll.scroll_horizontal = int(
+		_chain_scroll.get_h_scroll_bar().max_value)
 
 ## Slide-in animation for a freshly-committed chain tile. Scale + fade
 ## pop from 70%→100% over a short window scaled by the user's anim-speed
@@ -4992,8 +4927,12 @@ func _build_table_area() -> Control:
 	#
 	# Plain Control doesn't propagate child min_sizes — the chain VBox
 	# inside can be any height without forcing the parent to grow.
+	# Single-row chain. The play area is fixed-height to fit one row of
+	# tiles at full size — long chains scroll HORIZONTALLY to the right,
+	# never wrapping to a second line. Matches how a player would lay out
+	# real dominoes on a table.
 	var chain_outer := Control.new()
-	chain_outer.custom_minimum_size      = Vector2(0, 80)
+	chain_outer.custom_minimum_size      = Vector2(0, 96)
 	chain_outer.size_flags_horizontal    = Control.SIZE_EXPAND_FILL
 	chain_outer.size_flags_vertical      = Control.SIZE_EXPAND_FILL
 	chain_outer.clip_contents            = true
@@ -5002,15 +4941,24 @@ func _build_table_area() -> Control:
 
 	var chain_scroll := ScrollContainer.new()
 	chain_scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	chain_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	# Horizontal scroll handles overflow when the chain is longer than the
+	# visible area; vertical stays disabled because the chain is now one
+	# row only. SHOW_ALWAYS keeps the player aware that scroll exists.
+	chain_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	chain_scroll.vertical_scroll_mode   = ScrollContainer.SCROLL_MODE_DISABLED
 	chain_outer.add_child(chain_scroll)
 	_chain_scroll = chain_scroll
 
-	_chain_container = VBoxContainer.new()
-	_chain_container.alignment             = BoxContainer.ALIGNMENT_CENTER
+	# Single HBox — no rows, no serpentine wrap. Tiles append rightward as
+	# the chain grows. Aligned to the BEGIN so the chain anchors at the
+	# left and tiles only travel one way (offscreen-right once chain
+	# overflows; auto-scroll keeps the newest in view).
+	_chain_container = HBoxContainer.new()
+	_chain_container.alignment             = BoxContainer.ALIGNMENT_BEGIN
 	_chain_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_chain_container.size_flags_vertical   = Control.SIZE_SHRINK_CENTER
-	_chain_container.add_theme_constant_override("separation", 6)
+	_chain_container.add_theme_constant_override("separation", 0)
+	_chain_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	chain_scroll.add_child(_chain_container)
 
 	# Score preview — two lines: equation (dim, small) + total (green, large)
