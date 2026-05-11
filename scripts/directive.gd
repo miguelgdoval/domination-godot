@@ -22,7 +22,6 @@ enum Type {
 	NO_DOUBLES_LONG,    # play a chain of 7+ tiles with no doubles
 	HIGH_PIP_CHAIN,     # chain ≥ 5 tiles, average pip per tile ≥ 6
 	WILD_USED,          # play a chain that contains a wild tile
-	BRANCH_USED,        # play a chain that uses a branch (extra_end)
 }
 
 var type:      Type

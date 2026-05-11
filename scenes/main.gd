@@ -166,11 +166,6 @@ var _chain_container:  VBoxContainer
 ## Used by the scoring sequence to find each tile's screen position regardless
 ## of which row it landed in.
 var _chain_tile_panels: Array[Control] = []
-## Floating row above the chain that renders open branch ends created by
-## previously-placed doubles. Each entry is a small pip-badge showing the
-## pip value the chain can match next via that branch. Empty when no
-## branches are open.
-var _chain_branches_row: HBoxContainer
 ## Cached scroll container around the chain — kept so we can auto-scroll
 ## to the newest tile after a commit grows the chain past the visible
 ## area. Wired in _build_play_area.
@@ -2168,11 +2163,8 @@ func _on_play_pressed() -> void:
 
 	AudioManager.play_sfx("chain_play")
 	# Validate: the selected tiles must extend the PERSISTENT chain legally.
-	# Use Chain.clone() to seed with the actual committed chain state
-	# (tiles + ends + extra_ends + history). Re-running .add() on each
-	# committed tile would re-route branch-placed tiles through
-	# fits_right/fits_left, producing a different extra_ends state and
-	# silently rejecting otherwise-legal selections.
+	# Use Chain.clone() so the preview is a faithful copy of the committed
+	# state (tiles, ends, history) without disturbing the live chain.
 	var preview: Chain = _rm.current_chain.clone()
 	var seeded_len: int = preview.length()
 	var tiles_to_play: Array = []
@@ -3450,69 +3442,7 @@ func _archetype_color(a: int) -> Color:
 		Module.Archetype.UTILITY:    return Color(0.55, 0.85, 0.95)
 		_: return C_DIM
 
-## Rebuild the branch indicator row above the chain. One small badge per
-## entry in the preview chain's `extra_ends` array — the live list of
-## branch open-end values created by previously-placed doubles. Each
-## badge shows the pip value the chain can still match via that branch.
-##
-## When the chain has no extra_ends (no doubles placed yet, or every
-## branch already extended), the row collapses to nothing.
-func _refresh_branch_indicators(preview: Chain) -> void:
-	if _chain_branches_row == null:
-		return
-	for child in _chain_branches_row.get_children():
-		child.queue_free()
-	if preview == null or preview.extra_ends.is_empty():
-		return
-	# Phase 2 (G): mirror the per-tile claim algorithm in
-	# _layout_chain_serpentine. Any extra_end value the layout already
-	# pinned to an inline badge on its source double is removed from the
-	# unclaimed list — anything still left here is a chained-branch
-	# value with no obvious owner, and the catch-all strip handles it.
-	var unclaimed: Array = preview.extra_ends.duplicate()
-	for ti in range(preview.length()):
-		if unclaimed.is_empty():
-			break
-		var dd: Vector2i = preview.tile_displays[ti]
-		if dd.x != dd.y:
-			continue
-		var pip_val: int = dd.x
-		var match_idx: int = unclaimed.find(pip_val)
-		if match_idx >= 0:
-			unclaimed.remove_at(match_idx)
-	if unclaimed.is_empty():
-		return
-	# Header label — explains the row to anyone who hasn't seen it before.
-	_chain_branches_row.add_child(_make_label("BRANCHES:", C_DIM, 10))
-	for v in unclaimed:
-		_chain_branches_row.add_child(_build_branch_badge(int(v)))
-
-## Compact circular pip badge. Shows a number (or ★ for wild) on a
-## small dark disc with the etapa accent colour as a glow ring.
-func _build_branch_badge(pip: int) -> Control:
-	var size: int = 22
-	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(size, size)
-	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var accent: Color = Constants.ETAPA_ACCENT[clampi(GameState.current_etapa(), 0, 3)]
-	var s := StyleBoxFlat.new()
-	s.bg_color     = Color(0.10, 0.09, 0.07, 0.95)
-	s.border_color = accent
-	s.set_border_width_all(1)
-	s.set_corner_radius_all(size / 2)
-	panel.add_theme_stylebox_override("panel", s)
-
-	var lbl := _make_label("★" if pip < 0 else str(pip), accent, 12)
-	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	FontManager.apply_mono(lbl)
-	panel.add_child(lbl)
-	return panel
-
 ## Render the chain's open ends as a compact string for the info bar.
-## Includes left_end, right_end, and any branching `extra_ends` so the
-## player can see *all* the pip values they could connect a tile to —
-## including the extra ends spawned by previously-placed doubles.
 ## "★" represents a wild end. Empty string if the chain has no tiles yet.
 func _format_open_ends(c: Chain) -> String:
 	if c == null or c.is_empty():
@@ -3522,8 +3452,6 @@ func _format_open_ends(c: Chain) -> String:
 		values.append("★" if c.left_end == Chain.WILD else str(c.left_end))
 	if c.right_end != Chain.EMPTY and c.right_end != c.left_end:
 		values.append("★" if c.right_end == Chain.WILD else str(c.right_end))
-	for v in c.extra_ends:
-		values.append("★" if v == Chain.WILD else str(v))
 	return ", ".join(values)
 
 ## Builds the chain that would result from playing the current selection
@@ -3531,13 +3459,8 @@ func _format_open_ends(c: Chain) -> String:
 ## live score projection.
 ##
 ## Uses Chain.clone() to seed the preview with a faithful copy of the
-## committed chain's state — including every live extra_end. Replaying
-## the chain via repeated .add() calls (the old approach) re-routed
-## branch-placed tiles through fits_right/fits_left, producing a
-## different extra_ends state in the preview than in the actual chain.
-## That divergence silently disabled the Play button on otherwise-legal
-## plays whenever a downstream selection depended on the real branch
-## state.
+## committed chain's state, so the live and previewed chains can diverge
+## cleanly while the player toggles selections.
 func _build_preview_chain() -> Chain:
 	var preview: Chain
 	if _rm != null and _rm.current_chain != null:
@@ -3583,7 +3506,6 @@ func _refresh_chain_display() -> void:
 			_chain_info_lbl.text = "TARGETING"
 		if _chain_bonus_lbl != null:
 			_chain_bonus_lbl.text = ""
-		_refresh_branch_indicators(null)
 		return
 
 	var preview := _build_preview_chain()
@@ -3599,7 +3521,6 @@ func _refresh_chain_display() -> void:
 			var idle := _start_tile_breathe(tile_panel)
 			if idle != null:
 				_chain_idle_tweens.append(idle)
-	_refresh_branch_indicators(preview)
 
 	if not preview.is_empty():
 		var r: Dictionary = Scoring.calculate(preview, GameState.modules)
@@ -3887,17 +3808,9 @@ func _create_hand_tile(tile: Domino, index: int) -> Button:
 func _layout_chain_serpentine(chain: Chain) -> void:
 	var n: int = chain.length()
 	var committed_len: int = _rm.current_chain.length() if _rm != null else 0
-	# Per-tile placement sides — "extra" marks branch tiles. Phase 3 uses
-	# this to render them with a distinct teal accent so the player can
-	# read main-spine vs branch at a glance, even though the geometric
-	# layout still flows the chain linearly (true perpendicular layout
-	# deferred to a follow-up that needs interactive iteration).
-	var sides: Array[String] = chain.get_placement_sides()
 
 	# Where would the first selected tile attach? Highlighted with a gold
 	# border on the receiving chain end so the player gets a spatial cue.
-	# Phase-1 scope: only the linear left_end / right_end. Branches
-	# (extra_ends) get their own visual pass later.
 	var target_chain_idx: int = -1
 	if not _selected_tiles.is_empty() and not _rm.current_chain.is_empty():
 		var first_sel: int = _selected_tiles[0]
@@ -3939,27 +3852,6 @@ func _layout_chain_serpentine(chain: Chain) -> void:
 			current = []
 	if current.size() > 0:
 		rows.append(current)
-
-	# Phase 2 (G): claim each live extra_end against a double already in
-	# the chain. Builds chain_idx → pip value for any double whose branch
-	# is still open, so the per-tile builder can paint a small "↕ N"
-	# badge directly above it. Any extras not claimed here (rare — they
-	# come from chained-branch continuations) still fall back to the
-	# legacy _chain_branches_row above the chain.
-	var branch_value_by_idx: Dictionary = {}
-	var extras_remaining: Array = chain.extra_ends.duplicate()
-	if not extras_remaining.is_empty():
-		for ti in range(n):
-			if extras_remaining.is_empty():
-				break
-			var dd: Vector2i = chain.tile_displays[ti]
-			if dd.x != dd.y:
-				continue
-			var pip_val: int = dd.x
-			var match_idx: int = extras_remaining.find(pip_val)
-			if match_idx >= 0:
-				extras_remaining.remove_at(match_idx)
-				branch_value_by_idx[ti] = pip_val
 
 	# Pre-allocate tile panels so we can fill _chain_tile_panels in chain order
 	# even when odd rows render right-to-left.
@@ -4006,12 +3898,9 @@ func _layout_chain_serpentine(chain: Chain) -> void:
 			# so the connecting edges still meet correctly visually.
 			var left_pip:  int = d.y if reverse else d.x
 			var right_pip: int = d.x if reverse else d.y
-			var branch_pip: int = int(branch_value_by_idx.get(tile_idx, -2))
-			var is_branch: bool = tile_idx < sides.size() \
-				and sides[tile_idx] == "extra"
 			var tile_panel: Control = _build_chain_tile(
 				left_pip, right_pip, half_size, is_double,
-				is_committed, is_target, branch_pip, is_branch)
+				is_committed, is_target)
 			if ghosting and (tile_idx + 1) % 3 == 0:
 				tile_panel.modulate.a = 0.18
 			row.add_child(tile_panel)
@@ -4063,8 +3952,7 @@ func _layout_chain_serpentine(chain: Chain) -> void:
 ## dot size, border, corner, and padding all scale from it.
 func _build_chain_tile(disp_left: int, disp_right: int,
 		half_size: int = 60, vertical: bool = true,
-		is_committed: bool = true, is_target: bool = false,
-		branch_pip: int = -2, is_branch_tile: bool = false) -> Control:
+		is_committed: bool = true, is_target: bool = false) -> Control:
 	var sep_thickness: int = 2
 	var dot_size: int = maxi(4, int(half_size * 0.18))
 
@@ -4116,14 +4004,6 @@ func _build_chain_tile(disp_left: int, disp_right: int,
 		# length without breaking the muted table aesthetic.
 		style.border_color = C_GOLD_TITLE if is_committed else \
 			C_GOLD_TITLE.lerp(C_TEXT, 0.40)
-		style.set_border_width_all(2)
-	if is_branch_tile:
-		# Phase 3: branch tiles get the teal "branching" tint. Overrides
-		# any double/preview accent — being a branch tile is the most
-		# important visual claim. Target highlight (next block) can still
-		# override this when the player has it selected as the next play.
-		style.border_color = C_TARGETING if is_committed else \
-			C_TARGETING.lerp(C_TEXT, 0.35)
 		style.set_border_width_all(2)
 	if is_target:
 		style.border_color = C_TILE_BORDER_SEL
@@ -4208,86 +4088,7 @@ func _build_chain_tile(disp_left: int, disp_right: int,
 		badge.offset_top    = -2
 		tile_root.add_child(badge)
 
-	# Branch-tile glyph (Phase 3): tiles that landed via a branching
-	# extra_end get a small "↳" in the top-left corner — opposite the ✦
-	# double badge so doubles-that-are-also-branches stay readable. Tile
-	# also already has the teal border accent applied above.
-	if is_branch_tile and half_size >= 18:
-		var lineage := Label.new()
-		lineage.text = "↳"
-		lineage.add_theme_font_size_override("font_size",
-			maxi(10, int(half_size * 0.34)))
-		lineage.add_theme_color_override("font_color", C_TARGETING)
-		lineage.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		lineage.z_index = 5
-		FontManager.apply_semibold(lineage)
-		lineage.anchor_left   = 0.0
-		lineage.anchor_top    = 0.0
-		lineage.anchor_right  = 0.0
-		lineage.anchor_bottom = 0.0
-		lineage.offset_left   = 2
-		lineage.offset_top    = -2
-		tile_root.add_child(lineage)
-
-	# Branch badge (G): for doubles whose extra_end is still live, a small
-	# pill floats above the tile showing the pip value the branch is
-	# waiting to match. Sits clear of the ✦ corner badge and uses the
-	# teal "branch" tint so it reads as "still-open route" not "tile
-	# decoration". -2 is the sentinel for "no branch".
-	if branch_pip > -2 and half_size >= 18:
-		var pill := _make_branch_pill(branch_pip, half_size)
-		pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		# Centred horizontally above the tile, just past the top edge.
-		pill.anchor_left   = 0.5
-		pill.anchor_top    = 0.0
-		pill.anchor_right  = 0.5
-		pill.anchor_bottom = 0.0
-		var pill_w: int = maxi(22, int(half_size * 1.0))
-		pill.offset_left   = -pill_w / 2
-		pill.offset_top    = -int(half_size * 0.7)
-		pill.custom_minimum_size = Vector2(pill_w, int(half_size * 0.7))
-		tile_root.add_child(pill)
-
 	return tile_root
-
-## Floating pip badge anchored above a double in the chain. Visualises
-## an open branch — the value a future tile would need to land on to
-## extend the branch off that double. Distinct teal tint so it reads as
-## a "branching opportunity" rather than another pip face.
-func _make_branch_pill(pip_value: int, half_size: int) -> Control:
-	var pill := PanelContainer.new()
-	var s := StyleBoxFlat.new()
-	s.bg_color     = Color(0.06, 0.16, 0.16, 0.92)
-	s.border_color = C_TARGETING
-	s.set_border_width_all(1)
-	s.set_corner_radius_all(int(half_size * 0.4))
-	s.set_content_margin_all(2)
-	pill.add_theme_stylebox_override("panel", s)
-
-	var hb := HBoxContainer.new()
-	hb.add_theme_constant_override("separation", 2)
-	hb.alignment = BoxContainer.ALIGNMENT_CENTER
-	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	pill.add_child(hb)
-
-	var glyph := Label.new()
-	glyph.text = "↕"
-	glyph.add_theme_font_size_override("font_size",
-		maxi(8, int(half_size * 0.42)))
-	glyph.add_theme_color_override("font_color", C_TARGETING)
-	glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	FontManager.apply_semibold(glyph)
-	hb.add_child(glyph)
-
-	var val := Label.new()
-	val.text = "★" if pip_value < 0 else str(pip_value)
-	val.add_theme_font_size_override("font_size",
-		maxi(10, int(half_size * 0.5)))
-	val.add_theme_color_override("font_color", C_TEXT)
-	val.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	FontManager.apply_semibold(val)
-	hb.add_child(val)
-	return pill
 
 ## Small pip-badge anchored at an open end of the chain. Visualises the
 ## value a new tile needs to match to attach there. Renders next to the
@@ -5176,15 +4977,6 @@ func _build_table_area() -> Control:
 	_contract_bar = _build_contract_bar()
 	_contract_bar.hide()
 	vbox.add_child(_contract_bar)
-
-	# Branch indicators — populated when the chain has live extra_ends
-	# (open branch values from previously-placed doubles). Sits above the
-	# chain so the player can see at a glance which pip values can still
-	# be matched via branching.
-	_chain_branches_row = HBoxContainer.new()
-	_chain_branches_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	_chain_branches_row.add_theme_constant_override("separation", 6)
-	vbox.add_child(_chain_branches_row)
 
 	# Chain tiles — VBox of rows. Each row is built fresh in _refresh_chain_display.
 	#

@@ -395,20 +395,19 @@ const ENTRIES: Array[Dictionary] = [
 		"unlock": {"type": "always", "value": 0, "hint": ""},
 	},
 	{
-		"id": "extra_ends", "category": Category.ANOMALIES,
-		"name": "Branch Ends",
-		"summary": "Open pip values created by doubles in the Pulse.",
+		"id": "double_resonance", "category": Category.ANOMALIES,
+		"name": "Double Resonance",
+		"summary": "Self-referential flow components amplify the Pulse.",
 		"body":
-"When a double is placed in a Cohesion Pulse, the Machine treats its "
-+ "perpendicular faces as new open ends — additional pip values future "
-+ "Components may match against. The Architects have catalogued this "
-+ "behaviour for centuries and consider it a basic rule of Pulse extension.\n\n"
-+ "Branches are not visible in the Cohesion Pulse the same way the main "
-+ "chain is visible. They sit slightly outside ordinary spatial intuition. "
-+ "The Observation Window represents them as floating badges above the "
-+ "Pulse — a representation, not the thing itself.\n\n"
-+ "The Renegade Mechanic claims the Machine had Branch logic centuries "
-+ "before the rules of dominoes were codified.",
+"A double Component — two matching pip faces on the same Component — "
++ "resonates with itself when routed through the Core. The Machine "
++ "interprets this self-reference as a coherence pulse of higher order, "
++ "and grants the Operator a flat amplification on the next signal.\n\n"
++ "Doubles do NOT open additional matching ends; the Pulse remains a "
++ "single line per the Architects' first-edition Component Manual. The "
++ "Renegade Mechanic disagrees on this point, and his sketches of a "
++ "'branched Pulse' have been impounded by the Copper Guild on at least "
++ "three occasions.",
 		"unlock": {"type": "best_round", "value": 4,
 			"hint": "Place a double in a chain."},
 	},

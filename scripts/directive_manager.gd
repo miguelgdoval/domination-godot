@@ -66,7 +66,6 @@ func _eval_play(d: Directive, r: Dictionary) -> bool:
 		Directive.Type.NO_DOUBLES_LONG:  return r["doubles"] == 0 and r["length"] >= 7
 		Directive.Type.HIGH_PIP_CHAIN:   return _high_pip_chain_check(r)
 		Directive.Type.WILD_USED:        return _chain_has_wild()
-		Directive.Type.BRANCH_USED:      return _chain_branch_was_used()
 		_: return false
 
 ## True if the chain is at least 5 tiles AND its average non-wild pip
@@ -95,19 +94,6 @@ func _chain_has_wild() -> bool:
 		if tile.is_wild:
 			return true
 	return false
-
-## True when the chain has consumed at least one branch end this round.
-## Detect by total doubles placed > extra_ends still open: every double
-## adds an extra_end, every branch use removes one. If doubles_placed
-## exceeds the live extra_ends count, at least one branch was consumed.
-func _chain_branch_was_used() -> bool:
-	if _rm == null or _rm.current_chain == null:
-		return false
-	var doubles_placed: int = 0
-	for tile in _rm.current_chain.tiles:
-		if not tile.is_wild and tile.is_double():
-			doubles_placed += 1
-	return doubles_placed > _rm.current_chain.extra_ends.size()
 
 func _eval_end(d: Directive) -> bool:
 	match d.type:

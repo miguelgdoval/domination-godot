@@ -22,7 +22,6 @@ static func all() -> Array[Directive]:
 		_make(Directive.Type.NO_DOUBLES_LONG,  "Play a chain of 7+ tiles with no doubles",    5),
 		_make(Directive.Type.HIGH_PIP_CHAIN,   "Chain of 5+ tiles, avg ≥6 pips per tile",     4),
 		_make(Directive.Type.WILD_USED,        "Use a wild tile in a chain",                  3),
-		_make(Directive.Type.BRANCH_USED,      "Land a tile on a branch (extra open end)",    4),
 	]
 
 static func _make(t: Directive.Type, text: String, reward: int) -> Directive:
