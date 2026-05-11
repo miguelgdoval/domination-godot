@@ -3135,9 +3135,20 @@ func _build_shop_item_card(entry: Dictionary) -> Control:
 	if bought:
 		bottom_row.add_child(_make_label("OWNED", C_WIN, 13))
 	else:
-		var can_buy: bool = (GameState.monedas >= cost) and \
+		var can_afford: bool = GameState.monedas >= cost
+		var can_buy: bool = can_afford and \
 							GameState.has_free_slot() and \
 							not GameState.owns_module(m.id)
+		# Recolour the cost label so the player can scan a 3-item shop and
+		# instantly see what's in range. Green = affordable, gold = saved
+		# meaning ("here's the price"), no buy hint.
+		cost_lbl.add_theme_color_override("font_color",
+			C_WIN if can_afford else C_MONEDAS)
+		# Subtle affordable accent on the panel border — keeps the rarity
+		# colour but glows when the player has the coin for it.
+		if can_buy:
+			style.border_color = C_RARITY[m.rarity].lerp(C_WIN, 0.30)
+			style.set_border_width_all(3)
 		var buy_btn := Button.new()
 		buy_btn.text = "BUY"
 		buy_btn.disabled = not can_buy
@@ -3509,6 +3520,36 @@ func _refresh_chain_display() -> void:
 	for child in _chain_container.get_children():
 		child.queue_free()
 	_chain_tile_panels.clear()
+
+	# Reinforcement targeting mode commandeers the chain area + preview
+	# labels so the player isn't left guessing what the teal-highlighted
+	# tiles want from them. Returns early — no chain preview while
+	# targeting; selections aren't a chain right now.
+	if _reinforcement_pending != null:
+		var r: Reinforcement = _reinforcement_pending
+		var picked: int = _reinforcement_targets.size()
+		var need:   int = maxi(1, _reinforcement_needs)
+		var hint_lbl := _make_label(
+			"TARGET A TILE — %s" % r.display_name.to_upper(),
+			C_TARGETING_SEL, 16)
+		hint_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		hint_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+		_chain_container.add_child(hint_lbl)
+		if _lbl_preview != null:
+			_lbl_preview.text = "%s   ·   Esc to cancel" % r.description
+			_lbl_preview.add_theme_color_override("font_color", C_TARGETING)
+		if _lbl_preview_total != null:
+			_lbl_preview_total.text = "%d / %d picked" % [picked, need]
+			_lbl_preview_total.add_theme_color_override("font_color",
+				C_TARGETING_SEL)
+		_update_chronos_ghost(0)
+		_refresh_chain_milestone(0)
+		if _chain_info_lbl != null:
+			_chain_info_lbl.text = "TARGETING"
+		if _chain_bonus_lbl != null:
+			_chain_bonus_lbl.text = ""
+		_refresh_branch_indicators(null)
+		return
 
 	var preview := _build_preview_chain()
 
@@ -6177,8 +6218,15 @@ func _build_tile_offer_card(index: int, entry: Dictionary) -> Control:
 		vbox.add_child(_make_label("ADDED", C_WIN, 13))
 	else:
 		var can_buy: bool = GameState.monedas >= cost
-		var cost_lbl := _make_label("%d Monedas" % cost, C_MONEDAS, 13)
+		# Affordability cue: green cost text + thicker accented border when
+		# the player can pay. Matches the module-card affordance so the
+		# whole shop reads with the same visual vocabulary.
+		var cost_color: Color = C_WIN if can_buy else C_MONEDAS
+		var cost_lbl := _make_label("%d Monedas" % cost, cost_color, 13)
 		vbox.add_child(cost_lbl)
+		if can_buy:
+			style.border_color = C_MONEDAS.lerp(C_WIN, 0.30)
+			style.set_border_width_all(3)
 		var buy_btn := Button.new()
 		buy_btn.text = "BUY"
 		buy_btn.disabled = not can_buy
