@@ -125,6 +125,10 @@ var _compass_overlay: Control        = null
 var _tile_btns: Array = []
 var _tile_conn_lbls: Array = []   # connection-arrow labels, parallel to _tile_btns
 var _scoring_active: bool = false # input locked while scoring animation plays
+# Currently-playing skippable cinematic (boss warning, scoring cascade,
+# run-end reveal). Pressing Space/Enter/Esc/click fast-forwards it by
+# spiking the tween's speed_scale; null when no cinematic is active.
+var _active_cinematic_tween: Tween = null
 var _shop_inventory: Array = []          # module entries [{item, cost}]
 var _shop_bought: Array = []             # module ids bought this visit
 # Artisan's Workshop tile state
@@ -1645,6 +1649,7 @@ func _show_boss_warning() -> void:
 	_boss_overlay.show()
 
 	var seq := create_tween()
+	_register_cinematic(seq)
 
 	# Phase 1 — warning header pulses in (0.3s)
 	seq.tween_property(_lbl_boss_warning, "modulate:a", 1.0, 0.30)
@@ -2230,6 +2235,22 @@ func _on_undo_pressed() -> void:
 		_refresh_tile_visuals()
 		_refresh_chain_display()
 		_refresh_action_buttons()
+
+## Wipe every selected tile in one shot. Reached via right-click on the
+## Undo button (mouse equivalent of pressing Esc with selections live),
+## via the keyboard via `Shift+U` for hands-on-mouse-shy players, and via
+## the existing Esc path. Single click on Undo still pops only the last
+## tile so the precise behaviour is preserved.
+func _on_undo_clear_all() -> void:
+	if _phase != Phase.PLAYING or _scoring_active:
+		return
+	if _selected_tiles.is_empty():
+		return
+	_selected_tiles.clear()
+	_refresh_tile_visuals()
+	_refresh_chain_display()
+	_refresh_action_buttons()
+	AudioManager.play_sfx("ui_click")
 
 ## Player chooses to lock in the round once they've crossed the target.
 ## Banks remaining hands for the unused-hand Moneda bonus.
@@ -2894,6 +2915,7 @@ func _show_run_end(victory: bool) -> void:
 	# CINEMATIC SEQUENCE
 	# ════════════════════════════════════════════════════════════════════════
 	var seq := create_tween()
+	_register_cinematic(seq)
 
 	if victory:
 		# ── VICTORY SEQUENCE ──────────────────────────────────────────────
@@ -2981,15 +3003,16 @@ func _show_run_end(victory: bool) -> void:
 		)
 
 		# 6. Progress bar: "REBOOTING OPERATOR INTERFACE"
+		# Fill tween is part of the parent seq (not a nested create_tween)
+		# so the global anim-speed and skip-request both apply to it. With
+		# a separate child tween it would keep ticking at 1× even after a
+		# skip and the progress bar would dawdle past the dismissed UI.
 		seq.tween_interval(0.30)
 		seq.tween_property(_run_end_progress_lbl, "modulate:a", 1.0, 0.20)
 		seq.tween_property(_run_end_progress_bar, "modulate:a", 1.0, 0.20)
-		seq.tween_callback(func():
-			var bt := create_tween()
-			bt.tween_property(_run_end_progress_bar, "value", 100.0, 2.0) \
-				.set_trans(Tween.TRANS_LINEAR)
-		)
-		seq.tween_interval(2.10)
+		seq.tween_property(_run_end_progress_bar, "value", 100.0, 2.0) \
+			.set_trans(Tween.TRANS_LINEAR)
+		seq.tween_interval(0.10)
 
 		# 7. Button appears after reboot completes
 		seq.tween_callback(func(): _btn_run_end.disabled = false)
@@ -3546,6 +3569,11 @@ func _refresh_action_buttons() -> void:
 	_btn_discard.disabled = not _rm.can_discard() or _selected_tiles.is_empty()
 	_btn_undo.disabled    = _selected_tiles.is_empty()
 	_btn_discard.text     = "Discard (%d)" % _selected_tiles.size()
+	# Surface selection count on Undo when there's >1 tile to clear, so the
+	# "right-click clears all" affordance has a visible hook. Single-tile
+	# selections keep the unchanged label.
+	_btn_undo.text = "↩ Undo  ×%d" % _selected_tiles.size() \
+		if _selected_tiles.size() > 1 else "↩ Undo"
 	# Stand becomes available the moment the round target is met. Player
 	# can keep extending for tier bonuses / directives, or lock in here.
 	if _btn_stand != null:
@@ -3592,6 +3620,13 @@ func _rebuild_hand() -> void:
 		child.queue_free()
 	_tile_btns.clear()
 	_tile_conn_lbls.clear()
+	# Cap total stagger time so a 10-tile hand doesn't burn half a second
+	# of pure wait. ~0.030s per tile, total clamped to 0.22s; large hands
+	# end up overlapping more but the cascade still reads as a sequence.
+	# Also honour the user's anim-speed setting so a FASTER preset shaves
+	# this down further (matches what cinematics do).
+	var per_tile: float = clampf(0.22 / maxi(1, _rm.hand.size()), 0.018, 0.030)
+	per_tile /= maxf(0.5, _anim_speed())
 	for i in range(_rm.hand.size()):
 		var btn := _create_hand_tile(_rm.hand[i], i)
 		_hand_container.add_child(btn)
@@ -3601,11 +3636,12 @@ func _rebuild_hand() -> void:
 			btn.modulate.a = 0.0
 			btn.scale      = Vector2(0.88, 0.88)
 			var tw := btn.create_tween().set_parallel(true)
+			var delay: float = i * per_tile
 			tw.tween_property(btn, "modulate:a", 1.0, 0.20) \
-				.set_delay(i * 0.055) \
+				.set_delay(delay) \
 				.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 			tw.tween_property(btn, "scale", Vector2.ONE, 0.22) \
-				.set_delay(i * 0.055) \
+				.set_delay(delay) \
 				.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	_refresh_tile_visuals()
 	_refresh_action_buttons()
@@ -4037,9 +4073,98 @@ func _apply_etapa_theme(etapa: int) -> void:
 	_lbl_table_title.add_theme_color_override("font_color", accent)
 
 # ===========================================================================
+# Cinematic skip helpers
+# ===========================================================================
+
+## Current animation-speed multiplier (1.0 baseline). Applied to long
+## cinematics at creation time via Tween.set_speed_scale().
+func _anim_speed() -> float:
+	return maxf(0.1, SaveManager.get_anim_speed())
+
+## Register a tween as the currently-active skippable cinematic, then
+## scale it by the user's anim-speed preference. The finish handler
+## clears the reference only if the finishing tween is still the active
+## one — so if a new cinematic starts before this one's signal fires
+## it doesn't accidentally null out the new tween.
+func _register_cinematic(t: Tween) -> void:
+	_active_cinematic_tween = t
+	if t != null:
+		t.set_speed_scale(_anim_speed())
+		t.finished.connect(func():
+			if _active_cinematic_tween == t:
+				_active_cinematic_tween = null
+		)
+
+## Fast-forward the active cinematic to completion. Called from input
+## handlers (Space/Enter/Esc/click) and from buttons that explicitly
+## offer a skip affordance. Safe to call when no cinematic is active.
+func _request_cinematic_skip() -> void:
+	if _active_cinematic_tween == null:
+		return
+	if not is_instance_valid(_active_cinematic_tween):
+		_active_cinematic_tween = null
+		return
+	# 100x scale resolves multi-second cinematics in a frame or two and
+	# still fires every tween_callback in order. Cleaner than killing
+	# the tween outright (which would drop final-state callbacks).
+	_active_cinematic_tween.set_speed_scale(100.0)
+
+## True when an input event during BOSS_WARNING / scoring / GAME_OVER /
+## VICTORY should be consumed as a fast-forward rather than a game
+## action. Centralised so input handler + button handler stay in sync.
+func _can_skip_cinematic() -> bool:
+	if _active_cinematic_tween == null:
+		return false
+	if not is_instance_valid(_active_cinematic_tween):
+		return false
+	# Modal overlays consume their own input — don't let Space/click leak
+	# through and skip a cinematic the player can't even see right now.
+	if _settings_overlay != null and _settings_overlay.visible:
+		return false
+	if _pause_overlay != null and _pause_overlay.visible:
+		return false
+	return true
+
+# ===========================================================================
 # Keyboard shortcuts
 # ===========================================================================
 func _unhandled_input(event: InputEvent) -> void:
+	# Skip-cinematic is universal across phases. Trigger it first, before
+	# the per-phase routing below, so the player can fast-forward the boss
+	# warning, scoring cascade, or run-end reveal with one key.
+	if _can_skip_cinematic():
+		var skip := false
+		if event is InputEventKey and (event as InputEventKey).pressed:
+			var kc := (event as InputEventKey).keycode
+			if kc == KEY_SPACE or kc == KEY_ENTER or kc == KEY_KP_ENTER \
+					or kc == KEY_ESCAPE:
+				skip = true
+		elif event is InputEventMouseButton:
+			var mb := event as InputEventMouseButton
+			if mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:
+				skip = true
+		if skip:
+			_request_cinematic_skip()
+			get_viewport().set_input_as_handled()
+			return
+	# Cinematic finished — Space/Enter act as "confirm" on the post-
+	# cinematic screens (boss warning's BEGIN, run-end's NEW TRIAL CYCLE)
+	# so a player who skipped a cutscene isn't forced to also reach for
+	# the mouse to dismiss it.
+	if event is InputEventKey and (event as InputEventKey).pressed:
+		var ekc := (event as InputEventKey).keycode
+		var is_confirm := ekc == KEY_SPACE or ekc == KEY_ENTER or ekc == KEY_KP_ENTER
+		if is_confirm:
+			if _phase == Phase.BOSS_WARNING and _boss_begin_btn != null \
+					and not _boss_begin_btn.disabled:
+				_on_boss_begin_pressed()
+				get_viewport().set_input_as_handled()
+				return
+			if (_phase == Phase.GAME_OVER or _phase == Phase.VICTORY) \
+					and _btn_run_end != null and not _btn_run_end.disabled:
+				_on_run_end_pressed()
+				get_viewport().set_input_as_handled()
+				return
 	if _phase != Phase.PLAYING:
 		return
 	if not (event is InputEventKey) or not (event as InputEventKey).pressed:
@@ -4050,7 +4175,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		KEY_SPACE, KEY_ENTER:
 			_on_play_pressed()
 		KEY_U:
-			_on_undo_pressed()
+			# Shift+U clears the entire selection in one keystroke. Matches
+			# the right-click affordance on the Undo button so keyboard and
+			# mouse users share the same shortcut surface.
+			if (event as InputEventKey).shift_pressed:
+				_on_undo_clear_all()
+			else:
+				_on_undo_pressed()
 		KEY_D:
 			if not _selected_tiles.is_empty() and _rm.can_discard():
 				_rm.discard(_selected_tiles)
@@ -5233,6 +5364,17 @@ func _build_action_bar() -> Control:
 	hbox.add_theme_constant_override("separation", 16)
 	hbox.custom_minimum_size = Vector2(0, 48)
 	_btn_undo    = _make_button("↩ Undo",       _on_undo_pressed,    Vector2(110, 42))
+	# Right-click on Undo = clear every selected tile in one go. Mirrors the
+	# Esc-during-PLAYING shortcut so mouse-only players get the same comfort
+	# without needing to know the keybind.
+	_btn_undo.tooltip_text = "Click: undo last selection\nRight-click / Shift+U: clear all"
+	_btn_undo.mouse_filter = Control.MOUSE_FILTER_STOP
+	_btn_undo.gui_input.connect(func(e: InputEvent):
+		if e is InputEventMouseButton and (e as InputEventMouseButton).pressed \
+				and (e as InputEventMouseButton).button_index == MOUSE_BUTTON_RIGHT:
+			_on_undo_clear_all()
+			_btn_undo.accept_event()
+	)
 	_btn_discard = _make_button("Discard (0)",   _on_discard_pressed, Vector2(148, 42))
 	_btn_play    = _make_button("▶  Play Pulse", _on_play_pressed,    Vector2(166, 42))
 	# Stand: once the chronos target is reached, the player can lock in
@@ -6512,6 +6654,7 @@ func _pulse_rack_card(card: Control) -> void:
 func _run_scoring_sequence(overlay_infos: Array, result: Dictionary,
 		new_chronos: int, active_module_ids: Array) -> void:
 	var seq := create_tween()
+	_register_cinematic(seq)
 
 	# Pre-compute cumulative chip totals so closures can capture the right value
 	# for each tile without relying on mutable loop-variable capture.
@@ -7309,6 +7452,34 @@ func _build_settings_overlay() -> Control:
 
 	vbox.add_child(_make_hsep())
 
+	# Comfort section — pacing controls that scale the long cinematics
+	# (boss warning, scoring cascade, run-end reveal). Skip is always
+	# available via Space/Enter/Click; this lets the baseline be faster
+	# too for players who'd rather skim every animation.
+	var comfort_hdr := _make_label("COMFORT", C_DIM, 11)
+	vbox.add_child(comfort_hdr)
+
+	var speed_row := HBoxContainer.new()
+	speed_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	speed_row.add_theme_constant_override("separation", 8)
+	var speed_lbl := _make_label("Animation Speed", C_TEXT, 14)
+	speed_lbl.custom_minimum_size = Vector2(160, 0)
+	speed_row.add_child(speed_lbl)
+	var speed_btn := _make_button(_anim_speed_button_label(),
+		_on_anim_speed_cycle_pressed, Vector2(120, 36))
+	overlay.set_meta("speed_btn", speed_btn)
+	speed_row.add_child(speed_btn)
+	vbox.add_child(speed_row)
+
+	var skip_hint := _make_label(
+		"Tip: press Space, Enter or click to skip a cinematic.",
+		C_DIM, 11)
+	skip_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	skip_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vbox.add_child(skip_hint)
+
+	vbox.add_child(_make_hsep())
+
 	# Display section header
 	var disp_hdr := _make_label("DISPLAY", C_DIM, 11)
 	vbox.add_child(disp_hdr)
@@ -7422,6 +7593,9 @@ func _refresh_settings_overlay() -> void:
 	var mute_b = _settings_overlay.get_meta("mute_btn", null)
 	if mute_b != null:
 		mute_b.button_pressed = AudioManager.is_muted()
+	var speed_b = _settings_overlay.get_meta("speed_btn", null)
+	if speed_b != null:
+		speed_b.text = _anim_speed_button_label()
 
 func _on_settings_slider_changed(value: float, slider: HSlider) -> void:
 	var t: String = slider.get_meta("type", "")
@@ -7437,6 +7611,42 @@ func _save_audio_settings() -> void:
 		AudioManager.get_music_volume(),
 		AudioManager.is_muted()
 	)
+
+## Label for the Animation Speed cycle button — "NORMAL ×1" / "FAST ×2"
+## / "FASTER ×4". Picks the closest preset to whatever value is stored
+## so a future preset change doesn't leave the button blank.
+func _anim_speed_button_label() -> String:
+	var cur: float = SaveManager.get_anim_speed()
+	var idx: int = 0
+	var best: float = 1e9
+	for i in range(SaveManager.ANIM_SPEED_PRESETS.size()):
+		var d: float = absf(SaveManager.ANIM_SPEED_PRESETS[i] - cur)
+		if d < best:
+			best = d
+			idx  = i
+	return "%s  ×%d" % [
+		SaveManager.ANIM_SPEED_LABELS[idx],
+		int(SaveManager.ANIM_SPEED_PRESETS[idx]),
+	]
+
+## Cycle through the speed presets in order, persist, and update the
+## button label. The change applies to the *next* cinematic — no need
+## to interrupt an in-flight one.
+func _on_anim_speed_cycle_pressed() -> void:
+	var cur: float = SaveManager.get_anim_speed()
+	var idx: int = 0
+	var best: float = 1e9
+	for i in range(SaveManager.ANIM_SPEED_PRESETS.size()):
+		var d: float = absf(SaveManager.ANIM_SPEED_PRESETS[i] - cur)
+		if d < best:
+			best = d
+			idx  = i
+	idx = (idx + 1) % SaveManager.ANIM_SPEED_PRESETS.size()
+	SaveManager.set_anim_speed(SaveManager.ANIM_SPEED_PRESETS[idx])
+	if _settings_overlay != null:
+		var b = _settings_overlay.get_meta("speed_btn", null)
+		if b != null:
+			b.text = _anim_speed_button_label()
 
 # ===========================================================================
 # Tutorial overlay

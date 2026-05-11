@@ -14,7 +14,12 @@ const DEFAULT_SETTINGS := {
 	"sfx_volume":   1.0,
 	"music_volume": 0.70,
 	"muted":        false,
+	"anim_speed":   1.0,
 }
+
+# Allowed animation-speed presets. Settings overlay cycles through these.
+const ANIM_SPEED_PRESETS: Array[float] = [1.0, 2.0, 4.0]
+const ANIM_SPEED_LABELS:  Array[String] = ["NORMAL", "FAST", "FASTER"]
 
 const DEFAULT_SCORES := {
 	# key: "difficulty_N" → { round_reached, total_chronos, modules_count }
@@ -44,6 +49,19 @@ func save_settings(sfx_vol: float, music_vol: float, muted: bool) -> void:
 
 func load_settings() -> Dictionary:
 	return _data.get("settings", DEFAULT_SETTINGS.duplicate())
+
+## Animation-speed multiplier applied to long cinematics (boss warning,
+## scoring cascade, run-end reveal). 1.0 = baseline, 2.0/4.0 for players
+## who'd rather skim the eye candy. Stored per-installation, not per-run.
+func get_anim_speed() -> float:
+	var s: Dictionary = _data.get("settings", {})
+	return float(s.get("anim_speed", DEFAULT_SETTINGS["anim_speed"]))
+
+func set_anim_speed(v: float) -> void:
+	var s: Dictionary = _data.get("settings", DEFAULT_SETTINGS.duplicate())
+	s["anim_speed"] = v
+	_data["settings"] = s
+	_save_to_disk()
 
 # ---------------------------------------------------------------------------
 # Run persistence
