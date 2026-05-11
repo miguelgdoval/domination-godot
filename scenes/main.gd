@@ -3464,9 +3464,27 @@ func _refresh_branch_indicators(preview: Chain) -> void:
 		child.queue_free()
 	if preview == null or preview.extra_ends.is_empty():
 		return
+	# Phase 2 (G): mirror the per-tile claim algorithm in
+	# _layout_chain_serpentine. Any extra_end value the layout already
+	# pinned to an inline badge on its source double is removed from the
+	# unclaimed list — anything still left here is a chained-branch
+	# value with no obvious owner, and the catch-all strip handles it.
+	var unclaimed: Array = preview.extra_ends.duplicate()
+	for ti in range(preview.length()):
+		if unclaimed.is_empty():
+			break
+		var dd: Vector2i = preview.tile_displays[ti]
+		if dd.x != dd.y:
+			continue
+		var pip_val: int = dd.x
+		var match_idx: int = unclaimed.find(pip_val)
+		if match_idx >= 0:
+			unclaimed.remove_at(match_idx)
+	if unclaimed.is_empty():
+		return
 	# Header label — explains the row to anyone who hasn't seen it before.
 	_chain_branches_row.add_child(_make_label("BRANCHES:", C_DIM, 10))
-	for v in preview.extra_ends:
+	for v in unclaimed:
 		_chain_branches_row.add_child(_build_branch_badge(int(v)))
 
 ## Compact circular pip badge. Shows a number (or ★ for wild) on a
@@ -3889,6 +3907,11 @@ func _layout_chain_serpentine(chain: Chain) -> void:
 	# Each tile is a SQUARE slot of (2*half + sep) on each side. With no
 	# outer padding, slots in a row sit flush against each other, so the
 	# pip halves touch neighbours edge-to-edge.
+	#
+	# Phase 2 (H): floored at 22 px. Beyond ~30 tiles the chain wraps to
+	# more rows and the chain_scroll handles overflow vertically. The
+	# old 16-px tier made long chains visually unreadable; the floor
+	# trades a few extra rows for legible pips.
 	var half_size: int
 	var per_row:   int
 	if n <= 8:
@@ -3896,11 +3919,9 @@ func _layout_chain_serpentine(chain: Chain) -> void:
 	elif n <= 14:
 		half_size = 30 ; per_row = 9
 	elif n <= 22:
-		half_size = 24 ; per_row = 11
-	elif n <= 30:
-		half_size = 20 ; per_row = 13
+		half_size = 26 ; per_row = 11
 	else:
-		half_size = 16 ; per_row = 16
+		half_size = 22 ; per_row = 13
 
 	# Group indices into rows (serpentine direction handled at render time).
 	var rows: Array = []
@@ -3912,6 +3933,27 @@ func _layout_chain_serpentine(chain: Chain) -> void:
 			current = []
 	if current.size() > 0:
 		rows.append(current)
+
+	# Phase 2 (G): claim each live extra_end against a double already in
+	# the chain. Builds chain_idx → pip value for any double whose branch
+	# is still open, so the per-tile builder can paint a small "↕ N"
+	# badge directly above it. Any extras not claimed here (rare — they
+	# come from chained-branch continuations) still fall back to the
+	# legacy _chain_branches_row above the chain.
+	var branch_value_by_idx: Dictionary = {}
+	var extras_remaining: Array = chain.extra_ends.duplicate()
+	if not extras_remaining.is_empty():
+		for ti in range(n):
+			if extras_remaining.is_empty():
+				break
+			var dd: Vector2i = chain.tile_displays[ti]
+			if dd.x != dd.y:
+				continue
+			var pip_val: int = dd.x
+			var match_idx: int = extras_remaining.find(pip_val)
+			if match_idx >= 0:
+				extras_remaining.remove_at(match_idx)
+				branch_value_by_idx[ti] = pip_val
 
 	# Pre-allocate tile panels so we can fill _chain_tile_panels in chain order
 	# even when odd rows render right-to-left.
@@ -3958,9 +4000,10 @@ func _layout_chain_serpentine(chain: Chain) -> void:
 			# so the connecting edges still meet correctly visually.
 			var left_pip:  int = d.y if reverse else d.x
 			var right_pip: int = d.x if reverse else d.y
+			var branch_pip: int = int(branch_value_by_idx.get(tile_idx, -2))
 			var tile_panel: Control = _build_chain_tile(
 				left_pip, right_pip, half_size, is_double,
-				is_committed, is_target)
+				is_committed, is_target, branch_pip)
 			if ghosting and (tile_idx + 1) % 3 == 0:
 				tile_panel.modulate.a = 0.18
 			row.add_child(tile_panel)
@@ -4012,7 +4055,8 @@ func _layout_chain_serpentine(chain: Chain) -> void:
 ## dot size, border, corner, and padding all scale from it.
 func _build_chain_tile(disp_left: int, disp_right: int,
 		half_size: int = 60, vertical: bool = true,
-		is_committed: bool = true, is_target: bool = false) -> Control:
+		is_committed: bool = true, is_target: bool = false,
+		branch_pip: int = -2) -> Control:
 	var sep_thickness: int = 2
 	var dot_size: int = maxi(4, int(half_size * 0.18))
 
@@ -4148,7 +4192,65 @@ func _build_chain_tile(disp_left: int, disp_right: int,
 		badge.offset_top    = -2
 		tile_root.add_child(badge)
 
+	# Branch badge (G): for doubles whose extra_end is still live, a small
+	# pill floats above the tile showing the pip value the branch is
+	# waiting to match. Sits clear of the ✦ corner badge and uses the
+	# teal "branch" tint so it reads as "still-open route" not "tile
+	# decoration". -2 is the sentinel for "no branch".
+	if branch_pip > -2 and half_size >= 18:
+		var pill := _make_branch_pill(branch_pip, half_size)
+		pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		# Centred horizontally above the tile, just past the top edge.
+		pill.anchor_left   = 0.5
+		pill.anchor_top    = 0.0
+		pill.anchor_right  = 0.5
+		pill.anchor_bottom = 0.0
+		var pill_w: int = maxi(22, int(half_size * 1.0))
+		pill.offset_left   = -pill_w / 2
+		pill.offset_top    = -int(half_size * 0.7)
+		pill.custom_minimum_size = Vector2(pill_w, int(half_size * 0.7))
+		tile_root.add_child(pill)
+
 	return tile_root
+
+## Floating pip badge anchored above a double in the chain. Visualises
+## an open branch — the value a future tile would need to land on to
+## extend the branch off that double. Distinct teal tint so it reads as
+## a "branching opportunity" rather than another pip face.
+func _make_branch_pill(pip_value: int, half_size: int) -> Control:
+	var pill := PanelContainer.new()
+	var s := StyleBoxFlat.new()
+	s.bg_color     = Color(0.06, 0.16, 0.16, 0.92)
+	s.border_color = C_TARGETING
+	s.set_border_width_all(1)
+	s.set_corner_radius_all(int(half_size * 0.4))
+	s.set_content_margin_all(2)
+	pill.add_theme_stylebox_override("panel", s)
+
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 2)
+	hb.alignment = BoxContainer.ALIGNMENT_CENTER
+	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pill.add_child(hb)
+
+	var glyph := Label.new()
+	glyph.text = "↕"
+	glyph.add_theme_font_size_override("font_size",
+		maxi(8, int(half_size * 0.42)))
+	glyph.add_theme_color_override("font_color", C_TARGETING)
+	glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	FontManager.apply_semibold(glyph)
+	hb.add_child(glyph)
+
+	var val := Label.new()
+	val.text = "★" if pip_value < 0 else str(pip_value)
+	val.add_theme_font_size_override("font_size",
+		maxi(10, int(half_size * 0.5)))
+	val.add_theme_color_override("font_color", C_TEXT)
+	val.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	FontManager.apply_semibold(val)
+	hb.add_child(val)
+	return pill
 
 ## Small pip-badge anchored at an open end of the chain. Visualises the
 ## value a new tile needs to match to attach there. Renders next to the
