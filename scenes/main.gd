@@ -296,6 +296,11 @@ var _tooltip_name_lbl:   Label
 var _tooltip_desc_lbl:   Label
 var _tooltip_lore_lbl:   Label
 
+# Hold-Tab info overlay — full readout of every equipped module, active
+# directive, consumable and mastery contract. Lazy-built on first Tab
+# press, repopulated on every show so it always reflects current state.
+var _info_overlay: Control = null
+
 # ---------------------------------------------------------------------------
 # Run-end cinematic overlay (victory / defeat — replaces simple result panel)
 # ---------------------------------------------------------------------------
@@ -4208,6 +4213,20 @@ func _unhandled_input(event: InputEvent) -> void:
 				return
 	if _phase != Phase.PLAYING:
 		return
+	# Hold-Tab info overlay — full readout of modules, directives,
+	# consumables and contracts. Handled BEFORE the pressed-only guard
+	# so the release event also fires (overlay vanishes when Tab lifts).
+	if event is InputEventKey and (event as InputEventKey).keycode == KEY_TAB:
+		var ek := event as InputEventKey
+		if ek.echo:
+			get_viewport().set_input_as_handled()
+			return
+		if ek.pressed:
+			_show_info_overlay()
+		else:
+			_hide_info_overlay()
+		get_viewport().set_input_as_handled()
+		return
 	if not (event is InputEventKey) or not (event as InputEventKey).pressed:
 		return
 	if _scoring_active:
@@ -7347,6 +7366,23 @@ func _build_pause_overlay() -> Control:
 	vbox.add_child(_make_button("⤴  QUIT TO TITLE",
 		_on_pause_quit_pressed, Vector2(280, 48)))
 
+	vbox.add_child(_make_hsep())
+
+	# Keybind cheat-sheet — the only stable place to surface the Tab
+	# inventory affordance + the other shortcuts that aren't on a button.
+	# Players who memorise the controls won't open this; new players who
+	# pause to figure things out will find them here.
+	var hints_lbl := _make_label("SHORTCUTS", C_DIM, 10)
+	hints_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(hints_lbl)
+	var binds := _make_label(
+		"Space / Enter — Play     U — Undo last     Shift+U — Clear all\n" +
+		"D — Discard     Tab (hold) — Inspect inventory     Esc — Pause / Clear",
+		C_TEXT, 11)
+	binds.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	FontManager.apply_mono(binds)
+	vbox.add_child(binds)
+
 	return overlay
 
 ## Daily-run forfeit warning. Shown when the player taps QUIT TO TITLE
@@ -8324,3 +8360,193 @@ func _position_tooltip_at(anchor: Control) -> void:
 ## Hide the tooltip immediately.
 func _hide_module_tooltip() -> void:
 	_tooltip_panel.hide()
+
+# ===========================================================================
+# Hold-Tab info overlay
+# ===========================================================================
+
+## Lazy-build, repopulate, and reveal the full info overlay. Shows every
+## equipped module, active directive, carried reinforcement and active
+## mastery contract — name + description + state — so a new player
+## doesn't have to remember what each icon does or hover the cards one
+## by one. Released-Tab call hides it (see _unhandled_input).
+func _show_info_overlay() -> void:
+	if _phase != Phase.PLAYING:
+		return
+	if _info_overlay == null:
+		_info_overlay = _build_info_overlay()
+		# Reuse the tooltip panel's parent (the UI layer), so the overlay
+		# renders above every gameplay control. z_index keeps it above
+		# pause / settings if those happen to be open underneath.
+		_tooltip_panel.get_parent().add_child(_info_overlay)
+	_populate_info_overlay()
+	_info_overlay.show()
+
+func _hide_info_overlay() -> void:
+	if _info_overlay != null:
+		_info_overlay.hide()
+
+## Static structure — the body container is rebuilt each show.
+func _build_info_overlay() -> Control:
+	var root := ColorRect.new()
+	root.color = Color(0, 0, 0, 0.55)
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	# Block clicks while open — keeps the player from accidentally
+	# placing or buying anything they can't see through the dim layer.
+	root.mouse_filter = Control.MOUSE_FILTER_STOP
+	root.z_index = 90
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(820, 0)
+	var style := StyleBoxFlat.new()
+	style.bg_color     = Color(0.08, 0.07, 0.05, 0.97)
+	style.border_color = C_GOLD_RIM
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(10)
+	style.set_content_margin_all(24)
+	panel.add_theme_stylebox_override("panel", style)
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 14)
+	vbox.set_meta("body_root", true)   # marker so _populate finds it
+	panel.add_child(vbox)
+	root.set_meta("body", vbox)
+
+	var hdr := _make_label("INVENTORY — Hold Tab to inspect", C_GOLD_TITLE, 18)
+	hdr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(hdr)
+	vbox.add_child(_make_hsep())
+
+	# Body section — repopulated per show
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 12)
+	body.set_meta("info_body", true)
+	vbox.add_child(body)
+	root.set_meta("body_inner", body)
+
+	return root
+
+func _populate_info_overlay() -> void:
+	if _info_overlay == null:
+		return
+	var body = _info_overlay.get_meta("body_inner", null)
+	if body == null:
+		return
+	for child in body.get_children():
+		child.queue_free()
+
+	# ─── Modules ─────────────────────────────────────────────────────────
+	body.add_child(_info_section_header("CALIBRATION MODULES",
+		"%d / %d slots" % [GameState.modules.size(), GameState.module_slots]))
+	if GameState.modules.is_empty():
+		body.add_child(_info_empty_row("No modules equipped."))
+	else:
+		for m in GameState.modules:
+			body.add_child(_info_module_row(m))
+
+	# ─── Directives (per-round bonus objectives) ─────────────────────────
+	body.add_child(_info_section_header("ACTIVE DIRECTIVES", ""))
+	var dirs: Array = []
+	if _dm != null:
+		dirs = _dm.active
+	if dirs.is_empty():
+		body.add_child(_info_empty_row("No directives this round."))
+	else:
+		for d: Directive in dirs:
+			body.add_child(_info_directive_row(d))
+
+	# ─── Reinforcements (consumables) ────────────────────────────────────
+	body.add_child(_info_section_header("REINFORCEMENTS",
+		"%d / %d" % [GameState.reinforcements.size(), GameState.MAX_REINFORCEMENTS]))
+	if GameState.reinforcements.is_empty():
+		body.add_child(_info_empty_row("No reinforcements carried."))
+	else:
+		for r in GameState.reinforcements:
+			body.add_child(_info_reinforcement_row(r))
+
+	# ─── Mastery contracts (run-long objectives) ─────────────────────────
+	if not GameState.active_contracts.is_empty():
+		body.add_child(_info_section_header("MASTERY CONTRACTS", ""))
+		for c in GameState.active_contracts:
+			body.add_child(_info_contract_row(c))
+
+func _info_section_header(title: String, tail: String) -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	var lbl := _make_label(title, C_GOLD_TITLE, 13)
+	row.add_child(lbl)
+	if not tail.is_empty():
+		var sp := Control.new()
+		sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(sp)
+		row.add_child(_make_label(tail, C_DIM, 12))
+	return row
+
+func _info_empty_row(text: String) -> Control:
+	var lbl := _make_label(text, C_DIM, 12)
+	lbl.add_theme_color_override("font_color", C_DIM)
+	return lbl
+
+func _info_module_row(m: Module) -> Control:
+	var row := VBoxContainer.new()
+	row.add_theme_constant_override("separation", 2)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 8)
+	head.add_child(_make_label(Constants.RARITY_NAMES[m.rarity].to_upper(),
+		C_RARITY[m.rarity], 10))
+	head.add_child(_make_label(m.display_name,
+		C_RARITY[m.rarity].lerp(C_TEXT, 0.45), 14))
+	row.add_child(head)
+	var desc := _make_label(m.description, C_PREVIEW, 12)
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc.custom_minimum_size = Vector2(760, 0)
+	row.add_child(desc)
+	return row
+
+func _info_directive_row(d: Directive) -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	var glyph: String = "✓" if d.completed else "○"
+	var glyph_col: Color = C_WIN if d.completed else C_DIM
+	row.add_child(_make_label(glyph, glyph_col, 14))
+	var text_col: Color = C_DIM if d.completed else C_TEXT
+	var lbl := _make_label(d.text, text_col, 13)
+	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	lbl.custom_minimum_size = Vector2(640, 0)
+	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(lbl)
+	row.add_child(_make_label("+%d ◉" % d.reward, C_MONEDAS, 13))
+	return row
+
+func _info_reinforcement_row(r: Reinforcement) -> Control:
+	var row := VBoxContainer.new()
+	row.add_theme_constant_override("separation", 2)
+	row.add_child(_make_label(r.display_name, C_TARGETING_SEL, 13))
+	var desc := _make_label(r.description, C_PREVIEW, 12)
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc.custom_minimum_size = Vector2(760, 0)
+	row.add_child(desc)
+	return row
+
+func _info_contract_row(c: MasteryContract) -> Control:
+	var row := VBoxContainer.new()
+	row.add_theme_constant_override("separation", 2)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 10)
+	head.add_child(_make_label(c.display_name, C_GOLD_TITLE, 13))
+	var sp := Control.new()
+	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(sp)
+	head.add_child(_make_label(c.progress_text(), C_PREVIEW, 12))
+	head.add_child(_make_label("+%d ◉" % c.reward_monedas, C_MONEDAS, 12))
+	row.add_child(head)
+	var desc := _make_label(c.description, C_DIM, 12)
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc.custom_minimum_size = Vector2(760, 0)
+	row.add_child(desc)
+	return row
