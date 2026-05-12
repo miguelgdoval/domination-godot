@@ -131,6 +131,8 @@ var _scoring_active: bool = false # input locked while scoring animation plays
 var _active_cinematic_tween: Tween = null
 var _shop_inventory: Array = []          # module entries [{item, cost}]
 var _shop_bought: Array = []             # module ids bought this visit
+var _tool_offers:    Array = []          # tool entries [{item, cost}]
+var _tool_offers_bought_idx: Array = []  # indices of consumed tool offers
 # Artisan's Workshop tile state
 var _tile_offers: Array = []             # [{tile, cost}] — tiles for sale
 var _tile_offers_bought: Array = []      # indices already bought
@@ -266,6 +268,8 @@ var _lbl_shop_greeting:    Label
 var _lbl_shop_monedas:     Label
 var _shop_items_row:       HBoxContainer
 var _shop_modules_row:     HBoxContainer
+var _shop_tools_row:       HBoxContainer
+var _shop_tools_header:    Label    # hidden when no tool offers (kept for layout)
 var _lbl_slots:            Label
 # Artisan-only UI
 var _artisan_section:      Control
@@ -2118,6 +2122,9 @@ func _show_shop() -> void:
 		_tile_offers_bought.clear()
 		_removal_candidates = TileShopManager.generate_removal_candidates(GameState.box, 8)
 		_removal_selected.clear()
+		# Workshop sells fewer tools — it's the premium / boss shop, so
+		# its inventory leans rare modules + special tiles.
+		_tool_offers = ShopManager.generate_tools(1)
 		_artisan_section.show()
 		# Codex: meeting the Workshop crew. The Forge's keeper plus the
 		# unsanctioned Mechanic both appear here post-boss. Module
@@ -2129,9 +2136,14 @@ func _show_shop() -> void:
 		_lbl_shop_title.text = "THE BRASS EMPORIUM"
 		_lbl_shop_greeting.text = EMPORIUM_GREETINGS[clampi(etapa, 0, 3)]
 		_shop_inventory = ShopManager.generate_emporium(3, owned_ids, owned_modules)
+		# Standard Emporium: 2 tools per visit. Mix gives the player
+		# real choices between "permanent module upgrade" and "one-shot
+		# tactic".
+		_tool_offers = ShopManager.generate_tools(2)
 		_artisan_section.hide()
 		# Codex: first contact with the Emporium's automated terminal.
 		SaveManager.unlock_codex("emporium_voice")
+	_tool_offers_bought_idx.clear()
 
 	_shop_bought.clear()
 	_populate_shop()
@@ -2872,6 +2884,28 @@ func _on_sell_pressed(m: Module) -> void:
 	if GameState.sell_module(m):
 		_populate_shop()
 
+## Buy a tool offer. Index-based so we can mark the specific offer as
+## consumed (rather than searching the array for a re-show). Calls
+## GameState.add_reinforcement which fires the reinforcement_added
+## signal — that surfaces the acquisition toast / first-time intro.
+func _on_buy_tool_pressed(index: int) -> void:
+	if index in _tool_offers_bought_idx:
+		return
+	if index < 0 or index >= _tool_offers.size():
+		return
+	if not GameState.has_reinforcement_slot():
+		return
+	var entry: Dictionary = _tool_offers[index]
+	var r: Reinforcement = entry["item"]
+	var cost: int        = entry["cost"]
+	if not GameState.spend_monedas(cost):
+		return
+	GameState.add_reinforcement(r)
+	AudioManager.play_sfx("ui_click")
+	_tool_offers_bought_idx.append(index)
+	SaveManager.save_run()
+	_populate_shop()
+
 func _on_buy_tile_pressed(index: int) -> void:
 	if index in _tile_offers_bought:
 		return
@@ -3219,6 +3253,19 @@ func _populate_shop() -> void:
 	for entry in _shop_inventory:
 		_shop_items_row.add_child(_build_shop_item_card(entry))
 
+	# Tools-for-sale row. Hidden entirely when the current shop has no
+	# tool offers so the header doesn't dangle over an empty space.
+	for child in _shop_tools_row.get_children():
+		child.queue_free()
+	if _tool_offers.is_empty():
+		_shop_tools_header.visible = false
+		_shop_tools_row.visible    = false
+	else:
+		_shop_tools_header.visible = true
+		_shop_tools_row.visible    = true
+		for i in range(_tool_offers.size()):
+			_shop_tools_row.add_child(_build_shop_tool_card(i, _tool_offers[i]))
+
 	for child in _shop_modules_row.get_children():
 		child.queue_free()
 	if GameState.modules.is_empty():
@@ -3342,6 +3389,82 @@ func _build_shop_item_card(entry: Dictionary) -> Control:
 
 	# Tooltip — lore text and full description on hover
 	_add_module_tooltip(panel, m)
+	return panel
+
+## Tool shop card — smaller than module cards (single-use items don't
+## need full lore text on the card). Shows icon, rarity tag, name,
+## brief description, cost, and a BUY button. Sold-state collapses
+## to "ACQUIRED" so the player can't double-buy the same offer.
+func _build_shop_tool_card(index: int, entry: Dictionary) -> Control:
+	var r: Reinforcement = entry["item"]
+	var cost: int = int(entry["cost"])
+	var bought: bool = index in _tool_offers_bought_idx
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(200, 0)
+	var style := StyleBoxFlat.new()
+	style.bg_color     = Color(0.11, 0.10, 0.07)
+	style.border_color = C_RARITY[r.rarity] if not bought else C_DIM
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(6)
+	style.set_content_margin_all(10)
+	panel.add_theme_stylebox_override("panel", style)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 4)
+	panel.add_child(vbox)
+
+	# Icon
+	vbox.add_child(_build_item_icon(r.icon_path, r.display_name,
+		C_RARITY[r.rarity], Vector2(48, 48)))
+
+	# Rarity tag
+	var tag := _make_label(Constants.RARITY_NAMES[r.rarity].to_upper(),
+		C_RARITY[r.rarity], 10)
+	tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(tag)
+
+	# Name
+	var name_lbl := _make_label(r.display_name, C_TEXT, 14)
+	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(name_lbl)
+
+	# Description
+	var desc := _make_label(r.description, C_PREVIEW, 11)
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc.custom_minimum_size = Vector2(180, 0)
+	vbox.add_child(desc)
+
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(spacer)
+
+	if bought:
+		var got := _make_label("ACQUIRED", C_WIN, 12)
+		got.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		vbox.add_child(got)
+	else:
+		var can_afford: bool = GameState.monedas >= cost
+		var has_slot:   bool = GameState.has_reinforcement_slot()
+		var can_buy:    bool = can_afford and has_slot
+		var cost_color: Color = C_WIN if can_afford else C_MONEDAS
+		var cost_text: String = "%d Coins" % cost
+		if not has_slot:
+			cost_text = "Tray full"
+		var cost_lbl := _make_label(cost_text, cost_color, 12)
+		cost_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		vbox.add_child(cost_lbl)
+		if can_buy:
+			style.border_color = C_RARITY[r.rarity].lerp(C_WIN, 0.30)
+			style.set_border_width_all(3)
+		var buy_btn := _make_button("BUY", func(): _on_buy_tool_pressed(index),
+			Vector2(120, 36))
+		buy_btn.disabled = not can_buy
+		var row := HBoxContainer.new()
+		row.alignment = BoxContainer.ALIGNMENT_CENTER
+		row.add_child(buy_btn)
+		vbox.add_child(row)
+
 	return panel
 
 func _build_equipped_module_card(m: Module) -> Control:
@@ -6331,6 +6454,17 @@ func _build_shop_overlay() -> Control:
 	_shop_items_row.add_theme_constant_override("separation", 16)
 	_shop_items_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	vbox.add_child(_shop_items_row)
+
+	# Tools-for-sale row — single-use consumables, separate from modules
+	# so the player reads them as a different category. Hidden when the
+	# current shop has no tool offers.
+	_shop_tools_header = _make_label("TOOLS", C_DIM, 12)
+	_shop_tools_header.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(_shop_tools_header)
+	_shop_tools_row = HBoxContainer.new()
+	_shop_tools_row.add_theme_constant_override("separation", 12)
+	_shop_tools_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_child(_shop_tools_row)
 
 	vbox.add_child(_make_hsep())
 

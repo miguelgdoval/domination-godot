@@ -48,6 +48,59 @@ static func generate_emporium(count: int, owned_ids: Array,
 				break
 	return result
 
+## Generate `count` random tool offers for the Emporium / Workshop. No
+## ownership filter — tools are consumable, so duplicates are fine.
+## Cheap (BONE / CARVED) rarities are weighted higher so the typical
+## shop has at least one affordable tool option.
+static func generate_tools(count: int) -> Array[Dictionary]:
+	var pool: Array[Reinforcement] = ReinforcementDB.all()
+	if pool.is_empty() or count <= 0:
+		return []
+	# Rarity weights — cheap tiers dominate so the player isn't stuck
+	# with only legendary tools they can't afford.
+	var weights: Array[float] = []
+	var total: float = 0.0
+	for r in pool:
+		var w: float = 3.0  # BONE default
+		match r.rarity:
+			Constants.Rarity.BONE:     w = 3.0
+			Constants.Rarity.CARVED:   w = 2.0
+			Constants.Rarity.IVORY:    w = 1.0
+			Constants.Rarity.OBSIDIAN: w = 0.4
+		weights.append(w)
+		total += w
+
+	var result: Array[Dictionary] = []
+	# Sample with replacement allowed (consumables), but try to avoid
+	# the same tool appearing twice in a single shop offer by tracking
+	# which ids we've already picked.
+	var picked_ids: Array = []
+	for _i in range(count):
+		var roll: float = randf() * total
+		var acc:  float = 0.0
+		var chosen: Reinforcement = pool[0]
+		for j in range(pool.size()):
+			acc += weights[j]
+			if roll <= acc:
+				chosen = pool[j]
+				break
+		# Re-roll once if we've already shown this tool — keeps offers
+		# varied without forcing strict uniqueness.
+		if chosen.id in picked_ids and pool.size() > picked_ids.size():
+			var roll2: float = randf() * total
+			var acc2:  float = 0.0
+			for j in range(pool.size()):
+				acc2 += weights[j]
+				if roll2 <= acc2:
+					chosen = pool[j]
+					break
+		picked_ids.append(chosen.id)
+		result.append({
+			"item": chosen,
+			"cost": Constants.RARITY_COSTS[chosen.rarity],
+		})
+	return result
+
 ## Generate the Artisan's Workshop: 1 guaranteed Ivory + 1 guaranteed Obsidian.
 ## Same archetype-bias logic applied within each rarity bucket.
 static func generate_artisan(owned_ids: Array,
