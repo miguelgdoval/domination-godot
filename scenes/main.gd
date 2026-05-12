@@ -199,6 +199,10 @@ var _chain_inspector_overlay: Control = null
 ## Toast layer — bottom-right stack for transient unlock notifications
 ## (codex entries, achievements). Lazy-built on first toast.
 var _toast_layer: Control = null
+
+## Title-screen quit-to-desktop confirm overlay. Lazy-built on first Esc
+## press from the title screen.
+var _title_quit_overlay: Control = null
 var _lbl_preview:          Label   # equation line: "N chips × M"
 var _lbl_preview_total:    Label   # big total line: "= TOTAL" (dominant)
 var _chain_milestone_row:  HBoxContainer   # visual dot-progress bar for chain bonuses
@@ -409,6 +413,13 @@ var _lbl_box_count:        Label
 ## the shop. Updated via _animate_monedas_to which tweens the count.
 var _lbl_monedas_pill:     Label
 var _lbl_monedas_pill_value: int = 0    # last value the pill DISPLAYED
+## Run timer — counts seconds since the run's first round started.
+## Displayed as a HUD pill so daily / speedrun players have visible
+## reference. Resets on every new run; paused while in TITLE phase.
+var _lbl_timer_pill:       Label
+var _run_start_msec:       int = 0
+var _run_elapsed_msec:     int = 0
+var _timer_accumulator:    float = 0.0
 var _lbl_descartes_count: Label
 var _contracts_vbox:      VBoxContainer
 var _artifacts_vbox:      VBoxContainer
@@ -433,6 +444,33 @@ func _ready() -> void:
 	SaveManager.achievement_unlocked.connect(_on_achievement_unlocked_toast)
 	_show_title()
 
+## Update the run-timer HUD pill once per second (no point ticking at
+## 60 fps for a wall-clock display). _run_start_msec == 0 means the
+## timer is idle (player is on the title screen or just got there).
+func _process(delta: float) -> void:
+	if _run_start_msec == 0:
+		return
+	if _lbl_timer_pill == null:
+		return
+	_timer_accumulator += delta
+	if _timer_accumulator < 1.0:
+		return
+	_timer_accumulator -= 1.0
+	_lbl_timer_pill.text = _format_run_timer(
+		Time.get_ticks_msec() - _run_start_msec)
+
+## Format an msec elapsed value as MM:SS, or HH:MM:SS once the run
+## hits an hour. Mono font on the pill keeps the digits stable so
+## the label width doesn't dance as numbers tick.
+func _format_run_timer(msec: int) -> String:
+	var secs: int = maxi(0, msec / 1000)
+	var hours: int = secs / 3600
+	var mins: int = (secs / 60) % 60
+	var s: int = secs % 60
+	if hours > 0:
+		return "%d:%02d:%02d" % [hours, mins, s]
+	return "%02d:%02d" % [mins, s]
+
 # ===========================================================================
 # Title / selection flow
 # ===========================================================================
@@ -440,6 +478,10 @@ func _show_title() -> void:
 	_phase = Phase.TITLE
 	_ambient_active = false
 	_kill_chain_idle_tweens()
+	# Stop the run timer when the player is back at the title — the
+	# stored elapsed-msec gets discarded on the next run's first
+	# _begin_round_play.
+	_run_start_msec = 0
 	_title_overlay.show()
 	_core_select_overlay.hide()
 	_proto_select_overlay.hide()
@@ -1625,6 +1667,89 @@ func _on_quit_confirm_cancel() -> void:
 	if _quit_confirm_overlay != null:
 		_quit_confirm_overlay.hide()
 
+## Esc-from-title hook. Lazy-built modal asking the player to confirm
+## quit-to-desktop. Default action is CANCEL (safe), QUIT exits via
+## get_tree().quit(). Esc-pressing the modal again closes it.
+func _show_title_quit_confirm() -> void:
+	if _title_quit_overlay == null:
+		_title_quit_overlay = _build_title_quit_overlay()
+		_title_overlay.get_parent().add_child(_title_quit_overlay)
+	_title_quit_overlay.show()
+	_focus_overlay_primary(_title_quit_overlay)
+
+func _on_title_quit_cancel() -> void:
+	if _title_quit_overlay != null:
+		_title_quit_overlay.hide()
+
+func _on_title_quit_confirm() -> void:
+	get_tree().quit()
+
+func _build_title_quit_overlay() -> Control:
+	var overlay := ColorRect.new()
+	overlay.color = Color(0, 0, 0, 0.85)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(PANEL_W_SMALL, 0)
+	var ps := StyleBoxFlat.new()
+	ps.bg_color     = Color(0.10, 0.05, 0.05, 0.98)
+	ps.border_color = C_LOSE
+	ps.set_border_width_all(2)
+	ps.set_corner_radius_all(8)
+	ps.set_content_margin_all(28)
+	panel.add_theme_stylebox_override("panel", ps)
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_theme_constant_override("separation", 14)
+	panel.add_child(vbox)
+
+	var title := _make_label("QUIT TO DESKTOP?", C_LOSE, 20)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(title)
+
+	var body := _make_label(
+		"Are you sure you want to quit?\nUnsaved progress in the current run\nwill be kept (auto-saves on shop exit).",
+		C_TEXT, 13)
+	body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(body)
+
+	vbox.add_child(_make_hsep())
+
+	var btn_row := HBoxContainer.new()
+	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	btn_row.add_theme_constant_override("separation", 12)
+	vbox.add_child(btn_row)
+
+	var cancel_btn := _make_button("CANCEL",
+		_on_title_quit_cancel, Vector2(160, 44))
+	btn_row.add_child(cancel_btn)
+	overlay.set_meta("primary_btn", cancel_btn)
+
+	# Destructive button — distinct red styling so a quick muscle-memory
+	# click doesn't slam the game shut.
+	var quit_btn := _make_button("QUIT",
+		_on_title_quit_confirm, Vector2(160, 44))
+	var qs := StyleBoxFlat.new()
+	qs.bg_color     = Color(0.20, 0.06, 0.06)
+	qs.border_color = C_LOSE
+	qs.set_border_width_all(2)
+	qs.set_corner_radius_all(6)
+	qs.set_content_margin_all(10)
+	quit_btn.add_theme_stylebox_override("normal", qs)
+	var qs_hov := qs.duplicate() as StyleBoxFlat
+	qs_hov.bg_color = Color(0.28, 0.08, 0.08)
+	quit_btn.add_theme_stylebox_override("hover", qs_hov)
+	btn_row.add_child(quit_btn)
+
+	return overlay
+
 func _on_core_card_pressed(index: int) -> void:
 	_pending_core = index
 	_refresh_core_cards()
@@ -1770,6 +1895,12 @@ func _begin_round_play() -> void:
 	_phase = Phase.PLAYING
 	_scoring_active = false
 	_selected_tiles.clear()
+
+	# Run timer: start on the FIRST round of a fresh run. Subsequent
+	# rounds (post-shop, etc.) don't reset — the timer measures total
+	# run elapsed wall-clock.
+	if _run_start_msec == 0:
+		_run_start_msec = Time.get_ticks_msec()
 
 	# Apply etapa colour theme (tweened)
 	_apply_etapa_theme(GameState.current_etapa())
@@ -4661,6 +4792,19 @@ func _unhandled_input(event: InputEvent) -> void:
 				_on_run_end_pressed()
 				get_viewport().set_input_as_handled()
 				return
+	# Title-screen quit-to-desktop confirm. Esc on the title is the
+	# standard expectation; without this, Esc on title does nothing
+	# and the only quit path is the OS window close button.
+	if _phase == Phase.TITLE and event is InputEventKey \
+			and (event as InputEventKey).pressed \
+			and (event as InputEventKey).keycode == KEY_ESCAPE:
+		# Esc closes the confirm if it's already open.
+		if _title_quit_overlay != null and _title_quit_overlay.visible:
+			_title_quit_overlay.hide()
+		else:
+			_show_title_quit_confirm()
+		get_viewport().set_input_as_handled()
+		return
 	if _phase != Phase.PLAYING:
 		return
 	# Hold-Tab info overlay — full readout of modules, directives,
@@ -5206,6 +5350,31 @@ func _build_hud() -> Control:
 	_lbl_monedas_pill = _make_label("0", C_MONEDAS, 22)
 	FontManager.apply_mono(_lbl_monedas_pill)
 	mon_count_row.add_child(_lbl_monedas_pill)
+
+	# ── TIMER pill — elapsed run time ─────────────────────
+	var tm_pc := PanelContainer.new()
+	tm_pc.custom_minimum_size = Vector2(110, 52)
+	var tm_style := StyleBoxFlat.new()
+	tm_style.bg_color = Color(0.07, 0.10, 0.10, 0.92)
+	tm_style.set_corner_radius_all(8)
+	tm_style.set_border_width_all(1)
+	tm_style.border_color = C_GOLD_RIM
+	tm_pc.add_theme_stylebox_override("panel", tm_style)
+	hbox.add_child(tm_pc)
+
+	var tm_vbox := VBoxContainer.new()
+	tm_vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	tm_vbox.add_theme_constant_override("separation", 2)
+	tm_pc.add_child(tm_vbox)
+
+	var tm_lbl := _make_label("TIME", C_DIM, 10)
+	tm_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tm_vbox.add_child(tm_lbl)
+
+	_lbl_timer_pill = _make_label("00:00", C_TEXT, 20)
+	_lbl_timer_pill.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	FontManager.apply_mono(_lbl_timer_pill)
+	tm_vbox.add_child(_lbl_timer_pill)
 
 	# ── Pause button ──────────────────────────────────────
 	# Sits just before the gear so the right edge cluster reads as
@@ -7773,7 +7942,36 @@ func _make_button(label: String, callback: Callable,
 	focus.set_border_width_all(2)
 	focus.set_corner_radius_all(4)
 	btn.add_theme_stylebox_override("focus", focus)
+	# Subtle hover lift — a 0.10s modulate tween on mouse enter/exit
+	# smooths the stylebox swap so hovers don't feel snappy/indie.
+	# Stored as a meta so repeated enter/exit doesn't stack tweens.
+	btn.mouse_entered.connect(_button_hover_in.bind(btn))
+	btn.mouse_exited.connect(_button_hover_out.bind(btn))
 	return btn
+
+func _button_hover_in(btn: Button) -> void:
+	if not is_instance_valid(btn) or btn.disabled:
+		return
+	if btn.has_meta("_hover_tw"):
+		var prev: Tween = btn.get_meta("_hover_tw")
+		if prev != null and prev.is_valid():
+			prev.kill()
+	var t := btn.create_tween()
+	btn.set_meta("_hover_tw", t)
+	t.tween_property(btn, "modulate", Color(1.10, 1.08, 1.02), 0.10) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+
+func _button_hover_out(btn: Button) -> void:
+	if not is_instance_valid(btn):
+		return
+	if btn.has_meta("_hover_tw"):
+		var prev: Tween = btn.get_meta("_hover_tw")
+		if prev != null and prev.is_valid():
+			prev.kill()
+	var t := btn.create_tween()
+	btn.set_meta("_hover_tw", t)
+	t.tween_property(btn, "modulate", Color.WHITE, 0.12) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
 
 func _make_hsep() -> Control:
 	var sep := HSeparator.new()
@@ -8384,6 +8582,25 @@ func _text_scale_button_label() -> String:
 			idx  = i
 	return SaveManager.TEXT_SCALE_LABELS[idx]
 
+## Tear down the Settings overlay and build a fresh one. Used when a
+## live setting (text scale) changes the dimensions of every label
+## inside it, since labels bake text_scale at construction. Cheap.
+func _rebuild_settings_overlay() -> void:
+	if _settings_overlay == null:
+		return
+	var parent: Node = _settings_overlay.get_parent()
+	var was_visible: bool = _settings_overlay.visible
+	_settings_overlay.queue_free()
+	_settings_overlay = _build_settings_overlay()
+	if parent != null:
+		parent.add_child(_settings_overlay)
+	_refresh_settings_overlay()
+	if was_visible:
+		_settings_overlay.show()
+		_focus_overlay_primary(_settings_overlay)
+	else:
+		_settings_overlay.hide()
+
 func _on_text_scale_cycle_pressed() -> void:
 	var cur: float = SaveManager.get_text_scale()
 	var idx: int = 0
@@ -8395,10 +8612,11 @@ func _on_text_scale_cycle_pressed() -> void:
 			idx  = i
 	idx = (idx + 1) % SaveManager.TEXT_SCALE_PRESETS.size()
 	SaveManager.set_text_scale(SaveManager.TEXT_SCALE_PRESETS[idx])
-	if _settings_overlay != null:
-		var b = _settings_overlay.get_meta("text_btn", null)
-		if b != null:
-			b.text = _text_scale_button_label()
+	# Live refresh: rebuild the Settings overlay so the player sees the
+	# new font sizes immediately (every _make_label inside it bakes the
+	# text_scale at construction). Cheap rebuild — the overlay is just
+	# styleboxes and labels, no expensive content.
+	_rebuild_settings_overlay()
 
 # ===========================================================================
 # Tutorial overlay
