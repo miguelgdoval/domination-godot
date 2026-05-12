@@ -3027,7 +3027,7 @@ func _show_run_end(victory: bool) -> void:
 
 	# ── Glyph ────────────────────────────────────────────────────────────────
 	var glyph_text: String  = "⬡"  if victory else "⚠"
-	var glyph_color: Color  = C_MONEDAS if victory else C_LOSE
+	var glyph_color: Color  = C_MONEDAS if victory else _cb_lose()
 	_lbl_run_end_glyph.text = glyph_text
 	_lbl_run_end_glyph.add_theme_color_override("font_color", glyph_color)
 	_lbl_run_end_glyph.scale = Vector2(0.3, 0.3) if victory else Vector2(1.0, 1.0)
@@ -3039,7 +3039,7 @@ func _show_run_end(victory: bool) -> void:
 	# them directly. lt_before is the snapshot taken just above; the
 	# pending Failure makes the count `runs - wins + 1` on a loss.
 	var title_text: String
-	var title_color: Color = C_MONEDAS if victory else C_LOSE
+	var title_color: Color = C_MONEDAS if victory else _cb_lose()
 	if victory:
 		title_text = _build_victory_title(lt_before)
 	else:
@@ -3375,11 +3375,11 @@ func _build_shop_item_card(entry: Dictionary) -> Control:
 		# instantly see what's in range. Green = affordable, gold = saved
 		# meaning ("here's the price"), no buy hint.
 		cost_lbl.add_theme_color_override("font_color",
-			C_WIN if can_afford else C_MONEDAS)
+			_cb_win() if can_afford else C_MONEDAS)
 		# Subtle affordable accent on the panel border — keeps the rarity
 		# colour but glows when the player has the coin for it.
 		if can_buy:
-			style.border_color = C_RARITY[m.rarity].lerp(C_WIN, 0.30)
+			style.border_color = C_RARITY[m.rarity].lerp(_cb_win(), 0.30)
 			style.set_border_width_all(3)
 		var buy_btn := Button.new()
 		buy_btn.text = "BUY"
@@ -3447,7 +3447,7 @@ func _build_shop_tool_card(index: int, entry: Dictionary) -> Control:
 		var can_afford: bool = GameState.monedas >= cost
 		var has_slot:   bool = GameState.has_reinforcement_slot()
 		var can_buy:    bool = can_afford and has_slot
-		var cost_color: Color = C_WIN if can_afford else C_MONEDAS
+		var cost_color: Color = _cb_win() if can_afford else C_MONEDAS
 		var cost_text: String = "%d Coins" % cost
 		if not has_slot:
 			cost_text = "Tray full"
@@ -3455,7 +3455,7 @@ func _build_shop_tool_card(index: int, entry: Dictionary) -> Control:
 		cost_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		vbox.add_child(cost_lbl)
 		if can_buy:
-			style.border_color = C_RARITY[r.rarity].lerp(C_WIN, 0.30)
+			style.border_color = C_RARITY[r.rarity].lerp(_cb_win(), 0.30)
 			style.set_border_width_all(3)
 		var buy_btn := _make_button("BUY", func(): _on_buy_tool_pressed(index),
 			Vector2(120, 36))
@@ -4619,7 +4619,7 @@ func _build_chain_inspector_overlay() -> Control:
 	var hdr := _make_label("COHESION PULSE — Full View", C_GOLD_TITLE, 16)
 	hdr.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hdr_row.add_child(hdr)
-	var close_btn := _make_button("✕", _close_chain_inspector, Vector2(48, 36))
+	var close_btn := _make_button("✕", _close_chain_inspector, Vector2(48, 48))
 	hdr_row.add_child(close_btn)
 	vbox.add_child(hdr_row)
 	vbox.add_child(_make_hsep())
@@ -4946,6 +4946,20 @@ func _apply_etapa_theme(etapa: int) -> void:
 ## cinematics at creation time via Tween.set_speed_scale().
 func _anim_speed() -> float:
 	return maxf(0.1, SaveManager.get_anim_speed())
+
+## Colorblind-aware palette helpers. In default mode they return the
+## original constants; in colorblind mode they swap to a deuteranopia-
+## safe set (cyan in place of green, orange in place of red) on the
+## critical UI surfaces — chronos bar fill, run-end win/loss text,
+## shop affordability accents. Other gold/amber UI stays untouched.
+func _cb_chronos() -> Color:
+	return Color(0.30, 0.78, 0.95) if SaveManager.is_colorblind_mode() else C_CHRONOS
+
+func _cb_win() -> Color:
+	return Color(0.30, 0.78, 0.95) if SaveManager.is_colorblind_mode() else C_WIN
+
+func _cb_lose() -> Color:
+	return Color(0.95, 0.55, 0.20) if SaveManager.is_colorblind_mode() else C_LOSE
 
 ## Register a tween as the currently-active skippable cinematic, then
 ## scale it by the user's anim-speed preference. The finish handler
@@ -5471,7 +5485,7 @@ func _build_hud() -> Control:
 	bar_bg.set_corner_radius_all(3)
 	_chronos_bar.add_theme_stylebox_override("background", bar_bg)
 	_chronos_bar_fill_style = StyleBoxFlat.new()
-	_chronos_bar_fill_style.bg_color = C_CHRONOS.darkened(0.3)
+	_chronos_bar_fill_style.bg_color = _cb_chronos().darkened(0.3)
 	_chronos_bar_fill_style.set_corner_radius_all(3)
 	_chronos_bar.add_theme_stylebox_override("fill", _chronos_bar_fill_style)
 	bar_wrap.add_child(_chronos_bar)
@@ -5623,7 +5637,7 @@ func _build_hud() -> Control:
 	pause_style.bg_color = Color(0, 0, 0, 0)
 	var pause_btn := Button.new()
 	pause_btn.text = "❙❙"
-	pause_btn.custom_minimum_size = Vector2(36, 36)
+	pause_btn.custom_minimum_size = Vector2(48, 48)
 	pause_btn.add_theme_stylebox_override("normal", pause_style)
 	pause_btn.add_theme_stylebox_override("hover",  pause_style)
 	pause_btn.add_theme_stylebox_override("pressed", pause_style)
@@ -5637,7 +5651,7 @@ func _build_hud() -> Control:
 	gear_style.bg_color = Color(0, 0, 0, 0)
 	var gear_btn := Button.new()
 	gear_btn.text = "⚙"
-	gear_btn.custom_minimum_size = Vector2(36, 36)
+	gear_btn.custom_minimum_size = Vector2(48, 48)
 	gear_btn.add_theme_stylebox_override("normal", gear_style)
 	gear_btn.add_theme_stylebox_override("hover",  gear_style)
 	gear_btn.add_theme_stylebox_override("pressed", gear_style)
@@ -6309,7 +6323,7 @@ func _build_action_bar() -> Control:
 	hbox.alignment = BoxContainer.ALIGNMENT_CENTER
 	hbox.add_theme_constant_override("separation", 16)
 	hbox.custom_minimum_size = Vector2(0, 48)
-	_btn_undo    = _make_button("↩ Undo",       _on_undo_pressed,    Vector2(110, 42))
+	_btn_undo    = _make_button("↩ Undo",       _on_undo_pressed,    Vector2(110, 48))
 	# Right-click on Undo = clear every selected tile in one go. Mirrors the
 	# Esc-during-PLAYING shortcut so mouse-only players get the same comfort
 	# without needing to know the keybind.
@@ -6321,17 +6335,17 @@ func _build_action_bar() -> Control:
 			_on_undo_clear_all()
 			_btn_undo.accept_event()
 	)
-	_btn_discard = _make_button("Discard (0)",   _on_discard_pressed, Vector2(148, 42))
-	_btn_play    = _make_button("▶  Play Pulse", _on_play_pressed,    Vector2(166, 42))
+	_btn_discard = _make_button("Discard (0)",   _on_discard_pressed, Vector2(148, 48))
+	_btn_play    = _make_button("▶  Play Pulse", _on_play_pressed,    Vector2(166, 48))
 	# Stand: once the chronos target is reached, the player can lock in
 	# the current chain instead of being forced to keep extending. Hidden
 	# until target is met; the action-bar refresh toggles its visibility.
-	_btn_stand   = _make_button("⏹  Stand",      _on_stand_pressed,   Vector2(132, 42))
+	_btn_stand   = _make_button("⏹  Stand",      _on_stand_pressed,   Vector2(132, 48))
 	_btn_stand.visible = false
 	# Pass: appears only when the player is truly stuck — no hand tile can
 	# extend the chain AND there's no productive discard available. Burns
 	# one hand without scoring so the round can drain to its natural end.
-	_btn_pass    = _make_button("⏭  Pass Hand",  _on_pass_pressed,    Vector2(150, 42))
+	_btn_pass    = _make_button("⏭  Pass Hand",  _on_pass_pressed,    Vector2(150, 48))
 	_btn_pass.visible = false
 
 	# Stand-decision hint: a small two-line label sitting next to the Stand
@@ -6534,7 +6548,7 @@ func _build_artisan_section() -> Control:
 	rem_footer.add_child(_lbl_removals_left)
 
 	_btn_confirm_removal = _make_button(
-		"REMOVE SELECTED", _on_confirm_removal_pressed, Vector2(190, 42))
+		"REMOVE SELECTED", _on_confirm_removal_pressed, Vector2(190, 48))
 	_btn_confirm_removal.disabled = true
 	rem_footer.add_child(_btn_confirm_removal)
 
@@ -6661,14 +6675,14 @@ func _build_title_overlay() -> Control:
 	vbox.add_child(icon_row)
 
 	_btn_daily_history = _make_button("📅",
-		_on_daily_history_pressed, Vector2(44, 44))
+		_on_daily_history_pressed, Vector2(52, 52))
 	_btn_daily_history.tooltip_text = "Daily history"
 	_btn_daily_history.add_theme_stylebox_override("normal", ds)
 	_btn_daily_history.add_theme_stylebox_override("hover", ds_hov)
 	icon_row.add_child(_btn_daily_history)
 
 	_btn_achievements = _make_button("★",
-		_on_achievements_pressed, Vector2(44, 44))
+		_on_achievements_pressed, Vector2(52, 52))
 	_btn_achievements.tooltip_text = "Achievements"
 	var as_style := StyleBoxFlat.new()
 	as_style.bg_color     = Color(0.14, 0.11, 0.06)
@@ -6683,7 +6697,7 @@ func _build_title_overlay() -> Control:
 	icon_row.add_child(_btn_achievements)
 
 	_btn_stats = _make_button("📊",
-		_on_stats_pressed, Vector2(44, 44))
+		_on_stats_pressed, Vector2(52, 52))
 	_btn_stats.tooltip_text = "Lifetime statistics"
 	var st_style := StyleBoxFlat.new()
 	st_style.bg_color     = Color(0.06, 0.13, 0.10)
@@ -6698,7 +6712,7 @@ func _build_title_overlay() -> Control:
 	icon_row.add_child(_btn_stats)
 
 	_btn_help = _make_button("?",
-		_on_help_pressed, Vector2(44, 44))
+		_on_help_pressed, Vector2(52, 52))
 	_btn_help.tooltip_text = "Help & glossary"
 	var hp_style := StyleBoxFlat.new()
 	hp_style.bg_color     = Color(0.13, 0.10, 0.04)
@@ -6713,7 +6727,7 @@ func _build_title_overlay() -> Control:
 	icon_row.add_child(_btn_help)
 
 	_btn_codex = _make_button("⬡",
-		_on_codex_pressed, Vector2(44, 44))
+		_on_codex_pressed, Vector2(52, 52))
 	_btn_codex.tooltip_text = "Codex"
 	_btn_codex.add_theme_stylebox_override("normal", hp_style)
 	_btn_codex.add_theme_stylebox_override("hover", hp_hov)
@@ -7227,11 +7241,11 @@ func _build_tile_offer_card(index: int, entry: Dictionary) -> Control:
 		# Affordability cue: green cost text + thicker accented border when
 		# the player can pay. Matches the module-card affordance so the
 		# whole shop reads with the same visual vocabulary.
-		var cost_color: Color = C_WIN if can_buy else C_MONEDAS
+		var cost_color: Color = _cb_win() if can_buy else C_MONEDAS
 		var cost_lbl := _make_label("%d Coins" % cost, cost_color, 13)
 		vbox.add_child(cost_lbl)
 		if can_buy:
-			style.border_color = C_MONEDAS.lerp(C_WIN, 0.30)
+			style.border_color = C_MONEDAS.lerp(_cb_win(), 0.30)
 			style.set_border_width_all(3)
 		var buy_btn := Button.new()
 		buy_btn.text = "BUY"
@@ -7371,11 +7385,11 @@ func _set_chronos_bar(c: int, t: int) -> void:
 	_chronos_bar_lbl.text  = "%d / %d" % [c, t]
 	var ratio := clampf(float(c) / float(t), 0.0, 2.0) if t > 0 else 0.0
 	if ratio >= 1.0:
-		_chronos_bar_fill_style.bg_color = C_WIN
+		_chronos_bar_fill_style.bg_color = _cb_win()
 	elif ratio >= 0.75:
-		_chronos_bar_fill_style.bg_color = C_CHRONOS
+		_chronos_bar_fill_style.bg_color = _cb_chronos()
 	else:
-		_chronos_bar_fill_style.bg_color = C_CHRONOS.darkened(0.30)
+		_chronos_bar_fill_style.bg_color = _cb_chronos().darkened(0.30)
 	_chronos_bar.add_theme_stylebox_override("fill", _chronos_bar_fill_style)
 
 # ===========================================================================
@@ -7838,6 +7852,11 @@ func _run_scoring_sequence(overlay_infos: Array, result: Dictionary,
 		_refresh_chain_display()
 		_refresh_action_buttons()
 		_refresh_tile_visuals()
+		# Mid-round auto-save: a crash during the cascade or right
+		# after used to lose the entire hand of progress (saves only
+		# fired on shop exit). Persist after every scored hand —
+		# cheap (single JSON write), idempotent.
+		SaveManager.save_run()
 	)
 
 ## Build a ghost domino overlay at screen_pos, parented to the UI layer.
@@ -8710,8 +8729,27 @@ func _build_settings_overlay() -> Control:
 	pip_row.add_child(pip_chk)
 	vbox.add_child(pip_row)
 
+	# Colorblind palette — swaps the chronos green / loss red on key
+	# UI surfaces to a deuteranopia-safe cyan / orange pair. Takes
+	# effect on the next UI rebuild like the other accessibility
+	# settings.
+	var cb_row := HBoxContainer.new()
+	cb_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	cb_row.add_theme_constant_override("separation", 8)
+	var cb_lbl := _make_label("Colorblind Palette", C_TEXT, 14)
+	cb_lbl.custom_minimum_size = Vector2(160, 0)
+	cb_row.add_child(cb_lbl)
+	var cb_chk := CheckButton.new()
+	cb_chk.button_pressed = SaveManager.is_colorblind_mode()
+	cb_chk.toggled.connect(func(b: bool):
+		SaveManager.set_colorblind_mode(b)
+	)
+	overlay.set_meta("cb_chk", cb_chk)
+	cb_row.add_child(cb_chk)
+	vbox.add_child(cb_row)
+
 	var access_hint := _make_label(
-		"Text size and pip numerals take effect on the next round / shop.",
+		"Text size, pip numerals, and colorblind palette take effect on the next round / shop.",
 		C_DIM, 11)
 	access_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	access_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -8845,6 +8883,9 @@ func _refresh_settings_overlay() -> void:
 	var text_b = _settings_overlay.get_meta("text_btn", null)
 	if text_b != null:
 		text_b.text = _text_scale_button_label()
+	var cb_b = _settings_overlay.get_meta("cb_chk", null)
+	if cb_b != null:
+		cb_b.button_pressed = SaveManager.is_colorblind_mode()
 	var pip_b = _settings_overlay.get_meta("pip_chk", null)
 	if pip_b != null:
 		pip_b.button_pressed = SaveManager.get_pip_numerals()

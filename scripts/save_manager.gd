@@ -22,12 +22,13 @@ const SAVE_PATH := "user://save.json"
 # Default structures
 # ---------------------------------------------------------------------------
 const DEFAULT_SETTINGS := {
-	"sfx_volume":    1.0,
-	"music_volume":  0.70,
-	"muted":         false,
-	"anim_speed":    1.0,
-	"text_scale":    1.0,
-	"pip_numerals":  false,
+	"sfx_volume":      1.0,
+	"music_volume":    0.70,
+	"muted":           false,
+	"anim_speed":      1.0,
+	"text_scale":      1.0,
+	"pip_numerals":    false,
+	"colorblind_mode": false,
 }
 
 # Allowed animation-speed presets. Settings overlay cycles through these.
@@ -109,6 +110,20 @@ func get_pip_numerals() -> bool:
 func set_pip_numerals(b: bool) -> void:
 	var s: Dictionary = _data.get("settings", DEFAULT_SETTINGS.duplicate())
 	s["pip_numerals"] = b
+	_data["settings"] = s
+	_save_to_disk()
+
+## Colorblind-friendly palette toggle. Swaps the green/red signals
+## (chronos progress, win/loss states, affordable shop items) to a
+## deuteranopia-safe cyan/orange pair on key UI surfaces. Symbol-only
+## reads stay readable; gold/amber accents are unchanged.
+func is_colorblind_mode() -> bool:
+	var s: Dictionary = _data.get("settings", {})
+	return bool(s.get("colorblind_mode", DEFAULT_SETTINGS["colorblind_mode"]))
+
+func set_colorblind_mode(b: bool) -> void:
+	var s: Dictionary = _data.get("settings", DEFAULT_SETTINGS.duplicate())
+	s["colorblind_mode"] = b
 	_data["settings"] = s
 	_save_to_disk()
 
