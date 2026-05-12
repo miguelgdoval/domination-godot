@@ -21,7 +21,7 @@ const CORE_DESCS: Array[String] = [
 	"One copy of each tile — 55 tiles.\nBox drains fast. Make every placement count.",
 	"Only tiles with a face ≥ 6, ×2 — 68 tiles.\nFewer matching faces, but every tile is heavy.",
 	"Standard set + 2 Bone modules pre-equipped.\nHit the ground running.",
-	"Standard set, +4 starting Coins, +1 directive slot.\nContract specialist build.",
+	"Standard set, +4 starting Coins, +1 contract slot.\nContract specialist build.",
 	"Standard set + 1 Obsidian module pre-equipped.\nShop prices +2. Power has its cost.",
 	"Blank-heavy box (130 tiles) + Null Recoder pre-equipped.\nZeroes become your strongest signal.",
 ]

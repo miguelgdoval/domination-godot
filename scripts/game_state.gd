@@ -2,6 +2,11 @@
 ## Autoloaded as "GameState".
 extends Node
 
+# Fired when a tool (reinforcement) is newly added to the player's
+# inventory. main.gd uses this to show the first-acquisition popover
+# (one-shot per install).
+signal reinforcement_added(r: Reinforcement)
+
 var round_index:     int = 0
 var monedas:         int = 0
 var difficulty:      int = Constants.Difficulty.NORMAL
@@ -279,6 +284,7 @@ func add_reinforcement(r: Reinforcement) -> bool:
 	if not has_reinforcement_slot():
 		return false
 	reinforcements.append(r)
+	reinforcement_added.emit(r)
 	return true
 
 func use_reinforcement(r: Reinforcement) -> bool:

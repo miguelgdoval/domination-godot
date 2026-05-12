@@ -442,6 +442,10 @@ func _ready() -> void:
 	# menus. Connections live for the lifetime of the scene.
 	SaveManager.codex_unlocked.connect(_on_codex_unlocked_toast)
 	SaveManager.achievement_unlocked.connect(_on_achievement_unlocked_toast)
+	# First-acquisition intro: the first time the player ever picks up
+	# a tool, surface a long-hold toast explaining what to do with it.
+	# One-shot per install — flagged in SaveManager.
+	GameState.reinforcement_added.connect(_on_reinforcement_added_intro)
 	_show_title()
 
 ## Update the run-timer HUD pill once per second (no point ticking at
@@ -1338,8 +1342,6 @@ func _build_help_overlay() -> Control:
 		["DOUBLES & BRANCHING", [
 			["Doubles",
 				"A double tile (e.g. 5|5) grants +1 mult per double in the chain.\nThe first 5 doubles count fully; further doubles count for half (so all-doubles builds don't run away)."],
-			["Branching",
-				"When a double is placed, its pip value becomes a NEW open end.\nFuture tiles can match the chain's left end, right end, OR any branch end. Branches are shown as small badges above the chain."],
 		]],
 		["ROUND ACTIONS", [
 			["Play",        "Commit the selected tiles to the chain. Scores the full chain."],
@@ -1365,7 +1367,7 @@ func _build_help_overlay() -> Control:
 		]],
 		["COINS", [
 			["Earning",
-				"Round-clear bonus + 1 per unused hand + boss bonus + module income + directive rewards."],
+				"Round-clear bonus + 1 per unused hand + boss bonus + module income + contract rewards."],
 			["Spending",
 				"Modules at the Emporium, special tiles + tile removals at the Workshop."],
 		]],
@@ -2076,7 +2078,7 @@ func _build_round_summary_text(monedas_earned: int, dir_bonus: int) -> String:
 	if module_m > 0:
 		lines.append("  Modules: +%d" % module_m)
 	if dir_bonus > 0:
-		lines.append("  Directives: +%d" % dir_bonus)
+		lines.append("  Contracts: +%d" % dir_bonus)
 
 	# Near-miss nudge: how close were we to the next bonus tier?
 	var next_threshold: int = -1
@@ -2305,8 +2307,14 @@ func _on_hand_scored(result: Dictionary) -> void:
 	_refresh_directives()
 
 func _on_directive_completed(directive: Directive, earned: int) -> void:
-	# Flash the last-hand label briefly to show directive reward
-	_lbl_last_hand.text += "   |   Directive: +%d Coins" % earned
+	# Flash the last-hand label briefly to show contract reward
+	_lbl_last_hand.text += "   |   Contract: +%d Coins" % earned
+	# Toast: surface the completion via the unlock-toast system so the
+	# reward feels earned rather than auto-credited. Gold accent + 📜
+	# glyph keep it visually distinct from achievement / codex toasts.
+	_show_toast("CONTRACT FULFILLED",
+		"%s  +%d coins" % [directive.text, earned],
+		C_MONEDAS, "📜")
 
 func _on_round_ended(won: bool) -> void:
 	_end_round(won)
@@ -4491,6 +4499,22 @@ func _on_achievement_unlocked_toast(idx: int) -> void:
 		Color(0.95, 0.80, 0.35),
 		String(a.get("icon", "★")))
 
+## Signal handler: a tool was just added to the player's inventory.
+## On the first ever acquisition (per install), show a teaching toast
+## explaining how the Tools tray works. Subsequent acquisitions show
+## a shorter "got X" toast.
+func _on_reinforcement_added_intro(r: Reinforcement) -> void:
+	if r == null:
+		return
+	if not SaveManager.is_tool_intro_seen():
+		SaveManager.mark_tool_intro_seen()
+		_show_toast("TOOL ACQUIRED — %s" % r.display_name.to_upper(),
+			"%s\nClick the tool's slot in the TOOLS tray to use it." % r.description,
+			C_TARGETING, "🔧")
+	else:
+		_show_toast("TOOL ACQUIRED",
+			r.display_name, C_TARGETING, "🔧")
+
 ## Lazy-build the bottom-right toast layer (a full-rect, click-through
 ## Control whose inner VBox stacks toasts from the bottom up).
 func _build_toast_layer() -> Control:
@@ -5587,7 +5611,7 @@ func _build_contracts_panel() -> Control:
 	vbox.add_child(header)
 	var hdr_diamond := _make_label("◆", C_CHRONOS, 12)
 	header.add_child(hdr_diamond)
-	var hdr_lbl := _make_label("DIRECTIVES", C_GOLD_TITLE, 12)
+	var hdr_lbl := _make_label("CONTRACTS", C_GOLD_TITLE, 12)
 	header.add_child(hdr_lbl)
 
 	# Contract cards vbox
@@ -5823,7 +5847,7 @@ func _build_usables_panel() -> Control:
 	vbox.add_theme_constant_override("separation", 6)
 	panel.add_child(vbox)
 
-	var hdr := _make_label("REINFORCEMENTS", C_GOLD_TITLE, 11)
+	var hdr := _make_label("TOOLS", C_GOLD_TITLE, 11)
 	hdr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(hdr)
 
@@ -5979,14 +6003,15 @@ func _build_reinforcement_tray() -> Control:
 	hbox.add_theme_constant_override("separation", 8)
 	hbox.custom_minimum_size = Vector2(0, 44)
 	# Tray label
-	var lbl := _make_label("REINFORCEMENTS", C_DIM, 10)
+	var lbl := _make_label("TOOLS", C_DIM, 10)
 	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	lbl.custom_minimum_size = Vector2(100, 0)
 	hbox.add_child(lbl)
-	# 3 empty slots
-	for i in range(GameState.MAX_REINFORCEMENTS):
-		var slot := _build_reinforcement_slot(null, i)
-		hbox.add_child(slot)
+	# Initial state: empty-tray hint. _refresh_reinforcement_tray()
+	# replaces this with real slots as soon as the player carries any.
+	var hint := _make_label("Tools you find will appear here.", C_DIM, 11)
+	hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hbox.add_child(hint)
 	return hbox
 
 ## Build one reinforcement slot button. r = null → empty/disabled placeholder.
@@ -6042,12 +6067,21 @@ func _build_reinforcement_slot(r, _slot_index: int) -> Control:
 func _refresh_reinforcement_tray() -> void:
 	if _reinforcement_tray == null:
 		return
-	# Remove old slots (keep the label at index 0)
+	# Remove old slots / hint (keep the label at index 0)
 	while _reinforcement_tray.get_child_count() > 1:
 		_reinforcement_tray.get_child(1).queue_free()
-	for i in range(GameState.MAX_REINFORCEMENTS):
-		var r = GameState.reinforcements[i] if i < GameState.reinforcements.size() else null
-		_reinforcement_tray.add_child(_build_reinforcement_slot(r, i))
+	# Empty state: a single dim hint instead of three empty slots.
+	# Cleaner read for new players; the row stops looking broken when
+	# the player hasn't bought a tool yet.
+	if GameState.reinforcements.is_empty():
+		var hint := _make_label(
+			"Tools you find will appear here.", C_DIM, 11)
+		hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		_reinforcement_tray.add_child(hint)
+	else:
+		for i in range(GameState.MAX_REINFORCEMENTS):
+			var r = GameState.reinforcements[i] if i < GameState.reinforcements.size() else null
+			_reinforcement_tray.add_child(_build_reinforcement_slot(r, i))
 	# Also refresh the new usables panel on the right
 	_refresh_usables_panel()
 
@@ -6654,7 +6688,7 @@ func _build_directives_panel() -> Control:
 	hbox.alignment = BoxContainer.ALIGNMENT_CENTER
 	panel.add_child(hbox)
 
-	var title_lbl := _make_label("DIRECTIVES:", C_DIM, 12)
+	var title_lbl := _make_label("CONTRACTS:", C_DIM, 12)
 	hbox.add_child(title_lbl)
 
 	# Allocate 3 slots so The Runner core (which starts with 3 active
@@ -9337,21 +9371,21 @@ func _populate_info_overlay() -> void:
 			body.add_child(_info_module_row(m))
 
 	# ─── Directives (per-round bonus objectives) ─────────────────────────
-	body.add_child(_info_section_header("ACTIVE DIRECTIVES", ""))
+	body.add_child(_info_section_header("ACTIVE CONTRACTS", ""))
 	var dirs: Array = []
 	if _dm != null:
 		dirs = _dm.active
 	if dirs.is_empty():
-		body.add_child(_info_empty_row("No directives this round."))
+		body.add_child(_info_empty_row("No contracts this round."))
 	else:
 		for d: Directive in dirs:
 			body.add_child(_info_directive_row(d))
 
 	# ─── Reinforcements (consumables) ────────────────────────────────────
-	body.add_child(_info_section_header("REINFORCEMENTS",
+	body.add_child(_info_section_header("TOOLS",
 		"%d / %d" % [GameState.reinforcements.size(), GameState.MAX_REINFORCEMENTS]))
 	if GameState.reinforcements.is_empty():
-		body.add_child(_info_empty_row("No reinforcements carried."))
+		body.add_child(_info_empty_row("No tools carried."))
 	else:
 		for r in GameState.reinforcements:
 			body.add_child(_info_reinforcement_row(r))

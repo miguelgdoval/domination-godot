@@ -439,6 +439,16 @@ func set_tutorial_seen(b: bool) -> void:
 func is_tutorial_seen() -> bool:
 	return _data.get("tutorial_seen", false)
 
+## One-shot intro for the Tools tray — fires the first time the player
+## ever acquires a tool. Persisted across runs so a returning player
+## doesn't see the explanation toast again.
+func is_tool_intro_seen() -> bool:
+	return _data.get("tool_intro_seen", false)
+
+func mark_tool_intro_seen() -> void:
+	_data["tool_intro_seen"] = true
+	_save_to_disk()
+
 # ---------------------------------------------------------------------------
 # Interstitial ad counter
 # ---------------------------------------------------------------------------
