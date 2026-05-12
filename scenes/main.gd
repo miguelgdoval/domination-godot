@@ -300,8 +300,7 @@ var _start_removal_selected:   Array = []   # selected indices
 var _module_rack_row:  HBoxContainer
 var _module_rack_panel: Control
 
-# UI references — directives panel
-var _directives_panel:   Control
+# UI references — contracts panel
 ## One card per active contract slot — each is a PanelContainer with
 ## metadata pointing to its title label, reward label, progress bar,
 ## and seal layer so _refresh_directives can update sub-widgets in
@@ -5843,7 +5842,32 @@ func _build_contracts_panel() -> Control:
 	var hdr_lbl := _make_label("CONTRACTS", C_GOLD_TITLE, 12)
 	header.add_child(hdr_lbl)
 
-	# Contract cards vbox
+	# Per-round contracts (the active directives). Three card slots
+	# allocated for The Runner core; standard runs leave the third
+	# hidden via _refresh_directives. Cards built by the same helper
+	# the old bottom bar used.
+	_directive_cards.clear()
+	for i in range(3):
+		var card := _build_directive_card()
+		card.visible = false
+		# Stretch the card to fill the side panel width.
+		card.custom_minimum_size = Vector2(0, 60)
+		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		vbox.add_child(card)
+		_directive_cards.append(card)
+
+	# Thin gold separator between the per-round contracts (above) and
+	# the run-long mastery contracts (below).
+	var sep := HSeparator.new()
+	var sep_style := StyleBoxFlat.new()
+	sep_style.bg_color = C_GOLD_RIM.darkened(0.3)
+	sep.add_theme_stylebox_override("separator", sep_style)
+	vbox.add_child(sep)
+
+	# Mastery contracts vbox — run-long objectives. Usually empty
+	# until a contract is acquired through a milestone.
+	var mastery_hdr := _make_label("MASTERY", C_DIM, 10)
+	vbox.add_child(mastery_hdr)
 	_contracts_vbox = VBoxContainer.new()
 	_contracts_vbox.add_theme_constant_override("separation", 4)
 	vbox.add_child(_contracts_vbox)
@@ -5852,14 +5876,6 @@ func _build_contracts_panel() -> Control:
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	vbox.add_child(spacer)
-
-	# Footer: reward total
-	var footer := HBoxContainer.new()
-	footer.add_theme_constant_override("separation", 4)
-	vbox.add_child(footer)
-	footer.add_child(_make_label("REWARD:", C_DIM, 10))
-	footer.add_child(_make_label("◎", C_MONEDAS, 12))
-	footer.add_child(_make_label("—", C_MONEDAS, 12))
 
 	return panel
 
@@ -6127,14 +6143,14 @@ func _build_usable_slot(r) -> Control:
 
 	return slot_container
 
-# ---- Hand zone (fixed at bottom, contains directives + tiles + controls) ----
+# ---- Hand zone (fixed at bottom, contains tiles + controls) ----
 func _build_hand_zone() -> Control:
 	var outer := VBoxContainer.new()
 	outer.add_theme_constant_override("separation", 0)
 
-	# Directives bar sits at top of this zone
-	_directives_panel = _build_directives_panel()
-	outer.add_child(_directives_panel)
+	# Per-round Contracts moved to the left side panel as of Round 9
+	# (next to the chain area) so the layout reads symmetrically with
+	# Modules on the right. The bottom directives bar is gone.
 
 	# Module rack — compact cards showing equipped modules during play
 	_module_rack_panel = _build_module_rack_panel()
@@ -6920,35 +6936,6 @@ func _build_selection_card(
 	return panel
 
 # ---- Directives panel ----
-func _build_directives_panel() -> Control:
-	var panel := PanelContainer.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.10, 0.09, 0.07, 0.80)
-	style.set_content_margin_all(6)
-	panel.add_theme_stylebox_override("panel", style)
-
-	var hbox := HBoxContainer.new()
-	hbox.add_theme_constant_override("separation", 10)
-	hbox.alignment = BoxContainer.ALIGNMENT_CENTER
-	panel.add_child(hbox)
-
-	var title_lbl := _make_label("CONTRACTS", C_GOLD_TITLE.darkened(0.10), 11)
-	title_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	hbox.add_child(title_lbl)
-
-	# Allocate 3 card slots so The Runner core (which starts with 3
-	# active contracts) has somewhere to render. Standard / 2-contract
-	# runs leave the third card hidden — _refresh_directives shows
-	# only as many as _dm.active has.
-	_directive_cards.clear()
-	for i in range(3):
-		var card := _build_directive_card()
-		card.visible = false
-		hbox.add_child(card)
-		_directive_cards.append(card)
-
-	return panel
-
 ## Parchment-style contract card. Header row (📜 icon + text + reward
 ## badge), progress bar below. Sub-widgets stored as meta so
 ## _refresh_directives can poke them without rebuilding.
