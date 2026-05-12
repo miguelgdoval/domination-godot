@@ -2605,7 +2605,20 @@ func _on_pass_pressed() -> void:
 func _on_reinforcement_slot_pressed(r: Reinforcement) -> void:
 	if _phase != Phase.PLAYING or _scoring_active:
 		return
+	# Toggle: clicking the same tool again while it's in targeting mode
+	# cancels the activation. Lets the player "unclick" a Bomb / Recycler
+	# / Compass without having to find the Esc key.
+	if _reinforcement_pending == r:
+		_cancel_reinforcement_targeting()
+		_refresh_reinforcement_tray()
+		return
+	# A different tool was already armed — cancel it before arming the
+	# new one so the targeting state can't get stuck pointing at two
+	# pending reinforcements.
+	if _reinforcement_pending != null:
+		_cancel_reinforcement_targeting()
 	_activate_reinforcement(r)
+	_refresh_reinforcement_tray()
 
 ## Dispatch: immediate effects fire now; targeting effects enter picking mode.
 func _activate_reinforcement(r: Reinforcement) -> void:
@@ -2668,6 +2681,9 @@ func _cancel_reinforcement_targeting() -> void:
 	_reinforcement_needs   = 0
 	_refresh_tile_visuals()
 	_refresh_action_buttons()
+	# Drop the armed-slot highlight when the player cancels via any
+	# path (Esc, click-again on the slot, modal dismiss).
+	_refresh_reinforcement_tray()
 
 ## Handle a tile click while in targeting mode.
 func _on_tile_targeting_click(index: int) -> void:
@@ -3796,7 +3812,7 @@ func _refresh_chain_display() -> void:
 		hint_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 		_chain_container.add_child(hint_lbl)
 		if _lbl_preview != null:
-			_lbl_preview.text = "%s   ·   Esc to cancel" % r.description
+			_lbl_preview.text = "%s   ·   Click the tool again or press Esc to cancel" % r.description
 			_lbl_preview.add_theme_color_override("font_color", C_TARGETING)
 		if _lbl_preview_total != null:
 			_lbl_preview_total.text = "%d / %d picked" % [picked, need]
@@ -6122,10 +6138,15 @@ func _build_usable_slot(r) -> Control:
 	btn.custom_minimum_size = Vector2(72, 72)
 	btn.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	btn.clip_contents = true
+	# If this tool is the currently-armed reinforcement (waiting for the
+	# player to pick a target), give it a teal-glow border so the
+	# player can see at a glance which slot is active. Click-again
+	# cancels.
+	var is_armed: bool = (r != null and _reinforcement_pending == r)
 	var sn := StyleBoxFlat.new()
-	sn.bg_color     = C_PANEL_DARK
-	sn.border_color = rarity_color
-	sn.set_border_width_all(2)
+	sn.bg_color     = C_PANEL_DARK if not is_armed else C_PANEL_DARK.lightened(0.08)
+	sn.border_color = C_TARGETING_SEL if is_armed else rarity_color
+	sn.set_border_width_all(3 if is_armed else 2)
 	sn.set_corner_radius_all(36)
 	btn.add_theme_stylebox_override("normal", sn)
 	btn.add_theme_stylebox_override("focus",  sn)
