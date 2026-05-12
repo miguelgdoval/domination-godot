@@ -5,6 +5,17 @@
 ## (on Android: /data/data/<package>/files/save.json)
 extends Node
 
+# Fired when a codex entry is newly unlocked (not on no-op re-unlocks).
+# main.gd connects this to a toast notification so the player sees
+# discoveries surface mid-run instead of having to dig into the codex.
+signal codex_unlocked(id: String)
+
+# Fired when an achievement crosses its earned threshold for the first
+# time. Migration on first call after this feature exists silently seeds
+# `seen_achievements` so legacy progress doesn't flood the player with
+# retroactive toasts.
+signal achievement_unlocked(idx: int)
+
 const SAVE_PATH := "user://save.json"
 
 # ---------------------------------------------------------------------------
@@ -43,6 +54,10 @@ var _data: Dictionary = {}
 # ---------------------------------------------------------------------------
 func _ready() -> void:
 	_load_from_disk()
+	# Seed the seen-achievements list on first run after this feature
+	# was added — otherwise a returning player would get a flood of
+	# retroactive toasts the next time stats change.
+	check_and_emit_achievements()
 
 # ---------------------------------------------------------------------------
 # Settings
@@ -225,6 +240,7 @@ func accumulate_run_stats(stats: Dictionary) -> void:
 	s["modules_seen"] = seen
 	_data["lifetime_stats"] = s
 	_save_to_disk()
+	check_and_emit_achievements()
 
 # ---------------------------------------------------------------------------
 # Daily Trial
@@ -285,6 +301,9 @@ func record_daily_attempt(won: bool, score: int, round_reached: int) -> void:
 	}
 	_data["daily_history"] = hist
 	_save_to_disk()
+	# Daily streak feeds the streak-N achievements, so recompute after
+	# each daily attempt — wins extend the streak, losses reset it.
+	check_and_emit_achievements()
 
 ## Number of consecutive daily wins ending at today (or yesterday if today
 ## hasn't been attempted yet — you don't break a streak by not playing
@@ -363,7 +382,35 @@ func unlock_codex(id: String) -> bool:
 	seen.append(id)
 	_data["codex_seen"] = seen
 	_save_to_disk()
+	codex_unlocked.emit(id)
 	return true
+
+## Re-evaluate every achievement against current lifetime stats and emit
+## `achievement_unlocked` for any that crossed their threshold since the
+## last check. First call after this feature exists silently seeds the
+## seen-list with whatever's already earned so historical progress
+## doesn't fire a flood of retroactive toasts.
+func check_and_emit_achievements() -> void:
+	var lifetime: Dictionary = get_lifetime_stats()
+	var streak: int = daily_streak()
+	var fresh_install: bool = not _data.has("seen_achievements")
+	var seen: Array = _data.get("seen_achievements", [])
+	var changed: bool = false
+	for idx in range(Constants.ACHIEVEMENTS.size()):
+		var id: String = String(Constants.ACHIEVEMENTS[idx].get("id", ""))
+		if id.is_empty():
+			continue
+		if not Constants.achievement_earned(idx, lifetime, streak):
+			continue
+		if id in seen:
+			continue
+		seen.append(id)
+		changed = true
+		if not fresh_install:
+			achievement_unlocked.emit(idx)
+	if changed or fresh_install:
+		_data["seen_achievements"] = seen
+		_save_to_disk()
 
 ## Returns lifetime stats dict. Always has the standard keys (defaulted to
 ## 0 if the player has never finished a run).

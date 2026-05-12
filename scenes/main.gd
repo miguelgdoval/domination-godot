@@ -195,6 +195,10 @@ const PANEL_W_LARGE:  int = 1080
 ## collapse pill. Renders the full chain at full size inside a centred
 ## panel with horizontal scroll.
 var _chain_inspector_overlay: Control = null
+
+## Toast layer — bottom-right stack for transient unlock notifications
+## (codex entries, achievements). Lazy-built on first toast.
+var _toast_layer: Control = null
 var _lbl_preview:          Label   # equation line: "N chips × M"
 var _lbl_preview_total:    Label   # big total line: "= TOTAL" (dominant)
 var _chain_milestone_row:  HBoxContainer   # visual dot-progress bar for chain bonuses
@@ -422,6 +426,11 @@ var _boss_effect_lbl:     Label
 # ===========================================================================
 func _ready() -> void:
 	_build_ui()
+	# Connect unlock signals to the toast system so achievement and
+	# codex discoveries surface mid-play instead of being hidden behind
+	# menus. Connections live for the lifetime of the scene.
+	SaveManager.codex_unlocked.connect(_on_codex_unlocked_toast)
+	SaveManager.achievement_unlocked.connect(_on_achievement_unlocked_toast)
 	_show_title()
 
 # ===========================================================================
@@ -655,8 +664,10 @@ func _build_daily_history_overlay() -> Control:
 	vbox.set_meta("share_btn", share_btn)
 	btn_row.add_child(share_btn)
 
-	btn_row.add_child(_make_button("CLOSE", _on_daily_history_close_pressed,
-		Vector2(160, 44)))
+	var close_btn := _make_button("CLOSE", _on_daily_history_close_pressed,
+		Vector2(160, 44))
+	btn_row.add_child(close_btn)
+	overlay.set_meta("primary_btn", close_btn)
 
 	return overlay
 
@@ -795,8 +806,10 @@ func _build_achievements_overlay() -> Control:
 	var btn_row := HBoxContainer.new()
 	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	vbox.add_child(btn_row)
-	btn_row.add_child(_make_button("CLOSE",
-		_on_achievements_close_pressed, Vector2(160, 44)))
+	var a_close := _make_button("CLOSE",
+		_on_achievements_close_pressed, Vector2(160, 44))
+	btn_row.add_child(a_close)
+	overlay.set_meta("primary_btn", a_close)
 
 	return overlay
 
@@ -1093,8 +1106,10 @@ func _build_codex_overlay() -> Control:
 	var btn_row := HBoxContainer.new()
 	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	vbox.add_child(btn_row)
-	btn_row.add_child(_make_button("CLOSE",
-		_on_codex_close_pressed, Vector2(160, 44)))
+	var c_close := _make_button("CLOSE",
+		_on_codex_close_pressed, Vector2(160, 44))
+	btn_row.add_child(c_close)
+	overlay.set_meta("primary_btn", c_close)
 
 	return overlay
 
@@ -1326,8 +1341,10 @@ func _build_help_overlay() -> Control:
 	var btn_row := HBoxContainer.new()
 	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	vbox.add_child(btn_row)
-	btn_row.add_child(_make_button("CLOSE",
-		_on_help_close_pressed, Vector2(160, 44)))
+	var h_close := _make_button("CLOSE",
+		_on_help_close_pressed, Vector2(160, 44))
+	btn_row.add_child(h_close)
+	overlay.set_meta("primary_btn", h_close)
 
 	return overlay
 
@@ -1420,8 +1437,10 @@ func _build_stats_overlay() -> Control:
 	var btn_row := HBoxContainer.new()
 	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	vbox.add_child(btn_row)
-	btn_row.add_child(_make_button("CLOSE",
-		_on_stats_close_pressed, Vector2(160, 44)))
+	var s_close := _make_button("CLOSE",
+		_on_stats_close_pressed, Vector2(160, 44))
+	btn_row.add_child(s_close)
+	overlay.set_meta("primary_btn", s_close)
 
 	return overlay
 
@@ -1540,6 +1559,7 @@ func _refresh_daily_trial_button() -> void:
 func _on_settings_btn_pressed() -> void:
 	_refresh_settings_overlay()
 	_settings_overlay.show()
+	_focus_overlay_primary(_settings_overlay)
 
 ## Show the mid-run pause overlay. Lazy-built on first open. Doesn't
 ## change _phase (the play state stays PLAYING so refreshes still target
@@ -1552,6 +1572,7 @@ func _on_pause_pressed() -> void:
 		_pause_overlay = _build_pause_overlay()
 		_title_overlay.get_parent().add_child(_pause_overlay)
 	_pause_overlay.show()
+	_focus_overlay_primary(_pause_overlay)
 
 func _on_pause_resume_pressed() -> void:
 	if _pause_overlay != null:
@@ -1598,6 +1619,7 @@ func _show_quit_confirm() -> void:
 		_quit_confirm_overlay = _build_quit_confirm_overlay()
 		_title_overlay.get_parent().add_child(_quit_confirm_overlay)
 	_quit_confirm_overlay.show()
+	_focus_overlay_primary(_quit_confirm_overlay)
 
 func _on_quit_confirm_cancel() -> void:
 	if _quit_confirm_overlay != null:
@@ -2867,31 +2889,18 @@ func _show_run_end(victory: bool) -> void:
 	var best_tier_str: String = "—"
 	if GameState.best_tier >= 0 and GameState.best_tier < Constants.CHAIN_TIER_NAMES.size():
 		best_tier_str = Constants.CHAIN_TIER_NAMES[GameState.best_tier]
+	# Curated stat list — the seven the player cares about at the end of
+	# the run. Lifetime context (and full module breakdown) live in the
+	# Stats overlay one menu away; no need to repeat them here.
 	var stat_lines: Array = [
 		["Rounds completed",  "%d / %d" % [rounds_done, total_rounds]],
 		["Total Chronos",     "%d"       % GameState.total_chronos],
 		["Longest chain",     "%d tiles  (%s)" % [GameState.longest_chain, best_tier_str]],
 		["Best single Pulse", "%d"       % GameState.best_hand],
 		["Hands played",      "%d"       % GameState.hands_played],
-		["Doubles played",    "%d"       % GameState.doubles_played],
 		["Core",              Constants.CORE_NAMES[GameState.chosen_core]],
 		["Protocol",          Constants.PROTOCOL_NAMES[GameState.chosen_protocol]],
 	]
-	if not GameState.modules.is_empty():
-		var names: Array = GameState.modules.map(func(m): return m.display_name)
-		stat_lines.append(["Modules", ", ".join(names)])
-
-	# Lifetime stats divider + cumulative-across-runs lines. Gives the
-	# loss/victory motivation by showing context: "this run vs all my runs".
-	var lt: Dictionary = SaveManager.get_lifetime_stats()
-	var lt_best_tier: String = "—"
-	if int(lt["best_tier"]) >= 0 and int(lt["best_tier"]) < Constants.CHAIN_TIER_NAMES.size():
-		lt_best_tier = Constants.CHAIN_TIER_NAMES[int(lt["best_tier"])]
-	stat_lines.append(["─── LIFETIME ───", ""])
-	stat_lines.append(["Total runs",    "%d (%d won)" % [lt["runs"], lt["wins"]]])
-	stat_lines.append(["Total Chronos", "%d" % lt["chronos"]])
-	stat_lines.append(["Longest chain", "%d tiles  (%s)" % [lt["longest_chain"], lt_best_tier]])
-	stat_lines.append(["Furthest round", "%d" % lt["best_round"]])
 
 	# Newly-unlocked cores / protocols this run — surface them prominently
 	# so the player knows their next run has new options.
@@ -4325,6 +4334,124 @@ func _populate_chain_inspector() -> void:
 	if _rm.current_chain.length() > 0:
 		row.add_child(_make_chain_end_cap(
 			_rm.current_chain.right_end, half_size, false))
+
+# ===========================================================================
+# Toast notifications (codex / achievement unlocks)
+# ===========================================================================
+
+## Signal handler: a codex entry was newly unlocked. Look up its display
+## name from the codex DB and show a discovery toast.
+func _on_codex_unlocked_toast(id: String) -> void:
+	var name: String = id
+	for entry in Codex.ENTRIES:
+		if String(entry.get("id", "")) == id:
+			name = String(entry.get("name", id))
+			break
+	_show_toast("CODEX UNLOCKED", name, C_TITLE_GLOW, "⬡")
+
+## Signal handler: an achievement crossed its earned threshold. Look up
+## name + icon from Constants and show the toast in amber.
+func _on_achievement_unlocked_toast(idx: int) -> void:
+	if idx < 0 or idx >= Constants.ACHIEVEMENTS.size():
+		return
+	var a: Dictionary = Constants.ACHIEVEMENTS[idx]
+	_show_toast("ACHIEVEMENT",
+		String(a.get("name", "")),
+		Color(0.95, 0.80, 0.35),
+		String(a.get("icon", "★")))
+
+## Lazy-build the bottom-right toast layer (a full-rect, click-through
+## Control whose inner VBox stacks toasts from the bottom up).
+func _build_toast_layer() -> Control:
+	var layer := Control.new()
+	layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.z_index = 80   # above HUD, below modal overlays
+	var vbox := VBoxContainer.new()
+	# Bottom-right anchor — inner vbox grows upward as toasts append.
+	vbox.anchor_left   = 1.0
+	vbox.anchor_top    = 1.0
+	vbox.anchor_right  = 1.0
+	vbox.anchor_bottom = 1.0
+	vbox.offset_left   = -360
+	vbox.offset_top    = -540
+	vbox.offset_right  = -20
+	vbox.offset_bottom = -24
+	vbox.alignment = BoxContainer.ALIGNMENT_END
+	vbox.add_theme_constant_override("separation", 8)
+	vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(vbox)
+	layer.set_meta("vbox", vbox)
+	return layer
+
+## Show a transient toast — slide-in from the right, hold ~2.6 s, fade
+## out. Stacks if multiple fire in quick succession.
+func _show_toast(title: String, body: String,
+		accent: Color = C_GOLD_TITLE, icon: String = "") -> void:
+	if _toast_layer == null:
+		_toast_layer = _build_toast_layer()
+		# Lives on the same UI layer as the tooltip so it renders above
+		# gameplay but is silent w/r/t input.
+		if _tooltip_panel != null and _tooltip_panel.get_parent() != null:
+			_tooltip_panel.get_parent().add_child(_toast_layer)
+		else:
+			get_tree().root.add_child(_toast_layer)
+	var vbox: VBoxContainer = _toast_layer.get_meta("vbox", null)
+	if vbox == null:
+		return
+
+	var toast := PanelContainer.new()
+	toast.custom_minimum_size = Vector2(330, 0)
+	toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var s := StyleBoxFlat.new()
+	s.bg_color     = Color(0.08, 0.07, 0.05, 0.96)
+	s.border_color = accent
+	s.set_border_width_all(2)
+	s.set_corner_radius_all(8)
+	s.set_content_margin_all(12)
+	s.shadow_color = Color(0, 0, 0, 0.45)
+	s.shadow_size  = 8
+	toast.add_theme_stylebox_override("panel", s)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 3)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	toast.add_child(col)
+
+	var header := HBoxContainer.new()
+	header.add_theme_constant_override("separation", 8)
+	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if icon != "":
+		var icon_lbl := _make_label(icon, accent, 18)
+		header.add_child(icon_lbl)
+	var title_lbl := _make_label(title, accent, 11)
+	header.add_child(title_lbl)
+	col.add_child(header)
+
+	var body_lbl := _make_label(body, C_TEXT, 13)
+	body_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body_lbl.custom_minimum_size = Vector2(300, 0)
+	col.add_child(body_lbl)
+
+	vbox.add_child(toast)
+
+	# Slide-in from the right + fade. anim_speed scales the durations.
+	var dur_in: float  = 0.22 / maxf(0.5, _anim_speed())
+	var hold: float    = 2.6 / maxf(0.5, _anim_speed())
+	var dur_out: float = 0.35 / maxf(0.5, _anim_speed())
+	toast.modulate.a = 0.0
+	toast.position.x = 36
+	var tw := toast.create_tween().set_parallel(true)
+	tw.tween_property(toast, "modulate:a", 1.0, dur_in) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	tw.tween_property(toast, "position:x", 0.0, dur_in) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	# Hold then fade out and queue_free.
+	var ft := toast.create_tween()
+	ft.tween_interval(hold)
+	ft.tween_property(toast, "modulate:a", 0.0, dur_out) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	ft.tween_callback(toast.queue_free)
 
 ## Override the face panel's stylebox content margin to a small value so the
 ## panel's own minimum size is dominated by the pip-display content rather
@@ -5843,6 +5970,7 @@ func _build_result_overlay() -> Control:
 	_btn_result_action = _make_button("VISIT EMPORIUM", _on_result_action_pressed,
 		Vector2(220, 48))
 	row.add_child(_btn_result_action)
+	overlay.set_meta("primary_btn", _btn_result_action)
 	return overlay
 
 # ---- Shop overlay ----
@@ -6432,6 +6560,7 @@ func _build_boss_overlay() -> Control:
 		Vector2(280, 52))
 	_boss_begin_btn.modulate.a = 0.0
 	btn_row.add_child(_boss_begin_btn)
+	overlay.set_meta("primary_btn", _boss_begin_btn)
 
 	return overlay
 
@@ -7666,6 +7795,21 @@ func _fade_in_overlay(overlay: Control) -> void:
 	var t := overlay.create_tween()
 	t.tween_property(overlay, "modulate:a", 1.0, dur) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	_focus_overlay_primary(overlay)
+
+## Defer-focus the overlay's primary action button so keyboard players
+## can confirm with Enter without clicking. Each overlay builder stores
+## its primary button as the "primary_btn" meta value; missing meta is
+## a silent no-op so non-keyboard-friendly overlays don't error out.
+func _focus_overlay_primary(overlay: Control) -> void:
+	if overlay == null or not overlay.has_meta("primary_btn"):
+		return
+	var btn = overlay.get_meta("primary_btn")
+	if btn == null or not (btn is Button):
+		return
+	if (btn as Button).disabled:
+		return
+	(btn as Button).grab_focus.call_deferred()
 
 ## Apply a brass-tinted theme to an HSlider — track + fill + grabber.
 ## Replaces Godot's default flat slider with a stylebox set matching
@@ -7795,8 +7939,10 @@ func _build_pause_overlay() -> Control:
 
 	vbox.add_child(_make_hsep())
 
-	vbox.add_child(_make_button("▶  RESUME",
-		_on_pause_resume_pressed, Vector2(280, 48)))
+	var resume_btn := _make_button("▶  RESUME",
+		_on_pause_resume_pressed, Vector2(280, 48))
+	vbox.add_child(resume_btn)
+	overlay.set_meta("primary_btn", resume_btn)
 	vbox.add_child(_make_button("⚙  SETTINGS",
 		_on_pause_settings_pressed, Vector2(280, 48)))
 	vbox.add_child(_make_button("⤴  QUIT TO TITLE",
@@ -7867,8 +8013,10 @@ func _build_quit_confirm_overlay() -> Control:
 	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	btn_row.add_theme_constant_override("separation", 12)
 	vbox.add_child(btn_row)
-	btn_row.add_child(_make_button("KEEP PLAYING",
-		_on_quit_confirm_cancel, Vector2(180, 44)))
+	var keep_btn := _make_button("KEEP PLAYING",
+		_on_quit_confirm_cancel, Vector2(180, 44))
+	btn_row.add_child(keep_btn)
+	overlay.set_meta("primary_btn", keep_btn)
 	# Distinct red styling on the destructive option so a quick
 	# muscle-memory click doesn't blow up the run.
 	var forfeit_btn := _make_button("FORFEIT",
@@ -8105,9 +8253,11 @@ func _build_settings_overlay() -> Control:
 	vbox.add_child(_make_hsep())
 
 	# Close button
-	vbox.add_child(_make_button("CLOSE", func():
+	var settings_close := _make_button("CLOSE", func():
 		_settings_overlay.hide()
-	, Vector2(160, 44)))
+	, Vector2(160, 44))
+	vbox.add_child(settings_close)
+	overlay.set_meta("primary_btn", settings_close)
 
 	return overlay
 
@@ -8119,7 +8269,12 @@ func _on_reset_progress_pressed() -> void:
 		return
 	var row = _settings_overlay.get_meta("reset_confirm_row", null)
 	if row != null:
+		row.modulate.a = 0.0
 		row.visible = true
+		var dur: float = 0.16 / maxf(0.5, _anim_speed())
+		var t := (row as Control).create_tween()
+		t.tween_property(row, "modulate:a", 1.0, dur) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 func _on_reset_progress_cancel() -> void:
 	if _settings_overlay == null:
@@ -8490,19 +8645,17 @@ func _finish_tutorial() -> void:
 	tw.tween_callback(_tutorial_overlay.hide)
 
 func _build_run_end_overlay() -> Control:
-	# Root is a ColorRect so _show_run_end() can tint it per outcome
+	# Root is a ColorRect so _show_run_end() can tint it per outcome.
+	# No ScrollContainer wrapping — the curated stat list (below) is
+	# sized to fit the viewport so the cinematic moment doesn't get a
+	# tacky scrollbar.
 	var overlay := ColorRect.new()
 	overlay.color = Color(0.05, 0.04, 0.02, 0.97)
 	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
-	var scroll := ScrollContainer.new()
-	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	overlay.add_child(scroll)
-
 	var center := CenterContainer.new()
-	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	center.size_flags_vertical   = Control.SIZE_EXPAND_FILL
-	scroll.add_child(center)
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
 
 	var vbox := VBoxContainer.new()
 	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -8567,6 +8720,7 @@ func _build_run_end_overlay() -> Control:
 	_btn_run_end.modulate.a = 0.0
 	_btn_run_end.disabled   = true
 	btn_row.add_child(_btn_run_end)
+	overlay.set_meta("primary_btn", _btn_run_end)
 
 	return overlay
 
