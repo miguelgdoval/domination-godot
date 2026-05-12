@@ -226,7 +226,7 @@ static func all() -> Array[Module]:
 		# ------------------------------------------------------------------
 		_make("coin_magnet", "Coin Magnet", Constants.Rarity.BONE,
 			Module.EffectType.COIN_PER_ROUND, 2, 0, 0,
-			"+2 Monedas at the end of every round.",
+			"+2 Coins at the end of every round.",
 			"Residual Chronos bleeds into the stipend. Small, but reliable."),
 
 		_make("accelerator_gem", "Accelerator Gem", Constants.Rarity.CARVED,
@@ -257,7 +257,7 @@ static func all() -> Array[Module]:
 
 		_make_extra("counting_house", "Counting House", Constants.Rarity.OBSIDIAN,
 			Module.EffectType.COIN_PER_ROUND, 6, 0, 1,
-			"+6 Monedas at the end of every round. +1 Module slot.",
+			"+6 Coins at the end of every round. +1 Module slot.",
 			"\"The wealth was already there. You only learned to see it.\""),
 
 		# BLANKS — now reaches OBSIDIAN (was capped at IVORY)

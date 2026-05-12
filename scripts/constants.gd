@@ -21,7 +21,7 @@ const CORE_DESCS: Array[String] = [
 	"One copy of each tile — 55 tiles.\nBox drains fast. Make every placement count.",
 	"Only tiles with a face ≥ 6, ×2 — 68 tiles.\nFewer matching faces, but every tile is heavy.",
 	"Standard set + 2 Bone modules pre-equipped.\nHit the ground running.",
-	"Standard set, +4 starting Monedas, +1 directive slot.\nContract specialist build.",
+	"Standard set, +4 starting Coins, +1 directive slot.\nContract specialist build.",
 	"Standard set + 1 Obsidian module pre-equipped.\nShop prices +2. Power has its cost.",
 	"Blank-heavy box (130 tiles) + Null Recoder pre-equipped.\nZeroes become your strongest signal.",
 ]
@@ -131,7 +131,7 @@ const PROTOCOL_DESCS: Array[String] = [
 	"Hand 5 | Plays 4 | Discards 2\nThe balanced operational parameter set.",
 	"Hand 4 | Plays 4 | Discards 4\nSmaller hand, far more flexibility.",
 	"Hand 6 | Plays 5 | Discards 1\nMaximum throughput. Minimal fallback.",
-	"Hand 5 | Plays 6 | Discards 0\n+5 starting Monedas. No safety net.",
+	"Hand 5 | Plays 6 | Discards 0\n+5 starting Coins. No safety net.",
 ]
 const PROTOCOL_LORES: Array[String] = [
 	"\"Operational parameters nominal. Proceed as calibrated.\"",

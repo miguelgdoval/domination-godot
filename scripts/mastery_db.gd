@@ -7,7 +7,7 @@ static func all() -> Array[MasteryContract]:
 	return [
 		_make("fortune_mastery", "Fortune Mastery",
 			MasteryContract.ObjectiveType.EARN_MONEDAS_IN_ROUND, 25, 0, 30,
-			"Earn 25 Monedas in a single round.",
+			"Earn 25 Coins in a single round.",
 			"\"Show the Archival Authority what efficiency looks like.\""),
 
 		_make("collector_mastery", "Collector's Mastery",

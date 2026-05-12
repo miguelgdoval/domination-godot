@@ -123,14 +123,14 @@ const ENTRIES: Array[Dictionary] = [
 		"body":
 "The Copper Guild is institutional, transactional, amoral. They do not "
 + "appear in person at the Observation Window. They are everywhere else.\n\n"
-+ "Monedas — the stable byproducts of successful Trial Cycles — are minted, "
++ "Coins — the stable byproducts of successful Trial Cycles — are minted, "
 + "valued, and accepted only by Guild contract. The Society of Time Architects "
 + "tolerates the Guild because the Guild's bookkeeping is the only thing "
 + "preventing the Chronometer's economy from collapsing alongside the Machine.\n\n"
 + "They are not allied with the Operator. They are not enemies. They are "
 + "the wall the simulation runs against.",
 		"unlock": {"type": "event", "value": 0,
-			"hint": "Earn your first Monedas."},
+			"hint": "Earn your first Coins."},
 	},
 
 	# ─── PLACES ──────────────────────────────────────────────────────────
@@ -241,7 +241,7 @@ const ENTRIES: Array[Dictionary] = [
 + "and that energy is recorded as Chronos.\n\n"
 + "The Operator who reaches a round's Chronos target has demonstrated that "
 + "their Pulse was sufficient. The Operator who falls short has not.\n\n"
-+ "Chronos cannot be spent. Only its stable byproducts — Monedas — can.",
++ "Chronos cannot be spent. Only its stable byproducts — Coins — can.",
 		"unlock": {"type": "always", "value": 0, "hint": ""},
 	},
 	{
@@ -336,7 +336,7 @@ const ENTRIES: Array[Dictionary] = [
 		"summary": "An operational rule distortion accepted at run start.",
 		"body":
 "The Protocolo de Ensayo modifies the fundamental rules of the Trial "
-+ "Cycle: hand size, number of plays, number of discards, opening Monedas.\n\n"
++ "Cycle: hand size, number of plays, number of discards, opening Coins.\n\n"
 + "Equilibrium is the baseline. Compression, Overload, and Cascade are "
 + "alternative parameter sets, each rebalanced toward a different style of "
 + "Operator. The Society treats Protocols as cosmetic preferences. The "
@@ -347,20 +347,20 @@ const ENTRIES: Array[Dictionary] = [
 	},
 	{
 		"id": "monedas", "category": Category.CONCEPTS,
-		"name": "Monedas",
+		"name": "Coins",
 		"summary": "The Copper Guild's stable currency.",
 		"body":
 "When a Trial Cycle round completes successfully, the residual Chronos — "
 + "the stable byproduct that cannot be reabsorbed by the Machine — is "
-+ "captured by the Copper Guild's contracts and minted into Monedas.\n\n"
++ "captured by the Copper Guild's contracts and minted into Coins.\n\n"
 + "The Guild's contracts predate the Society of Time Architects. The "
 + "Architects do not understand them. The Architects pay anyway.\n\n"
-+ "Monedas can be spent at the Brass Emporium for Calibration Modules, or "
-+ "at the Artisan's Workshop for tile modifications. Unspent Monedas at "
++ "Coins can be spent at the Brass Emporium for Calibration Modules, or "
++ "at the Artisan's Workshop for tile modifications. Unspent Coins at "
 + "the end of a Cycle are returned to the Guild's vaults. They do not "
 + "carry across Cycles.",
 		"unlock": {"type": "event", "value": 0,
-			"hint": "Earn your first Monedas."},
+			"hint": "Earn your first Coins."},
 	},
 	{
 		"id": "recalibration", "category": Category.CONCEPTS,
@@ -864,7 +864,7 @@ const ENTRIES: Array[Dictionary] = [
 		"body":
 "\"You only learned to see it.\" The Copper Guild did not authorise the "
 + "Counting House. The Copper Guild's auditors do not investigate it. The "
-+ "Counting House continues to deposit Monedas in the Operator's accounts.",
++ "Counting House continues to deposit Coins in the Operator's accounts.",
 		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
 	},
 	{
@@ -995,7 +995,7 @@ const ENTRIES: Array[Dictionary] = [
 + "It is the only tile in the entire set that does not register on the "
 + "Architects' inventory. The Master of the Forge stocks it in the "
 + "Artisan's Workshop without comment. Operators who purchase it are not "
-+ "asked where they obtained the Monedas.\n\n"
++ "asked where they obtained the Coins.\n\n"
 + "When placed in a Cohesion Pulse, the Crown counts as three doubles for "
 + "resonance. The Machine does not protest. This is, in itself, alarming.",
 		"unlock": {"type": "event", "value": 0, "hint": "Acquire this tile."},

@@ -27,7 +27,7 @@ static func all() -> Array[Reinforcement]:
 
 		_make("fortune_essence", "Fortune Essence",
 			Reinforcement.EffectType.FORTUNE_ESSENCE, 2,
-			"Your next chain awards double Monedas.",
+			"Your next chain awards double Coins.",
 			"\"Temporal residue crystallised into pure potential.\""),
 
 		_make("copy_mirror", "Copy Mirror",

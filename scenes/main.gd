@@ -1344,7 +1344,7 @@ func _build_help_overlay() -> Control:
 		["ROUND ACTIONS", [
 			["Play",        "Commit the selected tiles to the chain. Scores the full chain."],
 			["Discard",     "Return selected tiles to the box and draw replacements. Targeted re-draw — fitting tiles are surfaced first when possible."],
-			["Stand",       "Once you've crossed the round target, lock in your score. Banks any unused hands as bonus Monedas."],
+			["Stand",       "Once you've crossed the round target, lock in your score. Banks any unused hands as bonus Coins."],
 			["Pass Hand",   "Anti-softlock: if no tile fits and no productive discard exists, burn one hand and redraw."],
 		]],
 		["BOSS EFFECTS", [
@@ -1363,7 +1363,7 @@ func _build_help_overlay() -> Control:
 			["Archetypes",
 				"Each module belongs to an archetype: Doubles, Long-Chain, High-Pip, Blanks, Sacrifice, Economy, Utility.\nThe shop biases toward archetypes you already own — synergy builds form naturally."],
 		]],
-		["MONEDAS", [
+		["COINS", [
 			["Earning",
 				"Round-clear bonus + 1 per unused hand + boss bonus + module income + directive rewards."],
 			["Spending",
@@ -2020,7 +2020,7 @@ func _end_round(won: bool) -> void:
 ## modifiers (doubles bonus, tier bonus, module-driven mult/chips).
 func _build_round_summary_text(monedas_earned: int, dir_bonus: int) -> String:
 	if _rm == null or _rm.current_chain == null:
-		return "Chronos: %d / %d    +%d Monedas" % [
+		return "Chronos: %d / %d    +%d Coins" % [
 			_rm.chronos if _rm else 0, _rm.target if _rm else 0, monedas_earned]
 
 	var result: Dictionary = Scoring.calculate(_rm.current_chain, GameState.modules)
@@ -2067,7 +2067,7 @@ func _build_round_summary_text(monedas_earned: int, dir_bonus: int) -> String:
 	if tier_bonus > 0:
 		lines.append("  Tier (%s): +%d" % [tier_name, tier_bonus])
 	lines.append("")
-	lines.append("══ Monedas earned: +%d ══" % monedas_earned)
+	lines.append("══ Coins earned: +%d ══" % monedas_earned)
 	lines.append("  Round base: +%d" % base_m)
 	if unused_m > 0:
 		lines.append("  Unused hands (%d): +%d" % [unused, unused_m])
@@ -2306,7 +2306,7 @@ func _on_hand_scored(result: Dictionary) -> void:
 
 func _on_directive_completed(directive: Directive, earned: int) -> void:
 	# Flash the last-hand label briefly to show directive reward
-	_lbl_last_hand.text += "   |   Directive: +%d Monedas" % earned
+	_lbl_last_hand.text += "   |   Directive: +%d Coins" % earned
 
 func _on_round_ended(won: bool) -> void:
 	_end_round(won)
@@ -2533,7 +2533,7 @@ func _refresh_stand_hint() -> void:
 
 	var unused: int = _rm.unused_hands()
 	var bank:   int = unused * Constants.MONEDAS_PER_UNUSED_HAND
-	var stand_line: String = "STAND  +%d Monedas (%d unused)" % [bank, unused]
+	var stand_line: String = "STAND  +%d Coins (%d unused)" % [bank, unused]
 
 	# How far to the next bonus tier the chain hasn't crossed yet?
 	var length: int = _rm.committed_chain_length
@@ -3195,7 +3195,7 @@ func _show_run_end(victory: bool) -> void:
 # Shop population
 # ===========================================================================
 func _populate_shop() -> void:
-	_lbl_shop_monedas.text = "Monedas: %d" % GameState.monedas
+	_lbl_shop_monedas.text = "Coins: %d" % GameState.monedas
 	_lbl_slots.text = "Modules: %d / %d" % [
 		GameState.modules.size(), GameState.module_slots]
 
@@ -3295,7 +3295,7 @@ func _build_shop_item_card(entry: Dictionary) -> Control:
 	var bottom_row := HBoxContainer.new()
 	vbox.add_child(bottom_row)
 
-	var cost_text: String = "%d Monedas" % cost
+	var cost_text: String = "%d Coins" % cost
 	if disc > 0:
 		cost_text += "  (-%d%%)" % disc
 	var cost_lbl := _make_label(cost_text, C_MONEDAS, 14)
@@ -3379,7 +3379,7 @@ func _refresh_hud() -> void:
 	if new_m > _last_monedas and _phase == Phase.PLAYING and not _scoring_active:
 		call_deferred("_pop_monedas_delta", new_m - _last_monedas)
 	_last_monedas = new_m
-	_lbl_monedas.text = "Monedas: %d" % new_m
+	_lbl_monedas.text = "Coins: %d" % new_m
 	_animate_monedas_to(new_m)
 
 	# Chronos bar — skipped during scoring animation (animation drives the fill)
@@ -5246,7 +5246,7 @@ func _build_hud() -> Control:
 	# Round / Etapa / Monedas — kept for _refresh_hud + _apply_etapa_theme
 	_lbl_round   = _make_label("Round 1 / 15", C_DIM, 10)
 	_lbl_etapa   = _make_label("Mahogany", C_DIM, 10)
-	_lbl_monedas = _make_label("Monedas: 0", C_MONEDAS, 10)
+	_lbl_monedas = _make_label("Coins: 0", C_MONEDAS, 10)
 	_lbl_round.visible   = false
 	_lbl_etapa.visible   = false
 	_lbl_monedas.visible = false
@@ -5338,7 +5338,7 @@ func _build_hud() -> Control:
 	mon_vbox.add_theme_constant_override("separation", 2)
 	mon_pc.add_child(mon_vbox)
 
-	var mon_lbl := _make_label("MONEDAS", C_DIM, 10)
+	var mon_lbl := _make_label("COINS", C_DIM, 10)
 	mon_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	mon_vbox.add_child(mon_lbl)
 
@@ -6188,7 +6188,7 @@ func _build_shop_overlay() -> Control:
 	right_col.alignment = BoxContainer.ALIGNMENT_END
 	header.add_child(right_col)
 
-	_lbl_shop_monedas = _make_label("Monedas: 0", C_MONEDAS, 16)
+	_lbl_shop_monedas = _make_label("Coins: 0", C_MONEDAS, 16)
 	_lbl_shop_monedas.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	right_col.add_child(_lbl_shop_monedas)
 
@@ -6895,7 +6895,7 @@ func _build_tile_offer_card(index: int, entry: Dictionary) -> Control:
 		# the player can pay. Matches the module-card affordance so the
 		# whole shop reads with the same visual vocabulary.
 		var cost_color: Color = C_WIN if can_buy else C_MONEDAS
-		var cost_lbl := _make_label("%d Monedas" % cost, cost_color, 13)
+		var cost_lbl := _make_label("%d Coins" % cost, cost_color, 13)
 		vbox.add_child(cost_lbl)
 		if can_buy:
 			style.border_color = C_MONEDAS.lerp(C_WIN, 0.30)
