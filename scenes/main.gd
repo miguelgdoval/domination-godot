@@ -524,20 +524,11 @@ func _on_title_start_pressed() -> void:
 	_core_select_overlay.show()
 
 func _on_continue_run_pressed() -> void:
-	print("[continue] pressed; has_saved_run=", SaveManager.has_saved_run())
 	if not SaveManager.has_saved_run():
 		return
 	_title_overlay.hide()
-	var loaded: bool = SaveManager.load_run()
-	print("[continue] load_run returned=", loaded,
-		" round_index=", GameState.round_index,
-		" core=", GameState.chosen_core,
-		" protocol=", GameState.chosen_protocol,
-		" coins=", GameState.monedas,
-		" modules=", GameState.modules.size(),
-		" reinforcements=", GameState.reinforcements.size())
+	SaveManager.load_run()
 	_start_round()
-	print("[continue] _start_round done; phase=", _phase)
 
 ## Open the daily-history overlay. Built lazily on first open so the UI
 ## tree stays slim if the player never uses the feature.
@@ -1968,28 +1959,19 @@ func _begin_round_play() -> void:
 
 	_result_overlay.hide()
 	_shop_overlay.hide()
-	print("[bgnrp] overlays hidden")
 	_refresh_hud()
-	print("[bgnrp] hud refreshed")
 	# Music: boss rounds get the heavier track
 	var track := "boss_ambient" if GameState.is_boss_round() else "game_ambient"
 	AudioManager.play_music(track)
-	print("[bgnrp] music started")
 	_rebuild_hand()
-	print("[bgnrp] hand rebuilt hand_size=", _rm.hand.size())
 	_refresh_chain_display()
-	print("[bgnrp] chain refreshed")
 	_refresh_directives()
-	print("[bgnrp] directives refreshed")
 	_refresh_module_rack()
-	print("[bgnrp] module rack refreshed modules=", GameState.modules.size())
 	# Refresh the tools tray so tools acquired at the previous shop
 	# (or from events) show up at round start. Previously the tray
 	# stuck at its initial empty-state hint until a tool was used.
 	_refresh_reinforcement_tray()
-	print("[bgnrp] tools tray refreshed tools=", GameState.reinforcements.size())
 	_refresh_boss_effect_lbl()
-	print("[bgnrp] boss effect refreshed")
 	_start_ambient_effects(GameState.current_etapa())
 	# Etapa vignette — fires once when the player enters a new chamber
 	# of the Chronometer (round_index 5 / 10 / 15 = first round of
@@ -6337,9 +6319,14 @@ func _build_reinforcement_slot(r, _slot_index: int) -> Control:
 func _refresh_reinforcement_tray() -> void:
 	if _reinforcement_tray == null:
 		return
-	# Remove old slots / hint (keep the label at index 0)
-	while _reinforcement_tray.get_child_count() > 1:
-		_reinforcement_tray.get_child(1).queue_free()
+	# Remove old slots / hint (keep the label at index 0). Iterate a
+	# snapshot of children — queue_free is deferred, so a naive
+	# `while get_child_count() > 1` loop spins forever because the
+	# count doesn't decrement until end of frame.
+	var existing: Array = _reinforcement_tray.get_children()
+	for i in range(1, existing.size()):
+		_reinforcement_tray.remove_child(existing[i])
+		existing[i].queue_free()
 	# Empty state: a single dim hint instead of three empty slots.
 	# Cleaner read for new players; the row stops looking broken when
 	# the player hasn't bought a tool yet.
