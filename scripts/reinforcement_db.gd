@@ -5,47 +5,47 @@ extends RefCounted
 
 static func all() -> Array[Reinforcement]:
 	return [
-		_make("bomb", "Bomba",
+		_make("bomb", "Bomb",
 			Reinforcement.EffectType.BOMB, 0,
 			"Permanently destroy one tile from your hand.",
 			"\"Some nodes are too corrupted to reclaim. Burn them.\""),
 
-		_make("recycler", "Reciclador",
+		_make("recycler", "Recycler",
 			Reinforcement.EffectType.RECYCLER, 0,
 			"Return one hand tile to the box. Draw a new tile.",
 			"\"The Chronometer wastes nothing. Reshape what does not fit.\""),
 
-		_make("wildcard", "Comodín",
+		_make("wildcard", "Wildcard",
 			Reinforcement.EffectType.WILDCARD, 0,
 			"Your next placed tile connects to any pip value.",
 			"\"The Void has no preferences. Neither should you.\""),
 
-		_make("hourglass", "Reloj de Arena",
+		_make("hourglass", "Hourglass",
 			Reinforcement.EffectType.HOURGLASS, 1,
 			"Gain +1 hand this round.",
 			"\"One more rotation. Use it well.\""),
 
-		_make("fortune_essence", "Esencia de la Fortuna",
+		_make("fortune_essence", "Fortune Essence",
 			Reinforcement.EffectType.FORTUNE_ESSENCE, 2,
 			"Your next chain awards double Monedas.",
 			"\"Temporal residue crystallised into pure potential.\""),
 
-		_make("copy_mirror", "Espejo de Copia",
+		_make("copy_mirror", "Copy Mirror",
 			Reinforcement.EffectType.COPY_MIRROR, 0,
 			"Duplicate one tile in your hand. Keep both copies.",
 			"\"The reflection is identical. Even the resonance signature.\""),
 
-		_make("fusion_hammer", "Martillo de la Fusión",
+		_make("fusion_hammer", "Fusion Hammer",
 			Reinforcement.EffectType.FUSION_HAMMER, 0,
 			"Merge two tiles with the same pip value into a double of that value.",
 			"\"Two imperfect signals, collapsed into one perfect resonance.\""),
 
-		_make("gold_talisman", "Talismán de Oro",
+		_make("gold_talisman", "Gold Talisman",
 			Reinforcement.EffectType.GOLD_TALISMAN, 10,
 			"The next tile you place gains +10 bonus chips.",
 			"\"Transmutation is illegal. This talisman does not exist.\""),
 
-		_make("compass", "Brújula",
+		_make("compass", "Compass",
 			Reinforcement.EffectType.COMPASS, 3,
 			"See the next 3 tiles in your box. Reorder them freely.",
 			"\"The signal is not random. You just needed to look ahead.\""),

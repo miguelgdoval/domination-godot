@@ -1516,13 +1516,13 @@ func _refresh_daily_trial_button() -> void:
 	if SaveManager.daily_attempted_today():
 		var d: Dictionary = SaveManager.get_daily_today()
 		var icon: String = "✓" if d.get("won", false) else "✗"
-		_btn_daily_trial.text     = "DAILY TRIAL  %s" % icon
+		_btn_daily_trial.text     = "%s  DAILY TRIAL" % icon
 		_btn_daily_trial.disabled = true
 		if _lbl_daily_memorial != null:
 			var verb: String = "honoured" if d.get("won", false) else "fell again"
 			_lbl_daily_memorial.text = "Today: %s — %s." % [op, verb]
 	else:
-		_btn_daily_trial.text     = "DAILY TRIAL  ↺"
+		_btn_daily_trial.text     = "↺  DAILY TRIAL"
 		_btn_daily_trial.disabled = false
 		if _lbl_daily_memorial != null:
 			_lbl_daily_memorial.text = "Today's Memorial: %s." % op
@@ -2438,7 +2438,7 @@ func _activate_reinforcement(r: Reinforcement) -> void:
 		Reinforcement.EffectType.WILDCARD:
 			# Add a real wild domino to the hand — uses the existing wild-tile system
 			var wild := Domino.new(Domino.WILD, Domino.WILD, 0, true)
-			wild.custom_name = "Comodín"
+			wild.custom_name = "Wildcard"
 			_rm.hand.append(wild)
 			_rm.hand_changed.emit()
 			GameState.use_reinforcement(r)
@@ -2588,7 +2588,7 @@ func _build_compass_modal(r: Reinforcement, tiles: Array[Domino]) -> Control:
 	vbox.add_theme_constant_override("separation", 14)
 	panel.add_child(vbox)
 
-	vbox.add_child(_make_label("BRÚJULA — Next draw", C_TARGETING, 16))
+	vbox.add_child(_make_label("COMPASS — Next draw", C_TARGETING, 16))
 	vbox.add_child(_make_label("Choose which tile comes next from the box.", C_DIM, 12))
 
 	var tile_row := HBoxContainer.new()
@@ -3555,9 +3555,9 @@ func _refresh_chain_display() -> void:
 			# CADENA: <length>   ↔ <open ends with extras from doubles>
 			var ends_str: String = _format_open_ends(preview)
 			if ends_str.is_empty():
-				_chain_info_lbl.text = "CADENA: %d" % preview.length()
+				_chain_info_lbl.text = "CHAIN: %d" % preview.length()
 			else:
-				_chain_info_lbl.text = "CADENA: %d   ↔ %s" % [preview.length(), ends_str]
+				_chain_info_lbl.text = "CHAIN: %d   ↔ %s" % [preview.length(), ends_str]
 		if _chain_bonus_lbl != null:
 			_chain_bonus_lbl.text = "+%d" % r["total"]
 	else:
@@ -3566,7 +3566,7 @@ func _refresh_chain_display() -> void:
 		_update_chronos_ghost(0)
 		_refresh_chain_milestone(0)
 		if _chain_info_lbl != null:
-			_chain_info_lbl.text = "CADENA: 0"
+			_chain_info_lbl.text = "CHAIN: 0"
 		if _chain_bonus_lbl != null:
 			_chain_bonus_lbl.text = ""
 
@@ -4896,7 +4896,7 @@ func _build_hud() -> Control:
 	manos_vbox.add_theme_constant_override("separation", 2)
 	manos_pc.add_child(manos_vbox)
 
-	var manos_lbl := _make_label("MANOS", C_DIM, 10)
+	var manos_lbl := _make_label("HANDS", C_DIM, 10)
 	manos_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	manos_vbox.add_child(manos_lbl)
 
@@ -4925,7 +4925,7 @@ func _build_hud() -> Control:
 	score_vbox.add_theme_constant_override("separation", 2)
 	hbox.add_child(score_vbox)
 
-	_lbl_score_label = _make_label("PUNTUACIÓN DE RONDA", C_DIM, 10)
+	_lbl_score_label = _make_label("ROUND SCORE", C_DIM, 10)
 	_lbl_score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	score_vbox.add_child(_lbl_score_label)
 
@@ -4994,7 +4994,7 @@ func _build_hud() -> Control:
 	disc_vbox.add_theme_constant_override("separation", 2)
 	disc_pc.add_child(disc_vbox)
 
-	var disc_lbl := _make_label("DESCARTES", C_DIM, 10)
+	var disc_lbl := _make_label("DISCARDS", C_DIM, 10)
 	disc_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	disc_vbox.add_child(disc_lbl)
 
@@ -5028,7 +5028,7 @@ func _build_hud() -> Control:
 	box_vbox.add_theme_constant_override("separation", 2)
 	box_pc.add_child(box_vbox)
 
-	var box_lbl := _make_label("CAJA", C_DIM, 10)
+	var box_lbl := _make_label("BOX", C_DIM, 10)
 	box_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box_vbox.add_child(box_lbl)
 
@@ -5237,7 +5237,7 @@ func _build_chain_info_bar() -> Control:
 
 	hbox.add_child(_make_label("◆", C_CHRONOS.darkened(0.3), 10))
 
-	_chain_info_lbl = _make_label("CADENA: 0", C_DIM, 12)
+	_chain_info_lbl = _make_label("CHAIN: 0", C_DIM, 12)
 	hbox.add_child(_chain_info_lbl)
 
 	var spacer := Control.new()
@@ -5281,7 +5281,7 @@ func _build_contracts_panel() -> Control:
 	vbox.add_child(header)
 	var hdr_diamond := _make_label("◆", C_CHRONOS, 12)
 	header.add_child(hdr_diamond)
-	var hdr_lbl := _make_label("CONTRATOS", C_GOLD_TITLE, 12)
+	var hdr_lbl := _make_label("DIRECTIVES", C_GOLD_TITLE, 12)
 	header.add_child(hdr_lbl)
 
 	# Contract cards vbox
@@ -5298,7 +5298,7 @@ func _build_contracts_panel() -> Control:
 	var footer := HBoxContainer.new()
 	footer.add_theme_constant_override("separation", 4)
 	vbox.add_child(footer)
-	footer.add_child(_make_label("RECOMPENSA:", C_DIM, 10))
+	footer.add_child(_make_label("REWARD:", C_DIM, 10))
 	footer.add_child(_make_label("◎", C_MONEDAS, 12))
 	footer.add_child(_make_label("—", C_MONEDAS, 12))
 
@@ -5399,7 +5399,7 @@ func _build_artifacts_panel() -> Control:
 	header.add_theme_constant_override("separation", 6)
 	hdr_pc.add_child(header)
 	header.add_child(_make_label("◆", C_MULT, 12))
-	header.add_child(_make_label("ARTEFACTOS", C_GOLD_TITLE, 12))
+	header.add_child(_make_label("MODULES", C_GOLD_TITLE, 12))
 
 	# Artifact cards vbox
 	_artifacts_vbox = VBoxContainer.new()
@@ -5471,7 +5471,7 @@ func _build_tile_box_panel() -> Control:
 	vbox.add_theme_constant_override("separation", 6)
 	panel.add_child(vbox)
 
-	var hdr := _make_label("CAJA DE FICHAS", C_GOLD_TITLE, 11)
+	var hdr := _make_label("TILE BOX", C_GOLD_TITLE, 11)
 	hdr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(hdr)
 
@@ -5517,7 +5517,7 @@ func _build_usables_panel() -> Control:
 	vbox.add_theme_constant_override("separation", 6)
 	panel.add_child(vbox)
 
-	var hdr := _make_label("OBJETOS USABLES", C_GOLD_TITLE, 11)
+	var hdr := _make_label("REINFORCEMENTS", C_GOLD_TITLE, 11)
 	hdr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(hdr)
 
@@ -6014,111 +6014,37 @@ func _build_title_overlay() -> Control:
 
 	vbox.add_child(_make_hsep())
 
-	var btn_row := HBoxContainer.new()
-	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	btn_row.add_theme_constant_override("separation", 16)
-	vbox.add_child(btn_row)
+	# Primary action stack — three vertically-stacked buttons (Start,
+	# Continue if save exists, Daily Trial). One canonical width keeps
+	# the stack visually uniform; CONTINUE RUN toggles visible in
+	# _show_title() depending on save state.
+	var primary_stack := VBoxContainer.new()
+	primary_stack.alignment = BoxContainer.ALIGNMENT_CENTER
+	primary_stack.add_theme_constant_override("separation", 10)
+	vbox.add_child(primary_stack)
 
-	btn_row.add_child(_make_button(
-		"INITIATE TRIAL CYCLE  →", _on_title_start_pressed, Vector2(280, 54)))
+	# 1. START TRIAL CYCLE — primary action. Heavier height + gold-tinted
+	# accent so it reads as the canonical click.
+	var start_btn := _make_button(
+		"▶  START TRIAL CYCLE", _on_title_start_pressed, Vector2(320, 60))
+	var start_style := StyleBoxFlat.new()
+	start_style.bg_color     = Color(0.12, 0.10, 0.06)
+	start_style.border_color = C_TITLE_GLOW
+	start_style.set_border_width_all(2)
+	start_style.set_corner_radius_all(8)
+	start_style.set_content_margin_all(12)
+	start_btn.add_theme_stylebox_override("normal", start_style)
+	var start_hov := start_style.duplicate() as StyleBoxFlat
+	start_hov.bg_color     = Color(0.18, 0.15, 0.08)
+	start_hov.border_color = C_TITLE_GLOW.lightened(0.20)
+	start_btn.add_theme_stylebox_override("hover", start_hov)
+	primary_stack.add_child(start_btn)
 
-	# Daily Trial: deterministic seed per calendar day, one attempt each.
-	# Sits between the standard new-run button and the continue button.
-	_btn_daily_trial = _make_button(
-		"DAILY TRIAL  ↺", _on_daily_trial_pressed, Vector2(200, 54))
-	# Distinct violet styling so the Daily button reads as its own mode
-	# rather than a variant of "new run".
-	var ds := StyleBoxFlat.new()
-	ds.bg_color     = Color(0.18, 0.10, 0.24)
-	ds.border_color = Color(0.70, 0.55, 0.95)
-	ds.set_border_width_all(2)
-	ds.set_corner_radius_all(6)
-	ds.set_content_margin_all(10)
-	_btn_daily_trial.add_theme_stylebox_override("normal", ds)
-	var ds_hov := ds.duplicate() as StyleBoxFlat
-	ds_hov.bg_color = Color(0.24, 0.14, 0.32)
-	_btn_daily_trial.add_theme_stylebox_override("hover", ds_hov)
-	btn_row.add_child(_btn_daily_trial)
-
-	# Daily history viewer — small icon-only button right next to the daily
-	# trial button. Always visible (even with no attempts) so the player
-	# discovers the feature naturally.
-	_btn_daily_history = _make_button("📅",
-		_on_daily_history_pressed, Vector2(54, 54))
-	_btn_daily_history.add_theme_stylebox_override("normal", ds)
-	_btn_daily_history.add_theme_stylebox_override("hover", ds_hov)
-	btn_row.add_child(_btn_daily_history)
-
-	# Achievements browser — amber-styled to match the achievement panel.
-	# Always visible so first-time players see the feature exists.
-	_btn_achievements = _make_button("★",
-		_on_achievements_pressed, Vector2(54, 54))
-	var as_style := StyleBoxFlat.new()
-	as_style.bg_color     = Color(0.14, 0.11, 0.06)
-	as_style.border_color = Color(0.85, 0.70, 0.30)
-	as_style.set_border_width_all(2)
-	as_style.set_corner_radius_all(6)
-	as_style.set_content_margin_all(10)
-	_btn_achievements.add_theme_stylebox_override("normal", as_style)
-	var as_hov := as_style.duplicate() as StyleBoxFlat
-	as_hov.bg_color = Color(0.20, 0.15, 0.08)
-	_btn_achievements.add_theme_stylebox_override("hover", as_hov)
-	btn_row.add_child(_btn_achievements)
-
-	# Lifetime stats viewer — green-styled to match the chronos accent
-	# of the stats overlay border.
-	_btn_stats = _make_button("📊",
-		_on_stats_pressed, Vector2(54, 54))
-	var st_style := StyleBoxFlat.new()
-	st_style.bg_color     = Color(0.06, 0.13, 0.10)
-	st_style.border_color = C_CHRONOS.darkened(0.2)
-	st_style.set_border_width_all(2)
-	st_style.set_corner_radius_all(6)
-	st_style.set_content_margin_all(10)
-	_btn_stats.add_theme_stylebox_override("normal", st_style)
-	var st_hov := st_style.duplicate() as StyleBoxFlat
-	st_hov.bg_color = Color(0.08, 0.18, 0.13)
-	_btn_stats.add_theme_stylebox_override("hover", st_hov)
-	btn_row.add_child(_btn_stats)
-
-	# Help / glossary — gold-styled to match the title-glow border on
-	# the help overlay. Reference for game terms and rules at any time.
-	_btn_help = _make_button("?",
-		_on_help_pressed, Vector2(54, 54))
-	var hp_style := StyleBoxFlat.new()
-	hp_style.bg_color     = Color(0.13, 0.10, 0.04)
-	hp_style.border_color = C_TITLE_GLOW.darkened(0.2)
-	hp_style.set_border_width_all(2)
-	hp_style.set_corner_radius_all(6)
-	hp_style.set_content_margin_all(10)
-	_btn_help.add_theme_stylebox_override("normal", hp_style)
-	var hp_hov := hp_style.duplicate() as StyleBoxFlat
-	hp_hov.bg_color = Color(0.18, 0.14, 0.06)
-	_btn_help.add_theme_stylebox_override("hover", hp_hov)
-	btn_row.add_child(_btn_help)
-
-	# Codex / Archive — the lore archive. Same modal pattern as the other
-	# title-screen browsers; styled with the title-glow accent.
-	_btn_codex = _make_button("⬡",
-		_on_codex_pressed, Vector2(54, 54))
-	_btn_codex.add_theme_stylebox_override("normal", hp_style)
-	_btn_codex.add_theme_stylebox_override("hover", hp_hov)
-	btn_row.add_child(_btn_codex)
-
-	# Memorial caption — names today's fallen Operator. Updated each
-	# call to _refresh_daily_trial_button. Sits beneath the button row
-	# so the title screen has a piece of always-shifting daily lore
-	# without crowding the buttons themselves.
-	_lbl_daily_memorial = _make_label("", C_DIM, 11)
-	_lbl_daily_memorial.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	FontManager.apply_mono(_lbl_daily_memorial)
-	vbox.add_child(_lbl_daily_memorial)
-
-	# "Continue Run" — hidden until SaveManager confirms a mid-run save exists
+	# 2. CONTINUE RUN — appears only when SaveManager has a saved run.
+	# Teal accent distinguishes "resume" from "start fresh".
 	_btn_continue_run = _make_button(
-		"CONTINUE RUN  ↩", _on_continue_run_pressed, Vector2(200, 54))
-	_btn_continue_run.visible = false   # updated in _show_title()
-	# Style it distinctly (teal/cyan)
+		"↩  CONTINUE RUN", _on_continue_run_pressed, Vector2(320, 48))
+	_btn_continue_run.visible = false   # toggled in _show_title()
 	var cs := StyleBoxFlat.new()
 	cs.bg_color     = Color(0.08, 0.22, 0.22)
 	cs.border_color = Color(0.30, 0.80, 0.75)
@@ -6129,7 +6055,99 @@ func _build_title_overlay() -> Control:
 	var cs_hov := cs.duplicate() as StyleBoxFlat
 	cs_hov.bg_color = Color(0.10, 0.30, 0.30)
 	_btn_continue_run.add_theme_stylebox_override("hover", cs_hov)
-	btn_row.add_child(_btn_continue_run)
+	primary_stack.add_child(_btn_continue_run)
+
+	# 3. DAILY TRIAL — deterministic seed per calendar day, one attempt
+	# each. Violet accent for daily-mode visual identity.
+	_btn_daily_trial = _make_button(
+		"↺  DAILY TRIAL", _on_daily_trial_pressed, Vector2(320, 48))
+	var ds := StyleBoxFlat.new()
+	ds.bg_color     = Color(0.18, 0.10, 0.24)
+	ds.border_color = Color(0.70, 0.55, 0.95)
+	ds.set_border_width_all(2)
+	ds.set_corner_radius_all(6)
+	ds.set_content_margin_all(10)
+	_btn_daily_trial.add_theme_stylebox_override("normal", ds)
+	var ds_hov := ds.duplicate() as StyleBoxFlat
+	ds_hov.bg_color = Color(0.24, 0.14, 0.32)
+	_btn_daily_trial.add_theme_stylebox_override("hover", ds_hov)
+	primary_stack.add_child(_btn_daily_trial)
+
+	# Memorial caption — names today's fallen Operator. Sits beneath
+	# the Daily Trial button so the daily-mode lore is anchored to that
+	# action. Updated each call to _refresh_daily_trial_button.
+	_lbl_daily_memorial = _make_label("", C_DIM, 11)
+	_lbl_daily_memorial.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	FontManager.apply_mono(_lbl_daily_memorial)
+	vbox.add_child(_lbl_daily_memorial)
+
+	# Meta-menu icon row — secondary, browse-only screens that don't
+	# start a run. Smaller (44×44) so they read as a peer group below
+	# the primary action stack. Per-button colour accents preserve the
+	# section identity each overlay uses internally.
+	var icon_row := HBoxContainer.new()
+	icon_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	icon_row.add_theme_constant_override("separation", 8)
+	vbox.add_child(icon_row)
+
+	_btn_daily_history = _make_button("📅",
+		_on_daily_history_pressed, Vector2(44, 44))
+	_btn_daily_history.tooltip_text = "Daily history"
+	_btn_daily_history.add_theme_stylebox_override("normal", ds)
+	_btn_daily_history.add_theme_stylebox_override("hover", ds_hov)
+	icon_row.add_child(_btn_daily_history)
+
+	_btn_achievements = _make_button("★",
+		_on_achievements_pressed, Vector2(44, 44))
+	_btn_achievements.tooltip_text = "Achievements"
+	var as_style := StyleBoxFlat.new()
+	as_style.bg_color     = Color(0.14, 0.11, 0.06)
+	as_style.border_color = Color(0.85, 0.70, 0.30)
+	as_style.set_border_width_all(2)
+	as_style.set_corner_radius_all(6)
+	as_style.set_content_margin_all(10)
+	_btn_achievements.add_theme_stylebox_override("normal", as_style)
+	var as_hov := as_style.duplicate() as StyleBoxFlat
+	as_hov.bg_color = Color(0.20, 0.15, 0.08)
+	_btn_achievements.add_theme_stylebox_override("hover", as_hov)
+	icon_row.add_child(_btn_achievements)
+
+	_btn_stats = _make_button("📊",
+		_on_stats_pressed, Vector2(44, 44))
+	_btn_stats.tooltip_text = "Lifetime statistics"
+	var st_style := StyleBoxFlat.new()
+	st_style.bg_color     = Color(0.06, 0.13, 0.10)
+	st_style.border_color = C_CHRONOS.darkened(0.2)
+	st_style.set_border_width_all(2)
+	st_style.set_corner_radius_all(6)
+	st_style.set_content_margin_all(10)
+	_btn_stats.add_theme_stylebox_override("normal", st_style)
+	var st_hov := st_style.duplicate() as StyleBoxFlat
+	st_hov.bg_color = Color(0.08, 0.18, 0.13)
+	_btn_stats.add_theme_stylebox_override("hover", st_hov)
+	icon_row.add_child(_btn_stats)
+
+	_btn_help = _make_button("?",
+		_on_help_pressed, Vector2(44, 44))
+	_btn_help.tooltip_text = "Help & glossary"
+	var hp_style := StyleBoxFlat.new()
+	hp_style.bg_color     = Color(0.13, 0.10, 0.04)
+	hp_style.border_color = C_TITLE_GLOW.darkened(0.2)
+	hp_style.set_border_width_all(2)
+	hp_style.set_corner_radius_all(6)
+	hp_style.set_content_margin_all(10)
+	_btn_help.add_theme_stylebox_override("normal", hp_style)
+	var hp_hov := hp_style.duplicate() as StyleBoxFlat
+	hp_hov.bg_color = Color(0.18, 0.14, 0.06)
+	_btn_help.add_theme_stylebox_override("hover", hp_hov)
+	icon_row.add_child(_btn_help)
+
+	_btn_codex = _make_button("⬡",
+		_on_codex_pressed, Vector2(44, 44))
+	_btn_codex.tooltip_text = "Codex"
+	_btn_codex.add_theme_stylebox_override("normal", hp_style)
+	_btn_codex.add_theme_stylebox_override("hover", hp_hov)
+	icon_row.add_child(_btn_codex)
 
 	# Settings gear button — always visible, bottom-right of the overlay
 	var settings_btn := _make_button("⚙", _on_settings_btn_pressed, Vector2(48, 48))
