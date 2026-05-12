@@ -4707,13 +4707,14 @@ func _on_achievement_unlocked_toast(idx: int) -> void:
 ## itself will disappear on the next _refresh_reinforcement_tray().
 func _on_reinforcement_used_fx(_r: Reinforcement) -> void:
 	AudioManager.play_sfx("tool_activate")
-	if _reinforcement_tray == null or not is_instance_valid(_reinforcement_tray):
+	# Flash the side-panel tools row (where tools actually live now).
+	if _usables_hbox == null or not is_instance_valid(_usables_hbox):
 		return
-	var t := _reinforcement_tray.create_tween()
-	t.tween_property(_reinforcement_tray, "modulate",
+	var t := _usables_hbox.create_tween()
+	t.tween_property(_usables_hbox, "modulate",
 		Color(1.35, 1.20, 0.70), 0.10) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	t.tween_property(_reinforcement_tray, "modulate",
+	t.tween_property(_usables_hbox, "modulate",
 		Color.WHITE, 0.25) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
 
@@ -6114,28 +6115,36 @@ func _build_usable_slot(r) -> Control:
 
 	var rarity_color: Color = C_RARITY[r.rarity] if r != null and r.get("rarity") != null else C_DIM
 
-	var slot_style := StyleBoxFlat.new()
-	slot_style.bg_color     = C_PANEL_DARK
-	slot_style.border_color = rarity_color
-	slot_style.set_border_width_all(2)
-	slot_style.set_corner_radius_all(36)
-
-	var slot_pc := PanelContainer.new()
-	slot_pc.custom_minimum_size = Vector2(72, 72)
-	slot_pc.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	slot_pc.add_theme_stylebox_override("panel", slot_style)
-	slot_container.add_child(slot_pc)
+	# Clickable button covers the slot square so the side-panel tools
+	# can be activated directly (the old bottom tray used to be the
+	# clickable surface — removed when consolidated into this panel).
+	var btn := Button.new()
+	btn.custom_minimum_size = Vector2(72, 72)
+	btn.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	btn.clip_contents = true
+	var sn := StyleBoxFlat.new()
+	sn.bg_color     = C_PANEL_DARK
+	sn.border_color = rarity_color
+	sn.set_border_width_all(2)
+	sn.set_corner_radius_all(36)
+	btn.add_theme_stylebox_override("normal", sn)
+	btn.add_theme_stylebox_override("focus",  sn)
+	var sh := StyleBoxFlat.new()
+	sh.bg_color     = C_PANEL_DARK.lightened(0.10)
+	sh.border_color = rarity_color.lightened(0.25)
+	sh.set_border_width_all(2)
+	sh.set_corner_radius_all(36)
+	btn.add_theme_stylebox_override("hover", sh)
+	slot_container.add_child(btn)
 
 	if r != null:
 		var icon := _build_item_icon(r.icon_path, r.display_name, rarity_color, Vector2(60, 60))
 		icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		slot_pc.add_child(icon)
-
-	# Badge (count)
-	var badge := _make_label("1", C_TEXT, 11)
-	badge.position = Vector2(54, 0)
-	badge.custom_minimum_size = Vector2(18, 18)
-	slot_container.add_child(badge)
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		btn.add_child(icon)
+		btn.tooltip_text = "%s\n%s" % [r.display_name, r.description]
+		btn.disabled = (_phase != Phase.PLAYING or _scoring_active)
+		btn.pressed.connect(_on_reinforcement_slot_pressed.bind(r))
 
 	# Name label below
 	var name_text: String = r.display_name if r != null else ""
@@ -6143,6 +6152,7 @@ func _build_usable_slot(r) -> Control:
 	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name_lbl.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	name_lbl.offset_top = 74
+	name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	slot_container.add_child(name_lbl)
 
 	return slot_container
@@ -6181,9 +6191,9 @@ func _build_hand_zone() -> Control:
 	_hand_container.custom_minimum_size = Vector2(0, 188)
 	inner.add_child(_hand_container)
 
-	# Reinforcement tray — 3 consumable slots, hidden until player has any
-	_reinforcement_tray = _build_reinforcement_tray()
-	inner.add_child(_reinforcement_tray)
+	# Tools tray moved to the right side panel (next to Modules); the
+	# bottom-of-hand strip is gone. _refresh_reinforcement_tray now
+	# just refreshes the side panel's usables slots.
 
 	inner.add_child(_build_action_bar())
 
@@ -6241,105 +6251,23 @@ func _refresh_usables_panel() -> void:
 		return
 	for ch in _usables_hbox.get_children():
 		ch.queue_free()
+	if GameState.reinforcements.is_empty():
+		# Empty state: dim hint so the panel doesn't read as a broken
+		# row of zero icons before the player has earned any tools.
+		var hint := _make_label("Tools you find\nwill appear here.", C_DIM, 10)
+		hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		hint.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+		_usables_hbox.add_child(hint)
+		return
 	var count := mini(GameState.reinforcements.size(), 3)
 	for i in range(count):
 		_usables_hbox.add_child(_build_usable_slot(GameState.reinforcements[i]))
 
-# ---- Reinforcement tray (3 consumable slots) ----
-func _build_reinforcement_tray() -> Control:
-	var hbox := HBoxContainer.new()
-	hbox.alignment = BoxContainer.ALIGNMENT_CENTER
-	hbox.add_theme_constant_override("separation", 8)
-	hbox.custom_minimum_size = Vector2(0, 44)
-	# Tray label
-	var lbl := _make_label("TOOLS", C_DIM, 10)
-	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	lbl.custom_minimum_size = Vector2(100, 0)
-	hbox.add_child(lbl)
-	# Initial state: empty-tray hint. _refresh_reinforcement_tray()
-	# replaces this with real slots as soon as the player carries any.
-	var hint := _make_label("Tools you find will appear here.", C_DIM, 11)
-	hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	hbox.add_child(hint)
-	return hbox
-
-## Build one reinforcement slot button. r = null → empty/disabled placeholder.
-func _build_reinforcement_slot(r, _slot_index: int) -> Control:
-	var btn := Button.new()
-	btn.custom_minimum_size = Vector2(52, 52)
-	btn.text = ""
-	btn.clip_contents = true
-
-	var has_item: bool = r != null
-	# Slot border tints with the tool's rarity so the tray reads at a
-	# glance: bone (basic) / carved (uncommon) / ivory (rare) /
-	# obsidian (legendary). Empty slots stay dim.
-	var accent: Color = C_RARITY[r.rarity] if has_item else C_DIM
-
-	# Normal style
-	var sn := StyleBoxFlat.new()
-	sn.bg_color     = C_TILE_BODY if has_item else Color(0.10, 0.09, 0.07)
-	sn.border_color = accent
-	sn.set_border_width_all(2)
-	sn.set_corner_radius_all(6)
-	btn.add_theme_stylebox_override("normal", sn)
-	btn.add_theme_stylebox_override("focus",  sn)
-
-	# Hover style (only matters if enabled)
-	var sh := StyleBoxFlat.new()
-	sh.bg_color     = C_TILE_BODY.lightened(0.12)
-	sh.border_color = accent.lightened(0.25)
-	sh.set_border_width_all(2)
-	sh.set_corner_radius_all(6)
-	btn.add_theme_stylebox_override("hover", sh)
-
-	if has_item:
-		var icon := _build_item_icon(r.icon_path, r.display_name, accent, Vector2(44, 44))
-		icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		btn.add_child(icon)
-		btn.disabled = (_phase != Phase.PLAYING or _scoring_active)
-		btn.tooltip_text = "%s\n%s" % [r.display_name, r.description]
-		btn.pressed.connect(_on_reinforcement_slot_pressed.bind(r))
-	else:
-		btn.disabled = true
-		var lbl := Label.new()
-		lbl.text = "·"
-		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-		lbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		lbl.add_theme_color_override("font_color", C_DIM)
-		lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		btn.add_child(lbl)
-		btn.modulate.a = 0.35
-
-	return btn
-
-## Refresh the reinforcement tray to reflect current GameState.reinforcements.
+## Refresh the Tools display. The bottom-of-hand tray is gone — tools
+## now live exclusively in the side panel on the right (rendered by
+## _refresh_usables_panel). Kept this function name so the existing
+## ~8 call sites in the activation / purchase flow still work.
 func _refresh_reinforcement_tray() -> void:
-	if _reinforcement_tray == null:
-		return
-	# Remove old slots / hint (keep the label at index 0). Iterate a
-	# snapshot of children — queue_free is deferred, so a naive
-	# `while get_child_count() > 1` loop spins forever because the
-	# count doesn't decrement until end of frame.
-	var existing: Array = _reinforcement_tray.get_children()
-	for i in range(1, existing.size()):
-		_reinforcement_tray.remove_child(existing[i])
-		existing[i].queue_free()
-	# Empty state: a single dim hint instead of three empty slots.
-	# Cleaner read for new players; the row stops looking broken when
-	# the player hasn't bought a tool yet.
-	if GameState.reinforcements.is_empty():
-		var hint := _make_label(
-			"Tools you find will appear here.", C_DIM, 11)
-		hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		_reinforcement_tray.add_child(hint)
-	else:
-		for i in range(GameState.MAX_REINFORCEMENTS):
-			var r = GameState.reinforcements[i] if i < GameState.reinforcements.size() else null
-			_reinforcement_tray.add_child(_build_reinforcement_slot(r, i))
-	# Also refresh the new usables panel on the right
 	_refresh_usables_panel()
 
 # ---- Action bar ----
