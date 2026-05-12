@@ -1968,19 +1968,28 @@ func _begin_round_play() -> void:
 
 	_result_overlay.hide()
 	_shop_overlay.hide()
+	print("[bgnrp] overlays hidden")
 	_refresh_hud()
+	print("[bgnrp] hud refreshed")
 	# Music: boss rounds get the heavier track
 	var track := "boss_ambient" if GameState.is_boss_round() else "game_ambient"
 	AudioManager.play_music(track)
+	print("[bgnrp] music started")
 	_rebuild_hand()
+	print("[bgnrp] hand rebuilt hand_size=", _rm.hand.size())
 	_refresh_chain_display()
+	print("[bgnrp] chain refreshed")
 	_refresh_directives()
+	print("[bgnrp] directives refreshed")
 	_refresh_module_rack()
+	print("[bgnrp] module rack refreshed modules=", GameState.modules.size())
 	# Refresh the tools tray so tools acquired at the previous shop
 	# (or from events) show up at round start. Previously the tray
 	# stuck at its initial empty-state hint until a tool was used.
 	_refresh_reinforcement_tray()
+	print("[bgnrp] tools tray refreshed tools=", GameState.reinforcements.size())
 	_refresh_boss_effect_lbl()
+	print("[bgnrp] boss effect refreshed")
 	_start_ambient_effects(GameState.current_etapa())
 	# Etapa vignette — fires once when the player enters a new chamber
 	# of the Chronometer (round_index 5 / 10 / 15 = first round of
