@@ -524,11 +524,20 @@ func _on_title_start_pressed() -> void:
 	_core_select_overlay.show()
 
 func _on_continue_run_pressed() -> void:
+	print("[continue] pressed; has_saved_run=", SaveManager.has_saved_run())
 	if not SaveManager.has_saved_run():
 		return
 	_title_overlay.hide()
-	SaveManager.load_run()
+	var loaded: bool = SaveManager.load_run()
+	print("[continue] load_run returned=", loaded,
+		" round_index=", GameState.round_index,
+		" core=", GameState.chosen_core,
+		" protocol=", GameState.chosen_protocol,
+		" coins=", GameState.monedas,
+		" modules=", GameState.modules.size(),
+		" reinforcements=", GameState.reinforcements.size())
 	_start_round()
+	print("[continue] _start_round done; phase=", _phase)
 
 ## Open the daily-history overlay. Built lazily on first open so the UI
 ## tree stays slim if the player never uses the feature.
