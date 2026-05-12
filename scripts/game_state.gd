@@ -7,6 +7,10 @@ extends Node
 # (one-shot per install).
 signal reinforcement_added(r: Reinforcement)
 
+# Fired when a tool is consumed. main.gd uses this to trigger activation
+# feedback (SFX + tray flash) without having to wrap every call site.
+signal reinforcement_used(r: Reinforcement)
+
 var round_index:     int = 0
 var monedas:         int = 0
 var difficulty:      int = Constants.Difficulty.NORMAL
@@ -291,6 +295,7 @@ func use_reinforcement(r: Reinforcement) -> bool:
 	if not reinforcements.has(r):
 		return false
 	reinforcements.erase(r)
+	reinforcement_used.emit(r)
 	return true
 
 # ---------------------------------------------------------------------------

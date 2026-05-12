@@ -23,3 +23,4 @@ var effect_value: int = 0       # secondary numeric param (e.g. chip bonus)
 var description:  String
 var lore_text:    String = ""
 var icon_path:    String = ""   # res://assets/reinforcements/{id}.png — swap when art arrives
+var rarity:       int = 0       # Constants.Rarity — drives slot border colour

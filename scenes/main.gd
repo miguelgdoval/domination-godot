@@ -298,7 +298,11 @@ var _module_rack_panel: Control
 
 # UI references — directives panel
 var _directives_panel:   Control
-var _directive_labels:   Array = []   # Array[Label], one per active directive
+## One card per active contract slot — each is a PanelContainer with
+## metadata pointing to its title label, reward label, progress bar,
+## and seal layer so _refresh_directives can update sub-widgets in
+## place rather than rebuilding cards every frame.
+var _directive_cards:    Array = []
 
 # UI references — boss warning overlay (cinematic)
 var _boss_overlay:      Control
@@ -446,6 +450,9 @@ func _ready() -> void:
 	# a tool, surface a long-hold toast explaining what to do with it.
 	# One-shot per install — flagged in SaveManager.
 	GameState.reinforcement_added.connect(_on_reinforcement_added_intro)
+	# Activation feedback — every tool-use plays an SFX + flashes the
+	# tray briefly so the consumption feels deliberate, not silent.
+	GameState.reinforcement_used.connect(_on_reinforcement_used_fx)
 	_show_title()
 
 ## Update the run-timer HUD pill once per second (no point ticking at
@@ -3727,6 +3734,10 @@ func _refresh_chain_display() -> void:
 			_chain_info_lbl.text = "CHAIN: 0"
 		if _chain_bonus_lbl != null:
 			_chain_bonus_lbl.text = ""
+	# Live contract progress — every selection change updates the
+	# progress bars on chain-length / doubles-count / preview-score
+	# contracts so the player can see how close they are while picking.
+	_refresh_directives()
 
 func _refresh_action_buttons() -> void:
 	# Preview must be fully valid (all selected tiles connected) to enable Play.
@@ -3819,17 +3830,83 @@ func _rebuild_hand() -> void:
 func _refresh_directives() -> void:
 	if _dm == null:
 		return
-	for i in range(_directive_labels.size()):
+	for i in range(_directive_cards.size()):
+		var card: Control = _directive_cards[i]
 		if i >= _dm.active.size():
-			break
+			card.visible = false
+			continue
+		card.visible = true
 		var d: Directive = _dm.active[i]
-		var lbl: Label = _directive_labels[i]
+		var glyph: Label = card.get_meta("glyph_lbl")
+		var text_lbl: Label = card.get_meta("text_lbl")
+		var reward_lbl: Label = card.get_meta("reward_lbl")
+		var bar: ProgressBar = card.get_meta("progress_bar")
+		var bg: StyleBoxFlat = card.get_meta("bg_style")
+		text_lbl.text = d.text
+		reward_lbl.text = "+%d ◉" % d.reward
 		if d.completed:
-			lbl.text = "✓ %s  (+%d)" % [d.text, d.reward]
-			lbl.add_theme_color_override("font_color", C_WIN)
+			glyph.text = "✓"
+			glyph.add_theme_color_override("font_color", C_WIN)
+			text_lbl.add_theme_color_override("font_color", C_WIN)
+			bg.border_color = C_WIN
+			bar.value = 1.0
+			bar.visible = true
 		else:
-			lbl.text = "○ %s  (+%d)" % [d.text, d.reward]
-			lbl.add_theme_color_override("font_color", C_DIM)
+			glyph.text = "📜"
+			glyph.add_theme_color_override("font_color", C_GOLD_TITLE)
+			text_lbl.add_theme_color_override("font_color", C_TEXT)
+			bg.border_color = C_GOLD_RIM
+			var p: float = _directive_progress(d)
+			bar.value = p
+			# Hide the bar entirely when the contract has no continuous
+			# progress (boolean / end-of-round types). _directive_progress
+			# returns -1 to signal "no meter".
+			bar.visible = p >= 0.0
+
+## Returns a 0..1 progress fraction for contracts that have continuous,
+## live-updatable progress (chain length, doubles count, current preview
+## chips / mult / total). Returns -1 for contracts that resolve in a
+## single tick (boolean / end-of-round types) so the renderer can hide
+## the bar instead of showing a stuck 0%.
+func _directive_progress(d: Directive) -> float:
+	if _rm == null:
+		return -1.0
+	var preview: Chain = _build_preview_chain()
+	var chain_len: int = preview.length()
+	var doubles: int = 0
+	for tile in preview.tiles:
+		if not tile.is_wild and tile.is_double():
+			doubles += 1
+	# Preview-based score lookahead only computed if needed.
+	var preview_r: Dictionary = {}
+	var need_score: bool = d.type == Directive.Type.CHIPS_60 \
+		or d.type == Directive.Type.TOTAL_250 \
+		or d.type == Directive.Type.TOTAL_500 \
+		or d.type == Directive.Type.TOTAL_1000 \
+		or d.type == Directive.Type.MULT_5 \
+		or d.type == Directive.Type.MULT_10
+	if need_score and not preview.is_empty():
+		preview_r = Scoring.calculate(preview, GameState.modules)
+	match d.type:
+		Directive.Type.CHAIN_LENGTH_5:    return clampf(chain_len / 5.0,  0.0, 1.0)
+		Directive.Type.CHAIN_LENGTH_7:    return clampf(chain_len / 7.0,  0.0, 1.0)
+		Directive.Type.CHAIN_LENGTH_11:   return clampf(chain_len / 11.0, 0.0, 1.0)
+		Directive.Type.CHAIN_LENGTH_16:   return clampf(chain_len / 16.0, 0.0, 1.0)
+		Directive.Type.CHAIN_DOUBLES_3:   return clampf(doubles / 3.0,    0.0, 1.0)
+		Directive.Type.CHIPS_60:
+			return clampf(float(preview_r.get("chips", 0)) / 60.0, 0.0, 1.0)
+		Directive.Type.TOTAL_250:
+			return clampf(float(preview_r.get("total", 0)) / 250.0, 0.0, 1.0)
+		Directive.Type.TOTAL_500:
+			return clampf(float(preview_r.get("total", 0)) / 500.0, 0.0, 1.0)
+		Directive.Type.TOTAL_1000:
+			return clampf(float(preview_r.get("total", 0)) / 1000.0, 0.0, 1.0)
+		Directive.Type.MULT_5:
+			return clampf(float(preview_r.get("mult", 1)) / 5.0, 0.0, 1.0)
+		Directive.Type.MULT_10:
+			return clampf(float(preview_r.get("mult", 1)) / 10.0, 0.0, 1.0)
+		_:
+			return -1.0
 
 func _refresh_tile_visuals() -> void:
 	# Use the preview chain (built from current selection) for connection arrow logic
@@ -4498,6 +4575,21 @@ func _on_achievement_unlocked_toast(idx: int) -> void:
 		String(a.get("name", "")),
 		Color(0.95, 0.80, 0.35),
 		String(a.get("icon", "★")))
+
+## Signal handler: a tool was consumed. Plays a one-shot SFX and runs
+## a brief gold flash over the tray so the activation reads. The slot
+## itself will disappear on the next _refresh_reinforcement_tray().
+func _on_reinforcement_used_fx(_r: Reinforcement) -> void:
+	AudioManager.play_sfx("tool_activate")
+	if _reinforcement_tray == null or not is_instance_valid(_reinforcement_tray):
+		return
+	var t := _reinforcement_tray.create_tween()
+	t.tween_property(_reinforcement_tray, "modulate",
+		Color(1.35, 1.20, 0.70), 0.10) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	t.tween_property(_reinforcement_tray, "modulate",
+		Color.WHITE, 0.25) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
 
 ## Signal handler: a tool was just added to the player's inventory.
 ## On the first ever acquisition (per install), show a teaching toast
@@ -6022,7 +6114,10 @@ func _build_reinforcement_slot(r, _slot_index: int) -> Control:
 	btn.clip_contents = true
 
 	var has_item: bool = r != null
-	var accent: Color = Color(0.80, 0.65, 0.30) if has_item else C_DIM
+	# Slot border tints with the tool's rarity so the tray reads at a
+	# glance: bone (basic) / carved (uncommon) / ivory (rare) /
+	# obsidian (legendary). Empty slots stay dim.
+	var accent: Color = C_RARITY[r.rarity] if has_item else C_DIM
 
 	# Normal style
 	var sn := StyleBoxFlat.new()
@@ -6681,27 +6776,97 @@ func _build_directives_panel() -> Control:
 	var panel := PanelContainer.new()
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.10, 0.09, 0.07, 0.80)
+	style.set_content_margin_all(6)
 	panel.add_theme_stylebox_override("panel", style)
 
 	var hbox := HBoxContainer.new()
-	hbox.add_theme_constant_override("separation", 24)
+	hbox.add_theme_constant_override("separation", 10)
 	hbox.alignment = BoxContainer.ALIGNMENT_CENTER
 	panel.add_child(hbox)
 
-	var title_lbl := _make_label("CONTRACTS:", C_DIM, 12)
+	var title_lbl := _make_label("CONTRACTS", C_GOLD_TITLE.darkened(0.10), 11)
+	title_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	hbox.add_child(title_lbl)
 
-	# Allocate 3 slots so The Runner core (which starts with 3 active
-	# directives) has somewhere to render. Standard / 2-directive runs
-	# leave the third label blank — costs one empty Label, saves a UI
-	# rebuild on core change.
-	_directive_labels.clear()
+	# Allocate 3 card slots so The Runner core (which starts with 3
+	# active contracts) has somewhere to render. Standard / 2-contract
+	# runs leave the third card hidden — _refresh_directives shows
+	# only as many as _dm.active has.
+	_directive_cards.clear()
 	for i in range(3):
-		var lbl := _make_label("", C_DIM, 12)
-		hbox.add_child(lbl)
-		_directive_labels.append(lbl)
+		var card := _build_directive_card()
+		card.visible = false
+		hbox.add_child(card)
+		_directive_cards.append(card)
 
 	return panel
+
+## Parchment-style contract card. Header row (📜 icon + text + reward
+## badge), progress bar below. Sub-widgets stored as meta so
+## _refresh_directives can poke them without rebuilding.
+func _build_directive_card() -> Control:
+	var card := PanelContainer.new()
+	card.custom_minimum_size = Vector2(280, 48)
+
+	var bg := StyleBoxFlat.new()
+	bg.bg_color     = Color(0.18, 0.15, 0.09, 0.95)  # parchment tone
+	bg.border_color = C_GOLD_RIM
+	bg.set_border_width_all(1)
+	bg.set_corner_radius_all(6)
+	bg.set_content_margin_all(8)
+	card.add_theme_stylebox_override("panel", bg)
+	card.set_meta("bg_style", bg)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 4)
+	vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(vbox)
+
+	# Top row: glyph + text + reward badge
+	var top := HBoxContainer.new()
+	top.add_theme_constant_override("separation", 6)
+	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(top)
+
+	var glyph := _make_label("📜", C_GOLD_TITLE, 14)
+	glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top.add_child(glyph)
+	card.set_meta("glyph_lbl", glyph)
+
+	var text_lbl := _make_label("", C_TEXT, 12)
+	text_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	text_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top.add_child(text_lbl)
+	card.set_meta("text_lbl", text_lbl)
+
+	var reward_lbl := _make_label("", C_MONEDAS, 12)
+	reward_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	FontManager.apply_mono(reward_lbl)
+	top.add_child(reward_lbl)
+	card.set_meta("reward_lbl", reward_lbl)
+
+	# Progress bar — thin gold sliver below the text. Hidden when the
+	# contract has no continuous progress (e.g. boolean / end-of-round
+	# ones) or when no progress yet.
+	var bar := ProgressBar.new()
+	bar.min_value = 0.0
+	bar.max_value = 1.0
+	bar.value = 0.0
+	bar.show_percentage = false
+	bar.custom_minimum_size = Vector2(0, 4)
+	var pb_bg := StyleBoxFlat.new()
+	pb_bg.bg_color = Color(0.08, 0.07, 0.05)
+	pb_bg.set_corner_radius_all(2)
+	bar.add_theme_stylebox_override("background", pb_bg)
+	var pb_fill := StyleBoxFlat.new()
+	pb_fill.bg_color = C_GOLD_TITLE
+	pb_fill.set_corner_radius_all(2)
+	bar.add_theme_stylebox_override("fill", pb_fill)
+	vbox.add_child(bar)
+	card.set_meta("progress_bar", bar)
+
+	return card
 
 # ---- Boss warning overlay (cinematic) ----
 func _build_boss_overlay() -> Control:
