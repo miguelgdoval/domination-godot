@@ -1967,6 +1967,10 @@ func _begin_round_play() -> void:
 	_refresh_chain_display()
 	_refresh_directives()
 	_refresh_module_rack()
+	# Refresh the tools tray so tools acquired at the previous shop
+	# (or from events) show up at round start. Previously the tray
+	# stuck at its initial empty-state hint until a tool was used.
+	_refresh_reinforcement_tray()
 	_refresh_boss_effect_lbl()
 	_start_ambient_effects(GameState.current_etapa())
 	# Etapa vignette — fires once when the player enters a new chamber
