@@ -297,8 +297,7 @@ var _start_removal_candidates: Array = []   # Array[Domino]
 var _start_removal_selected:   Array = []   # selected indices
 
 # Module rack (displayed during play, below directives)
-var _module_rack_row:  HBoxContainer
-var _module_rack_panel: Control
+# Module rack vars removed — modules render only in the side panel now.
 
 # UI references — contracts panel
 ## One card per active contract slot — each is a PanelContainer with
@@ -6025,6 +6024,12 @@ func _build_artifact_card(m: Module) -> Control:
 
 	var card := PanelContainer.new()
 	card.add_theme_stylebox_override("panel", card_style)
+	# Meta stash for _pulse_rack_card — when a module's effect fires
+	# during scoring, the pulse helper flashes border_color from the
+	# base back. Required since the bottom rack was removed and the
+	# scoring pulse now targets these side-panel cards.
+	card.set_meta("border_style",      card_style)
+	card.set_meta("base_border_color", rarity_color)
 
 	var hbox := HBoxContainer.new()
 	hbox.add_theme_constant_override("separation", 6)
@@ -6192,9 +6197,11 @@ func _build_hand_zone() -> Control:
 	# (next to the chain area) so the layout reads symmetrically with
 	# Modules on the right. The bottom directives bar is gone.
 
-	# Module rack — compact cards showing equipped modules during play
-	_module_rack_panel = _build_module_rack_panel()
-	outer.add_child(_module_rack_panel)
+	# Module rack used to sit here as a compact strip above the hand,
+	# duplicating the side-panel modules and crowding the tile row.
+	# Modules now render exclusively in the right side panel; the
+	# pulse-on-fire animation has been redirected to the artifact
+	# cards there (see _refresh_artifacts_panel + _pulse_rack_card).
 
 	# Hand panel
 	var hand_panel := PanelContainer.new()
@@ -6264,8 +6271,14 @@ func _refresh_artifacts_panel() -> void:
 		return
 	for ch in _artifacts_vbox.get_children():
 		ch.queue_free()
+	# Repopulate _rack_card_by_id so the scoring sequence's
+	# "this module fired" pulse animation has a target. Used to point
+	# at the bottom module rack; now points at the side-panel cards.
+	_rack_card_by_id.clear()
 	for m in GameState.modules:
-		_artifacts_vbox.add_child(_build_artifact_card(m))
+		var card := _build_artifact_card(m)
+		_artifacts_vbox.add_child(card)
+		_rack_card_by_id[m.id] = card
 
 func _refresh_tile_box() -> void:
 	if _lbl_tile_box_count == null:
@@ -7526,77 +7539,14 @@ func _build_tier_segment(tier: Dictionary, state: String, length: int) -> Contro
 	return panel
 
 # ===========================================================================
-# Module rack (shown during play)
+# Module display (right side panel only as of the layout consolidation)
 # ===========================================================================
-func _build_module_rack_panel() -> Control:
-	var panel := PanelContainer.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.10, 0.09, 0.07, 0.75)
-	panel.add_theme_stylebox_override("panel", style)
-
-	var hbox := HBoxContainer.new()
-	hbox.add_theme_constant_override("separation", 8)
-	hbox.alignment = BoxContainer.ALIGNMENT_CENTER
-	panel.add_child(hbox)
-
-	var lbl := _make_label("MODULES:", C_DIM, 11)
-	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	hbox.add_child(lbl)
-
-	_module_rack_row = HBoxContainer.new()
-	_module_rack_row.add_theme_constant_override("separation", 6)
-	hbox.add_child(_module_rack_row)
-
-	return panel
-
+## Refresh the module display. The bottom module rack is gone — modules
+## live exclusively in the right side panel (rendered by
+## _refresh_artifacts_panel). Kept this function name so the existing
+## round-start refresh sweep and any future call sites still work.
 func _refresh_module_rack() -> void:
-	for child in _module_rack_row.get_children():
-		child.queue_free()
-	_rack_card_by_id.clear()
-
-	if GameState.modules.is_empty():
-		var none_lbl := _make_label("none equipped", C_DIM, 11)
-		_module_rack_row.add_child(none_lbl)
-		return
-
-	for m in GameState.modules:
-		var card := _build_rack_module_card(m)
-		_module_rack_row.add_child(card)
-		_rack_card_by_id[m.id] = card
-
-func _build_rack_module_card(m: Module) -> Control:
-	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(0, 36)
-	var style := StyleBoxFlat.new()
-	style.bg_color     = Color(0.12, 0.11, 0.08)
-	style.border_color = C_RARITY[m.rarity]
-	style.set_border_width_all(1)
-	style.set_corner_radius_all(4)
-	panel.add_theme_stylebox_override("panel", style)
-	# Store style reference for pulse animation
-	panel.set_meta("border_style", style)
-	panel.set_meta("base_border_color", C_RARITY[m.rarity])
-
-	var hbox := HBoxContainer.new()
-	hbox.add_theme_constant_override("separation", 5)
-	panel.add_child(hbox)
-
-	var dot := _make_label("●", C_RARITY[m.rarity], 10)
-	dot.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	hbox.add_child(dot)
-
-	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 0)
-	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	hbox.add_child(col)
-
-	col.add_child(_make_label(m.display_name, C_TEXT, 11))
-	col.add_child(_make_label(m.description,  C_DIM,  10))
-
-	# Hover tooltip — full name, description, and lore on mouse-over
-	_add_module_tooltip(panel, m)
-
-	return panel
+	_refresh_artifacts_panel()
 
 # ===========================================================================
 # Scoring animation sequence
