@@ -181,6 +181,16 @@ var _last_committed_len: int = 0
 ## inspector overlay (full chain, horizontal scroll inside).
 const CHAIN_COLLAPSE_THRESHOLD: int  = 4
 const CHAIN_COLLAPSE_ENDS_VISIBLE: int = 2
+
+## Canonical overlay-panel widths. Three sizes give every menu a
+## consistent footprint instead of one-off custom_minimum_sizes per
+## overlay. SMALL = confirmations / pause / settings. MEDIUM = single-
+## column browse panels (codex categories, help, stats, etc.). LARGE =
+## multi-column grids and full-table layouts (shop, selection, codex,
+## chain inspector).
+const PANEL_W_SMALL:  int = 440
+const PANEL_W_MEDIUM: int = 720
+const PANEL_W_LARGE:  int = 1080
 ## Lazy-built inspector overlay shown when the player clicks the
 ## collapse pill. Renders the full chain at full size inside a centred
 ## panel with horizontal scroll.
@@ -463,7 +473,7 @@ func _on_daily_history_pressed() -> void:
 		# Parent to the same UI layer the title overlay lives on.
 		_title_overlay.get_parent().add_child(_daily_history_overlay)
 	_refresh_daily_history_overlay()
-	_daily_history_overlay.show()
+	_fade_in_overlay(_daily_history_overlay)
 
 func _on_daily_history_close_pressed() -> void:
 	if _daily_history_overlay != null:
@@ -474,7 +484,7 @@ func _on_achievements_pressed() -> void:
 		_achievements_overlay = _build_achievements_overlay()
 		_title_overlay.get_parent().add_child(_achievements_overlay)
 	_refresh_achievements_overlay()
-	_achievements_overlay.show()
+	_fade_in_overlay(_achievements_overlay)
 
 func _on_achievements_close_pressed() -> void:
 	if _achievements_overlay != null:
@@ -485,7 +495,7 @@ func _on_stats_pressed() -> void:
 		_stats_overlay = _build_stats_overlay()
 		_title_overlay.get_parent().add_child(_stats_overlay)
 	_refresh_stats_overlay()
-	_stats_overlay.show()
+	_fade_in_overlay(_stats_overlay)
 
 func _on_stats_close_pressed() -> void:
 	if _stats_overlay != null:
@@ -495,7 +505,7 @@ func _on_help_pressed() -> void:
 	if _help_overlay == null:
 		_help_overlay = _build_help_overlay()
 		_title_overlay.get_parent().add_child(_help_overlay)
-	_help_overlay.show()
+	_fade_in_overlay(_help_overlay)
 
 func _on_help_close_pressed() -> void:
 	if _help_overlay != null:
@@ -506,7 +516,7 @@ func _on_codex_pressed() -> void:
 		_codex_overlay = _build_codex_overlay()
 		_title_overlay.get_parent().add_child(_codex_overlay)
 	_refresh_codex_overlay()
-	_codex_overlay.show()
+	_fade_in_overlay(_codex_overlay)
 
 func _on_codex_close_pressed() -> void:
 	if _codex_overlay != null:
@@ -579,7 +589,7 @@ func _build_daily_history_overlay() -> Control:
 	overlay.add_child(center)
 
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(560, 600)
+	panel.custom_minimum_size = Vector2(PANEL_W_MEDIUM, 600)
 	var ps := StyleBoxFlat.new()
 	ps.bg_color     = Color(0.08, 0.06, 0.10, 0.98)   # tinted to match Daily violet
 	ps.border_color = Color(0.70, 0.55, 0.95)
@@ -745,7 +755,7 @@ func _build_achievements_overlay() -> Control:
 	overlay.add_child(center)
 
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(720, 580)
+	panel.custom_minimum_size = Vector2(PANEL_W_MEDIUM, 580)
 	var ps := StyleBoxFlat.new()
 	ps.bg_color     = Color(0.08, 0.07, 0.05, 0.98)
 	ps.border_color = Color(0.85, 0.70, 0.30)   # warm amber match for "achievement" feel
@@ -1016,7 +1026,7 @@ func _build_codex_overlay() -> Control:
 	overlay.add_child(center)
 
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(820, 640)
+	panel.custom_minimum_size = Vector2(PANEL_W_LARGE, 640)
 	var ps := StyleBoxFlat.new()
 	ps.bg_color     = Color(0.07, 0.05, 0.04, 0.98)
 	ps.border_color = C_TITLE_GLOW.darkened(0.2)
@@ -1222,7 +1232,7 @@ func _build_help_overlay() -> Control:
 	overlay.add_child(center)
 
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(680, 600)
+	panel.custom_minimum_size = Vector2(PANEL_W_MEDIUM, 600)
 	var ps := StyleBoxFlat.new()
 	ps.bg_color     = Color(0.07, 0.06, 0.05, 0.98)
 	ps.border_color = C_TITLE_GLOW.darkened(0.2)
@@ -1373,7 +1383,7 @@ func _build_stats_overlay() -> Control:
 	overlay.add_child(center)
 
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(620, 600)
+	panel.custom_minimum_size = Vector2(PANEL_W_MEDIUM, 600)
 	var ps := StyleBoxFlat.new()
 	ps.bg_color     = Color(0.07, 0.06, 0.05, 0.98)
 	ps.border_color = C_CHRONOS.darkened(0.2)
@@ -2575,7 +2585,7 @@ func _build_compass_modal(r: Reinforcement, tiles: Array[Domino]) -> Control:
 	overlay.add_child(center)
 
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(500, 0)
+	panel.custom_minimum_size = Vector2(PANEL_W_SMALL, 0)
 	var ps := StyleBoxFlat.new()
 	ps.bg_color     = Color(0.10, 0.09, 0.07, 0.98)
 	ps.border_color = C_TARGETING
@@ -4239,7 +4249,7 @@ func _build_chain_inspector_overlay() -> Control:
 	root.add_child(center)
 
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(900, 0)
+	panel.custom_minimum_size = Vector2(PANEL_W_LARGE, 0)
 	# Clicks on the panel itself shouldn't propagate to the backdrop's
 	# dismiss handler.
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -4268,7 +4278,7 @@ func _build_chain_inspector_overlay() -> Control:
 
 	# Scroll viewport for the full chain.
 	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(860, 110)
+	scroll.custom_minimum_size = Vector2(PANEL_W_LARGE - 40, 110)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	scroll.vertical_scroll_mode   = ScrollContainer.SCROLL_MODE_DISABLED
 	vbox.add_child(scroll)
@@ -5802,7 +5812,7 @@ func _build_result_overlay() -> Control:
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	overlay.add_child(center)
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(620, 0)
+	panel.custom_minimum_size = Vector2(PANEL_W_MEDIUM, 0)
 	var style := StyleBoxFlat.new()
 	style.bg_color     = Color(0.10, 0.09, 0.07, 0.98)
 	style.border_color = Color(0.5, 0.45, 0.35)
@@ -5851,7 +5861,7 @@ func _build_shop_overlay() -> Control:
 	scroll.add_child(center)
 
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(1100, 0)
+	panel.custom_minimum_size = Vector2(PANEL_W_LARGE, 0)
 	var style := StyleBoxFlat.new()
 	style.bg_color     = Color(0.10, 0.09, 0.07)
 	style.border_color = Color(0.50, 0.45, 0.35)
@@ -6188,7 +6198,7 @@ func _build_selection_overlay(
 	scroll.add_child(center)
 
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(1140, 0)
+	panel.custom_minimum_size = Vector2(PANEL_W_LARGE, 0)
 	var pstyle := StyleBoxFlat.new()
 	pstyle.bg_color     = Color(0.10, 0.09, 0.07)
 	pstyle.border_color = Color(0.50, 0.45, 0.35)
@@ -7516,7 +7526,7 @@ func _build_tile_removal_overlay() -> Control:
 	scroll.add_child(center)
 
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(860, 0)
+	panel.custom_minimum_size = Vector2(PANEL_W_LARGE, 0)
 	var style := StyleBoxFlat.new()
 	style.bg_color     = Color(0.10, 0.09, 0.07)
 	style.border_color = Color(0.50, 0.45, 0.35)
@@ -7616,6 +7626,24 @@ func _make_button(label: String, callback: Callable,
 	# default font_size lives on the theme, so we set it explicitly here.
 	btn.add_theme_font_size_override("font_size",
 		int(round(16 * SaveManager.get_text_scale())))
+	# Default state styleboxes — every overlay-specific button overrides
+	# "normal" / "hover" inline, but disabled and focus rarely get custom
+	# treatment. Set baseline disabled (greyed-out) and focus (subtle gold
+	# outline) so keyboard nav and inert buttons read correctly.
+	var disabled := StyleBoxFlat.new()
+	disabled.bg_color     = Color(0.10, 0.09, 0.07, 0.50)
+	disabled.border_color = Color(0.30, 0.28, 0.22, 0.80)
+	disabled.set_border_width_all(1)
+	disabled.set_corner_radius_all(4)
+	disabled.set_content_margin_all(8)
+	btn.add_theme_stylebox_override("disabled", disabled)
+	btn.add_theme_color_override("font_disabled_color", Color(0.55, 0.52, 0.46))
+	var focus := StyleBoxFlat.new()
+	focus.bg_color     = Color(0, 0, 0, 0)
+	focus.border_color = C_TITLE_GLOW
+	focus.set_border_width_all(2)
+	focus.set_corner_radius_all(4)
+	btn.add_theme_stylebox_override("focus", focus)
 	return btn
 
 func _make_hsep() -> Control:
@@ -7624,6 +7652,60 @@ func _make_hsep() -> Control:
 	style.bg_color = Color(0.3, 0.28, 0.22)
 	sep.add_theme_stylebox_override("separator", style)
 	return sep
+
+## Short fade-in transition for leisure overlays (codex, stats, help,
+## achievements, daily history). Replaces an instant .show() with a
+## ~0.18s alpha lift so the screen reads as something arriving rather
+## than a hard cut. Scaled by the user's anim-speed preference.
+func _fade_in_overlay(overlay: Control) -> void:
+	if overlay == null:
+		return
+	overlay.modulate.a = 0.0
+	overlay.show()
+	var dur: float = 0.18 / maxf(0.5, _anim_speed())
+	var t := overlay.create_tween()
+	t.tween_property(overlay, "modulate:a", 1.0, dur) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+
+## Apply a brass-tinted theme to an HSlider — track + fill + grabber.
+## Replaces Godot's default flat slider with a stylebox set matching
+## the rest of the menus' gold/amber palette.
+func _style_slider(slider: HSlider) -> void:
+	slider.custom_minimum_size.y = 24
+	# Track (slider background)
+	var track := StyleBoxFlat.new()
+	track.bg_color = Color(0.08, 0.07, 0.05, 0.90)
+	track.border_color = C_GOLD_RIM.darkened(0.2)
+	track.set_border_width_all(1)
+	track.set_corner_radius_all(3)
+	track.content_margin_top    = 9
+	track.content_margin_bottom = 9
+	slider.add_theme_stylebox_override("slider", track)
+	# Filled portion (left of grabber). Slight gold glow so it reads as
+	# "this is the current level".
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = C_GOLD_TITLE.darkened(0.10)
+	fill.border_color = C_GOLD_TITLE
+	fill.set_border_width_all(1)
+	fill.set_corner_radius_all(3)
+	fill.content_margin_top    = 9
+	fill.content_margin_bottom = 9
+	slider.add_theme_stylebox_override("grabber_area", fill)
+	slider.add_theme_stylebox_override("grabber_area_highlight", fill)
+	# Grabber knob — round gold pill.
+	var grab := StyleBoxFlat.new()
+	grab.bg_color = C_GOLD_TITLE.lightened(0.15)
+	grab.border_color = C_TEXT
+	grab.set_border_width_all(1)
+	grab.set_corner_radius_all(8)
+	grab.content_margin_left   = 8
+	grab.content_margin_right  = 8
+	grab.content_margin_top    = 8
+	grab.content_margin_bottom = 8
+	slider.add_theme_stylebox_override("grabber", grab)
+	var grab_hov := grab.duplicate() as StyleBoxFlat
+	grab_hov.bg_color = C_GOLD_TITLE.lightened(0.30)
+	slider.add_theme_stylebox_override("grabber_highlight", grab_hov)
 
 ## Build a square icon box for modules / reinforcements.
 ## Tries to load icon_path; if missing, shows a rarity-coloured box with initials.
@@ -7693,7 +7775,7 @@ func _build_pause_overlay() -> Control:
 	overlay.add_child(center)
 
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(360, 0)
+	panel.custom_minimum_size = Vector2(PANEL_W_SMALL, 0)
 	var ps := StyleBoxFlat.new()
 	ps.bg_color     = Color(0.08, 0.07, 0.05, 0.98)
 	ps.border_color = C_GOLD_RIM
@@ -7816,7 +7898,7 @@ func _build_settings_overlay() -> Control:
 	overlay.add_child(center)
 
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(420, 0)
+	panel.custom_minimum_size = Vector2(PANEL_W_SMALL, 0)
 	var pstyle := StyleBoxFlat.new()
 	pstyle.bg_color     = Color(0.10, 0.09, 0.07)
 	pstyle.border_color = Color(0.50, 0.45, 0.35)
@@ -7850,6 +7932,7 @@ func _build_settings_overlay() -> Control:
 	music_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	music_slider.set_meta("type", "music")
 	music_slider.value_changed.connect(_on_settings_slider_changed.bind(music_slider))
+	_style_slider(music_slider)
 	music_row.add_child(music_slider)
 	overlay.set_meta("music_slider", music_slider)
 	vbox.add_child(music_row)
@@ -7868,6 +7951,7 @@ func _build_settings_overlay() -> Control:
 	sfx_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sfx_slider.set_meta("type", "sfx")
 	sfx_slider.value_changed.connect(_on_settings_slider_changed.bind(sfx_slider))
+	_style_slider(sfx_slider)
 	sfx_row.add_child(sfx_slider)
 	overlay.set_meta("sfx_slider", sfx_slider)
 	vbox.add_child(sfx_row)
@@ -8832,7 +8916,7 @@ func _build_info_overlay() -> Control:
 	root.add_child(center)
 
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(820, 0)
+	panel.custom_minimum_size = Vector2(PANEL_W_LARGE, 0)
 	var style := StyleBoxFlat.new()
 	style.bg_color     = Color(0.08, 0.07, 0.05, 0.97)
 	style.border_color = C_GOLD_RIM
