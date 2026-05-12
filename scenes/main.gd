@@ -2681,6 +2681,11 @@ func _cancel_reinforcement_targeting() -> void:
 	_reinforcement_needs   = 0
 	_refresh_tile_visuals()
 	_refresh_action_buttons()
+	# Clear the targeting hint from the chain area — _refresh_chain_display
+	# has a `_reinforcement_pending != null` branch that hijacks the
+	# chain panel with a "TARGET A TILE — X" prompt; without this call
+	# the prompt would linger after cancel.
+	_refresh_chain_display()
 	# Drop the armed-slot highlight when the player cancels via any
 	# path (Esc, click-again on the slot, modal dismiss).
 	_refresh_reinforcement_tray()
