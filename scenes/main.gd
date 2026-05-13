@@ -126,7 +126,7 @@ const C_RARITY := [
 # ---------------------------------------------------------------------------
 # Game state
 # ---------------------------------------------------------------------------
-enum Phase { TITLE, CORE_SELECT, PROTOCOL_SELECT, TILE_REMOVAL, BOSS_WARNING, PLAYING, ROUND_RESULT, SHOP, GAME_OVER, VICTORY }
+enum Phase { TITLE, CORE_SELECT, PROTOCOL_SELECT, TILE_REMOVAL, BOSS_WARNING, PLAYING, ROUND_RESULT, EVENT_TERMINAL, SHOP, GAME_OVER, VICTORY }
 
 var _phase: Phase = Phase.TITLE
 var _rm: RoundManager
@@ -159,6 +159,13 @@ var _tool_offers_bought_idx: Array = []  # indices of consumed tool offers
 # -2  → rolled, no swap this run
 # n   → swap fires when `GameState.round_index == n` (n is a boss round)
 var _renegade_visit_round: int = -1
+
+# Event Terminal state — at most one event per run, rolled 30% after a
+# non-boss round clear. The pending dict carries the current event entry
+# while the overlay is shown; cleared after the choice resolves.
+var _event_terminal_fired_this_run: bool = false
+var _event_pending:    Dictionary = {}
+var _event_overlay:    Control    = null   # lazy-built on first event
 # Artisan's Workshop tile state
 var _tile_offers: Array = []             # [{tile, cost}] — tiles for sale
 var _tile_offers_bought: Array = []      # indices already bought
@@ -2940,6 +2947,12 @@ func _on_compass_pick(r: Reinforcement, chosen: Domino) -> void:
 # ===========================================================================
 func _on_result_action_pressed() -> void:
 	if _phase == Phase.ROUND_RESULT:
+		# Event Terminal: 30% chance after a non-boss clear, once per run,
+		# gated by per-event min_round. If one fires, the shop is queued
+		# behind it — `_on_event_continue_pressed` opens the shop after
+		# the choice resolves.
+		if _maybe_trigger_event_terminal():
+			return
 		_show_shop()
 
 func _on_run_end_pressed() -> void:
@@ -2953,6 +2966,11 @@ func _on_run_end_pressed() -> void:
 ## Roll which boss-round Artisan visit the Renegade Mechanic crashes (if
 ## any). Called once per run after start_run / start_daily_run / load_run.
 ##
+## Also resets the Event Terminal flag so a continued run can roll a new
+## event (the previous run's event budget doesn't carry over). Bundles
+## both per-run atmospheric resets so we don't have to remember two
+## hooks at every run-start site.
+##
 ## Result is stored in `_renegade_visit_round`:
 ##   -2  → no swap this run
 ##    n  → swap fires when `GameState.round_index == n` (a boss round)
@@ -2962,6 +2980,8 @@ func _on_run_end_pressed() -> void:
 ## speaker + greeting + acquisition attribution for one boss-round shop
 ## per run. ~60% of runs see a swap; the rest stay all-Master.
 func _roll_renegade_visit() -> void:
+	# Reset the Event Terminal allowance for the new run.
+	_event_terminal_fired_this_run = false
 	# Boss rounds are indices 4, 9, 14, 19. Hard mode reaches all four;
 	# normal only the first three. We pick from the runs that the player
 	# COULD reach given the chosen difficulty.
@@ -3047,6 +3067,331 @@ func _flash_acquisition(text: String) -> void:
 	_acquisition_flash_tween.tween_interval(1.4)
 	_acquisition_flash_tween.tween_property(_lbl_acquisition_flash,
 		"modulate:a", 0.0, 0.40)
+
+# ===========================================================================
+# Event Terminal — between-round asymmetric bargains
+# ===========================================================================
+
+## Roll for an Event Terminal between round-end and shop. Returns true
+## if an event is firing (caller should NOT proceed to the shop — the
+## event's CONTINUE button will open the shop instead). Returns false
+## when no event fires; caller proceeds to the shop normally.
+##
+## Gating:
+##   • At most one event per Trial Cycle (`_event_terminal_fired_this_run`).
+##   • Never on a boss round — bosses already own that beat.
+##   • 30% base roll on eligible non-boss rounds.
+##   • Filtered to events whose `min_round` is met.
+func _maybe_trigger_event_terminal() -> bool:
+	if _event_terminal_fired_this_run:
+		return false
+	if GameState.is_boss_round():
+		return false
+	if randf() >= 0.30:
+		return false
+	var pool: Array[Dictionary] = EventDB.eligible(GameState.round_index)
+	if pool.is_empty():
+		return false
+	_event_terminal_fired_this_run = true
+	_event_pending = pool[randi() % pool.size()]
+	# Codex: every event is also a "transmission" of the broad sense —
+	# unlock the Archiver and the speaker's codex entries the first time
+	# their event fires, so the lore page becomes available on first
+	# encounter regardless of milestone gates.
+	SaveManager.unlock_codex("archiver")
+	_show_event_terminal(_event_pending)
+	return true
+
+## Build (lazily) and present the Event Terminal overlay with the given
+## event's content. The overlay is reused across firings; choices and
+## outcome labels are rebuilt each time so the event-specific text lands.
+func _show_event_terminal(event: Dictionary) -> void:
+	_phase = Phase.EVENT_TERMINAL
+	_result_overlay.hide()
+	if _event_overlay == null:
+		_event_overlay = _build_event_overlay()
+		# Parent next to the other modal overlays (sibling of _shop_overlay).
+		_shop_overlay.get_parent().add_child(_event_overlay)
+	# Populate header text
+	var title_lbl: Label    = _event_overlay.get_meta("title_lbl")
+	var speaker_lbl: Label  = _event_overlay.get_meta("speaker_lbl")
+	var body_lbl: Label     = _event_overlay.get_meta("body_lbl")
+	title_lbl.text   = String(event.get("title", "TRANSMISSION INCOMING"))
+	speaker_lbl.text = "SOURCE: " + String(event.get("speaker", "UNKNOWN"))
+	body_lbl.text    = String(event.get("body", ""))
+	# Rebuild the choices column from the event's choices array.
+	var choices_col: VBoxContainer = _event_overlay.get_meta("choices_col")
+	for child in choices_col.get_children():
+		child.queue_free()
+	var choices: Array = event.get("choices", [])
+	for i in range(choices.size()):
+		var c: Dictionary = choices[i]
+		var btn := _make_button(String(c.get("label", "—")),
+			_on_event_choice_pressed.bind(i), Vector2(560, 44))
+		btn.add_theme_color_override("font_color", C_TEXT)
+		choices_col.add_child(btn)
+	# Hide the outcome row until a choice is made.
+	var outcome_box: Control = _event_overlay.get_meta("outcome_box")
+	outcome_box.hide()
+	choices_col.show()
+	# Fade-in
+	_event_overlay.modulate.a = 0.0
+	_event_overlay.scale      = Vector2(0.96, 0.96)
+	_event_overlay.show()
+	var t := create_tween().set_parallel(true)
+	t.tween_property(_event_overlay, "modulate:a", 1.0, 0.30)
+	t.tween_property(_event_overlay, "scale", Vector2.ONE, 0.30) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+## Player picked a choice. Apply the effect, then swap the choice column
+## for the outcome line + a CONTINUE button. The CONTINUE button proceeds
+## to the shop — keeps the event/shop sequence flowing without a manual
+## return to the round-result screen.
+func _on_event_choice_pressed(choice_idx: int) -> void:
+	if _event_pending.is_empty():
+		return
+	var choices: Array = _event_pending.get("choices", [])
+	if choice_idx < 0 or choice_idx >= choices.size():
+		return
+	var choice: Dictionary = choices[choice_idx]
+	var effect_str: String = String(choice.get("effect", "none"))
+	var param: int         = int(choice.get("param", 0))
+	# Apply the effect. `_apply_event_effect` may rewrite the outcome
+	# text if a fallback fired (e.g., no module slot → coin substitute).
+	var applied: Dictionary = _apply_event_effect(effect_str, param)
+	var outcome_text: String = String(choice.get("outcome", ""))
+	if not applied.get("fallback_text", "").is_empty():
+		outcome_text = String(applied["fallback_text"])
+	# Swap to outcome view.
+	var choices_col: VBoxContainer = _event_overlay.get_meta("choices_col")
+	var outcome_box: Control       = _event_overlay.get_meta("outcome_box")
+	var outcome_lbl: Label         = _event_overlay.get_meta("outcome_lbl")
+	choices_col.hide()
+	outcome_lbl.text = outcome_text
+	outcome_box.show()
+	# HUD refresh — coins / modules / tools may all have moved.
+	_refresh_hud()
+	_refresh_module_rack()
+	_refresh_reinforcement_tray()
+
+## Continue button on the outcome view: close the event overlay and open
+## the shop. Phase advances inside _show_shop, but the event overlay's
+## hide animation is interleaved so the transition feels deliberate.
+func _on_event_continue_pressed() -> void:
+	_event_pending = {}
+	var t := create_tween().set_parallel(true)
+	t.tween_property(_event_overlay, "modulate:a", 0.0, 0.22)
+	t.tween_property(_event_overlay, "scale", Vector2(0.97, 0.97), 0.22)
+	t.chain().tween_callback(func():
+		_event_overlay.hide()
+		_event_overlay.modulate.a = 1.0
+		_event_overlay.scale = Vector2.ONE
+		_show_shop()
+	)
+
+## Apply an event-choice effect. Returns a Dictionary:
+##   { "applied": bool,        — true if the primary effect fired
+##     "fallback_text": String } — non-empty when a fallback ran (e.g.,
+##                                 no module slot, no module to sell)
+##                                 so the caller can override the
+##                                 event's canonical outcome line.
+func _apply_event_effect(effect: String, param: int) -> Dictionary:
+	match effect:
+		"none":
+			return {"applied": true, "fallback_text": ""}
+		"gain_coins":
+			GameState.monedas += param
+			return {"applied": true, "fallback_text": ""}
+		"gain_module":
+			return _grant_module_or_coins(param)
+		"lose_tile_gain_module":
+			_remove_random_regular_tile()
+			return _grant_module_or_coins(param)
+		"lose_coins_gain_module":
+			GameState.monedas = maxi(0, GameState.monedas - 2)
+			return _grant_module_or_coins(param)
+		"lose_coins_gain_tool":
+			GameState.monedas = maxi(0, GameState.monedas - param)
+			return _grant_tool_or_coins()
+		"gain_coins_lose_module":
+			GameState.monedas += param
+			var sold: bool = _sell_oldest_module()
+			if not sold:
+				return {"applied": true,
+					"fallback_text": "The auditor finds no Module to seize. Coins remain."}
+			return {"applied": true, "fallback_text": ""}
+		"trade_module":
+			var sold2: bool = _sell_oldest_module()
+			if not sold2:
+				# No module to trade — convert to flat coin reward.
+				GameState.monedas += 4
+				return {"applied": true,
+					"fallback_text": "Nothing to trade. He hands you four Coins instead."}
+			return _grant_module_or_coins(param)
+		_:
+			return {"applied": false, "fallback_text": ""}
+
+## Grant a random Module of the requested rarity. If the player has no
+## free slot, fall back to a coin payout equivalent to the rarity's
+## sell value × 3 (so a refused gift still feels like a win).
+func _grant_module_or_coins(rarity: int) -> Dictionary:
+	if not GameState.has_free_slot():
+		var consolation: int = Constants.RARITY_SELL[rarity] * 3
+		GameState.monedas += consolation
+		return {"applied": true,
+			"fallback_text": "No free slot. %d Coins offered instead." % consolation}
+	# Pick a Module of the target rarity that the player doesn't already own.
+	var pool: Array[Module] = ModuleDB.get_by_rarity(rarity)
+	var owned_ids: Array = GameState.modules.map(func(m): return m.id)
+	var candidates: Array[Module] = []
+	for m in pool:
+		if not (m.id in owned_ids):
+			candidates.append(m)
+	if candidates.is_empty():
+		# Already own every module of that rarity — coin payout fallback.
+		var consolation2: int = Constants.RARITY_SELL[rarity] * 3
+		GameState.monedas += consolation2
+		return {"applied": true,
+			"fallback_text": "You hold every Module of that grade. %d Coins offered instead." % consolation2}
+	var pick: Module = candidates[randi() % candidates.size()]
+	GameState.add_module(pick)
+	SaveManager.unlock_codex("module_" + pick.id)
+	return {"applied": true, "fallback_text": ""}
+
+## Grant a random Tool (Reinforcement). If the player has no free Tool
+## slot, fall back to a small coin payout. Same shape as `_grant_module_or_coins`.
+func _grant_tool_or_coins() -> Dictionary:
+	if not GameState.has_reinforcement_slot():
+		GameState.monedas += 3
+		return {"applied": true,
+			"fallback_text": "Tool slot full. 3 Coins offered instead."}
+	var pool: Array[Reinforcement] = ReinforcementDB.all()
+	if pool.is_empty():
+		return {"applied": false, "fallback_text": ""}
+	var pick: Reinforcement = pool[randi() % pool.size()]
+	GameState.add_reinforcement(pick)
+	return {"applied": true, "fallback_text": ""}
+
+## Pick a random NON-special tile from the box and remove it. Returns
+## true if a tile was actually removed. Special tiles (named tiles with
+## `custom_name`) are excluded — losing the Anchor or Pinnacle to a
+## random event would feel terrible.
+func _remove_random_regular_tile() -> bool:
+	if GameState.box == null:
+		return false
+	var all: Array[Domino] = GameState.box.all_tiles()
+	var regulars: Array[Domino] = []
+	for t in all:
+		if t.custom_name.is_empty():
+			regulars.append(t)
+	if regulars.is_empty():
+		return false
+	var pick: Domino = regulars[randi() % regulars.size()]
+	GameState.box.remove_tile(pick)
+	return true
+
+## Sell the oldest Module (index 0). Returns true if a Module was sold.
+## Returns false if the player has no modules to sell. Uses the standard
+## sell_module so the coin refund matches the shop's rules.
+func _sell_oldest_module() -> bool:
+	if GameState.modules.is_empty():
+		return false
+	var oldest: Module = GameState.modules[0]
+	return GameState.sell_module(oldest)
+
+## Build the Event Terminal overlay scaffolding. Content (title, body,
+## choices) is populated per-event in `_show_event_terminal`.
+func _build_event_overlay() -> Control:
+	var overlay := ColorRect.new()
+	overlay.color = Color(0, 0, 0, 0.88)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(640, 0)
+	var style := StyleBoxFlat.new()
+	style.bg_color     = Color(0.07, 0.05, 0.10, 0.98)   # Archive purple
+	style.border_color = C_TITLE_GLOW.darkened(0.1)
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(10)
+	style.set_content_margin_all(20)
+	panel.add_theme_stylebox_override("panel", style)
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 12)
+	panel.add_child(vbox)
+
+	# Eye glyph — the Archiver's signature; not all events come from him,
+	# but the symbol stands in for "the system speaks" — it's the same
+	# visual vocabulary as the transmission strip.
+	var glyph := _make_label("◉", C_TITLE_GLOW, 32)
+	glyph.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(glyph)
+
+	var title_lbl := _make_label("", C_TITLE_GLOW, 18)
+	title_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(title_lbl)
+	vbox.set_meta("title_lbl", title_lbl)
+
+	var speaker_lbl := _make_label("", C_TITLE_GLOW.darkened(0.25), 11)
+	speaker_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	FontManager.apply_mono(speaker_lbl)
+	vbox.add_child(speaker_lbl)
+	vbox.set_meta("speaker_lbl", speaker_lbl)
+
+	vbox.add_child(_make_hsep())
+
+	var body_lbl := _make_label("", C_TEXT, 14)
+	body_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body_lbl.custom_minimum_size = Vector2(580, 0)
+	body_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(body_lbl)
+	vbox.set_meta("body_lbl", body_lbl)
+
+	vbox.add_child(_make_hsep())
+
+	# Choices column — buttons added per event in _show_event_terminal.
+	var choices_col := VBoxContainer.new()
+	choices_col.add_theme_constant_override("separation", 8)
+	choices_col.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_child(choices_col)
+	vbox.set_meta("choices_col", choices_col)
+
+	# Outcome box — hidden initially, shown after a choice is picked.
+	var outcome_box := VBoxContainer.new()
+	outcome_box.add_theme_constant_override("separation", 14)
+	outcome_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_child(outcome_box)
+	vbox.set_meta("outcome_box", outcome_box)
+
+	var outcome_lbl := _make_label("", C_MONEDAS, 14)
+	outcome_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	outcome_lbl.custom_minimum_size = Vector2(580, 0)
+	outcome_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	outcome_box.add_child(outcome_lbl)
+	outcome_box.set_meta("outcome_lbl", outcome_lbl)
+	vbox.set_meta("outcome_lbl", outcome_lbl)
+
+	var cont_btn := _make_button("CONTINUE  →", _on_event_continue_pressed,
+		Vector2(220, 44))
+	outcome_box.add_child(cont_btn)
+
+	outcome_box.hide()
+
+	# Stash all metas on the overlay root for easy access in _show_event_terminal.
+	overlay.set_meta("title_lbl",   title_lbl)
+	overlay.set_meta("speaker_lbl", speaker_lbl)
+	overlay.set_meta("body_lbl",    body_lbl)
+	overlay.set_meta("choices_col", choices_col)
+	overlay.set_meta("outcome_box", outcome_box)
+	overlay.set_meta("outcome_lbl", outcome_lbl)
+
+	return overlay
 
 # ===========================================================================
 # Signal handlers — shop
