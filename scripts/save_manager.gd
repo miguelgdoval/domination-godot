@@ -526,6 +526,61 @@ func get_lifetime_stats() -> Dictionary:
 	}
 
 # ---------------------------------------------------------------------------
+# Faction reputation — silent meters tracked across runs
+# ---------------------------------------------------------------------------
+# Three invisible meters track the Operator's behavioural alignment with
+# the cast factions: the Society of Time Architects, the Copper Guild,
+# and the Renegade Mechanic. The player never sees a number; instead
+# crossing a threshold (FACTION_UNLOCK_AT, default 10) permanently
+# unlocks one effect per faction:
+#   • society   → "The Architect's Mark" tile enters the Artisan pool
+#   • guild     → +2 starting Coins on every subsequent run
+#   • renegade  → "Module CO-13" appears at Renegade-swap shop visits
+#
+# Crossing the threshold once is permanent — `*_unlocked` flags don't
+# clear if the rep later drops. Rep itself can drop (bribing the auditor
+# costs society), so the player can still pursue all three factions.
+
+# Fired once when a faction's threshold is first crossed. Hooks the
+# codex unlock + toast for the matching faction-recognition entry.
+signal faction_unlocked(faction: String)
+
+const FACTION_UNLOCK_AT: int = 10
+const FACTION_NAMES: Array[String] = ["society", "guild", "renegade"]
+
+## Add `delta` to a faction's rep counter. `name` ∈ {"society","guild",
+## "renegade"}. Negative deltas allowed (the Guild-audit bribe costs
+## society rep). Emits `faction_unlocked` the first time the threshold
+## is crossed, then sets the permanent `*_unlocked` flag.
+func add_faction_rep(faction: String, delta: int) -> void:
+	if delta == 0 or not (faction in FACTION_NAMES):
+		return
+	var data: Dictionary = _data.get("faction_rep", {})
+	var current: int = int(data.get(faction, 0))
+	var new_val: int = current + delta
+	data[faction] = new_val
+	# Threshold-crossing check — once-only emit.
+	var unlocked_key: String = faction + "_unlocked"
+	if not bool(data.get(unlocked_key, false)) and new_val >= FACTION_UNLOCK_AT:
+		data[unlocked_key] = true
+		_data["faction_rep"] = data
+		_save_to_disk()
+		faction_unlocked.emit(faction)
+		return
+	_data["faction_rep"] = data
+	_save_to_disk()
+
+## True if the faction's threshold has ever been crossed (permanent).
+func is_faction_unlocked(faction: String) -> bool:
+	var data: Dictionary = _data.get("faction_rep", {})
+	return bool(data.get(faction + "_unlocked", false))
+
+## Returns the current rep value for a faction (for telemetry / debug).
+func get_faction_rep(faction: String) -> int:
+	var data: Dictionary = _data.get("faction_rep", {})
+	return int(data.get(faction, 0))
+
+# ---------------------------------------------------------------------------
 # Tutorial flag
 # ---------------------------------------------------------------------------
 func set_tutorial_seen(b: bool) -> void:

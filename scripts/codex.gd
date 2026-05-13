@@ -1149,6 +1149,62 @@ const ENTRIES: Array[Dictionary] = [
 		"unlock": {"type": "hard_wins", "value": 1,
 			"hint": "Recalibrate on Hard difficulty."},
 	},
+
+	# ─── FACTION RECOGNITION (silent reputation thresholds) ──────────────
+	# Unlocked via SaveManager.add_faction_rep crossing FACTION_UNLOCK_AT.
+	# The codex toast is the player's first explicit signal that the
+	# faction noticed. The body explains what shifted in-game.
+	{
+		"id": "faction_society",
+		"category": Category.TRANSMISSIONS,
+		"name": "Society Recognition",
+		"summary": "The Architects have noticed your alignment.",
+		"body":
+"\"The Society of Time Architects formally acknowledges your "
++ "calibration choices, Operator. The Master of the Forge has been "
++ "instructed to make a Society-issued Component available at the "
++ "Artisan's Workshop in your subsequent Cycles.\"\n\n"
++ "The new tile — The Architect's Mark — enters the rotation of "
++ "special Components offered at the Workshop. The Society does not "
++ "issue a list of behaviours that earned the recognition. The Operator "
++ "is expected to know.",
+		"unlock": {"type": "event", "value": 0,
+			"hint": "Earn the Society's recognition."},
+	},
+	{
+		"id": "faction_guild",
+		"category": Category.TRANSMISSIONS,
+		"name": "Guild Patron",
+		"summary": "The Copper Guild has opened a patron stipend.",
+		"body":
+"\"The Copper Guild observes that the Operator's transaction history "
++ "meets the threshold for Patron status. A standing stipend of two "
++ "Coins will be deposited at the start of every subsequent Trial "
++ "Cycle. The Guild does not advertise the threshold.\"\n\n"
++ "The Guild does not advertise the threshold for a reason. Operators "
++ "who pursue Patron status deliberately tend to spend more at the "
++ "Brass Emporium than the Patron stipend ever returns. The Guild's "
++ "accountants are not concerned.",
+		"unlock": {"type": "event", "value": 0,
+			"hint": "Become a Patron of the Copper Guild."},
+	},
+	{
+		"id": "faction_renegade",
+		"category": Category.TRANSMISSIONS,
+		"name": "Renegade Acquaintance",
+		"summary": "The Renegade Mechanic remembers your name.",
+		"body":
+"\"You have done enough business with me, Operator, that I would not "
++ "be ashamed to be seen doing more. I have a piece in my workshop "
++ "called CO-13 — the thirteenth Module I ever made. It is not for "
++ "the Catalogue. It is for you, when I visit next.\"\n\n"
++ "The Module CO-13 enters the Renegade's rotation at swap visits to "
++ "the Artisan's Workshop. The Renegade does not always visit; when he "
++ "does, the Module is for sale. The Master, asked about CO-13, has "
++ "no comment.",
+		"unlock": {"type": "event", "value": 0,
+			"hint": "Earn the Renegade Mechanic's trust."},
+	},
 ]
 
 # ---------------------------------------------------------------------------

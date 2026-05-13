@@ -21,6 +21,9 @@
 ##                 effect  : effect-key string (see _apply_event_effect in main.gd)
 ##                 param   : int param (rarity for gain_module, coin count, etc.)
 ##                 outcome : flavour line shown after the choice resolves
+##                 rep     : Dictionary of faction → delta. Optional;
+##                           empty / missing means no rep change.
+##                           Example: {"society": 1, "renegade": -1}
 ##
 ## Pure static data — no autoload needed.
 class_name EventDB
@@ -44,18 +47,21 @@ static func all() -> Array[Dictionary]:
 					"effect":  "lose_tile_gain_module",
 					"param":   Constants.Rarity.IVORY,
 					"outcome": "The Archive accepts. A new Module appears in the Calibration tray.",
+					"rep":     {"society": 1},
 				},
 				{
 					"label":   "Refuse the transaction",
 					"effect":  "none",
 					"param":   0,
 					"outcome": "The Archive notes the refusal. Nothing more.",
+					"rep":     {},
 				},
 				{
 					"label":   "Offer information instead",
 					"effect":  "gain_coins",
 					"param":   3,
 					"outcome": "Your Cycle data is logged. The Guild deposits a small stipend.",
+					"rep":     {"guild": 1},
 				},
 			],
 		},
@@ -75,18 +81,21 @@ static func all() -> Array[Dictionary]:
 					"effect":  "lose_coins_gain_module",
 					"param":   Constants.Rarity.CARVED,
 					"outcome": "He hands it over. Two Coins for solder. Fair.",
+					"rep":     {"renegade": 2},
 				},
 				{
 					"label":   "Question its origin",
 					"effect":  "none",
 					"param":   0,
 					"outcome": "He shrugs. \"Smart. Maybe next Cycle.\"",
+					"rep":     {"society": 1},
 				},
 				{
 					"label":   "Trade your oldest Module for an Ivory one",
 					"effect":  "trade_module",
 					"param":   Constants.Rarity.IVORY,
 					"outcome": "A clean swap. He keeps the old gear. It belongs to him now.",
+					"rep":     {"renegade": 2},
 				},
 			],
 		},
@@ -106,18 +115,21 @@ static func all() -> Array[Dictionary]:
 					"effect":  "lose_coins_gain_tool",
 					"param":   4,
 					"outcome": "The Guild reciprocates with a sealed Emporium voucher.",
+					"rep":     {"guild": 2},
 				},
 				{
 					"label":   "Decline politely",
 					"effect":  "none",
 					"param":   0,
 					"outcome": "The auditor withdraws without comment. Records remain open.",
+					"rep":     {"society": 1},
 				},
 				{
 					"label":   "Bribe the auditor (+5 Coins, –1 Module)",
 					"effect":  "gain_coins_lose_module",
 					"param":   5,
 					"outcome": "The audit closes early. A Module quietly disappears from your slot.",
+					"rep":     {"renegade": 2, "society": -1},
 				},
 			],
 		},
@@ -138,18 +150,21 @@ static func all() -> Array[Dictionary]:
 					"effect":  "gain_module",
 					"param":   Constants.Rarity.BONE,
 					"outcome": "He nods once. The Module is yours. Bone-tier, well-made.",
+					"rep":     {"society": 1},
 				},
 				{
 					"label":   "Stay silent",
 					"effect":  "none",
 					"param":   0,
 					"outcome": "He sets the Module aside. \"For someone less private.\"",
+					"rep":     {},
 				},
 				{
 					"label":   "Offer a Component from your box instead",
 					"effect":  "lose_tile_gain_module",
 					"param":   Constants.Rarity.IVORY,
 					"outcome": "He examines the tile, then hands you an Ivory Module.",
+					"rep":     {"society": 2},
 				},
 			],
 		},
@@ -170,18 +185,21 @@ static func all() -> Array[Dictionary]:
 					"effect":  "gain_coins",
 					"param":   6,
 					"outcome": "Six Coins, in lieu of an accurate record.",
+					"rep":     {"guild": 1},
 				},
 				{
 					"label":   "Correct the record",
 					"effect":  "gain_module",
 					"param":   Constants.Rarity.CARVED,
 					"outcome": "The Archive completes the entry. A Module is granted in thanks.",
+					"rep":     {"society": 1},
 				},
 				{
 					"label":   "Ignore the anomaly",
 					"effect":  "gain_coins",
 					"param":   1,
 					"outcome": "Trivial deposit. The Archive moves on without you.",
+					"rep":     {},
 				},
 			],
 		},

@@ -62,6 +62,11 @@ func start_run(p_core: int = 0, p_protocol: int = 0,
 	# Core profile — preloaded modules, extra monedas, etc. for cores that
 	# define more than just a custom box. Empty dict for cores that don't.
 	_apply_core_profile(p_core)
+	# Guild Patron stipend — applied after protocol + core so factional
+	# rewards compound with build-specific starting state. Faction unlocks
+	# are persistent across runs (see SaveManager.add_faction_rep).
+	if SaveManager.is_faction_unlocked("guild"):
+		monedas += 2
 
 ## Apply the per-core profile (preloaded modules, starting monedas bump,
 ## etc.) declared in `Constants.CORE_PROFILES`. Called from start_run

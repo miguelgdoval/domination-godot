@@ -166,6 +166,12 @@ var _renegade_visit_round: int = -1
 var _event_terminal_fired_this_run: bool = false
 var _event_pending:    Dictionary = {}
 var _event_overlay:    Control    = null   # lazy-built on first event
+
+# Notebook state — once per run (~65% chance), a previous Operator's
+# note appears in one shop visit. Rolled at run start so daily-mode is
+# deterministic. -1 in `_notebook_shop_round` means no notebook this run.
+var _notebook_shop_round: int       = -1
+var _notebook_fragment:   Dictionary = {}
 # Artisan's Workshop tile state
 var _tile_offers: Array = []             # [{tile, cost}] — tiles for sale
 var _tile_offers_bought: Array = []      # indices already bought
@@ -310,6 +316,12 @@ var _lbl_slots:            Label
 # items are being handed over by people, not pulled from a vending UI.
 var _lbl_acquisition_flash: Label
 var _acquisition_flash_tween: Tween = null
+# Notebook fragment label — a short italicised note attributed to a
+# fallen Operator. Shown on at most one shop visit per run. Hidden
+# (empty text) when the current visit isn't the rolled notebook round.
+var _lbl_notebook_attrib: Label   # "A note from Operator-N:"
+var _lbl_notebook_body:   Label   # the fragment text itself
+var _notebook_panel:      PanelContainer   # parchment frame around the note
 # Artisan-only UI
 var _artisan_section:      Control
 var _tile_offers_row:      HBoxContainer
@@ -487,6 +499,10 @@ func _ready() -> void:
 	# menus. Connections live for the lifetime of the scene.
 	SaveManager.codex_unlocked.connect(_on_codex_unlocked_toast)
 	SaveManager.achievement_unlocked.connect(_on_achievement_unlocked_toast)
+	# Faction recognition — when a silent rep threshold is crossed for
+	# the first time, unlock the matching codex entry. The codex toast
+	# itself is the player's only signal that the faction noticed.
+	SaveManager.faction_unlocked.connect(_on_faction_unlocked)
 	# First-acquisition intro: the first time the player ever picks up
 	# a tool, surface a long-hold toast explaining what to do with it.
 	# One-shot per install — flagged in SaveManager.
@@ -2193,7 +2209,8 @@ func _show_shop() -> void:
 			_lbl_shop_title.text = "THE ARTISAN'S WORKSHOP"
 			_lbl_shop_speaker.text = SPEAKER_MASTER
 			_lbl_shop_greeting.text = ARTISAN_GREETINGS[clampi(etapa, 0, 3)]
-		_shop_inventory = ShopManager.generate_artisan(owned_ids, owned_modules)
+		_shop_inventory = ShopManager.generate_artisan(owned_ids,
+			owned_modules, renegade_here)
 		_tile_offers = TileShopManager.generate_offers(3)
 		_tile_offers_bought.clear()
 		_removal_candidates = TileShopManager.generate_removal_candidates(GameState.box, 8)
@@ -2222,6 +2239,19 @@ func _show_shop() -> void:
 		SaveManager.unlock_codex("emporium_voice")
 	_tool_offers_bought_idx.clear()
 
+	# Notebook fragment — surface the note iff this shop visit matches
+	# the rolled round. Hidden otherwise (panel collapses to zero height).
+	if _notebook_panel != null:
+		if GameState.round_index == _notebook_shop_round \
+				and not _notebook_fragment.is_empty():
+			var op_n: int = int(_notebook_fragment.get("operator_n", 0))
+			_lbl_notebook_attrib.text = \
+				"A NOTE FOUND IN THE CATALOGUE — OPERATOR-%d" % op_n
+			_lbl_notebook_body.text = \
+				"\"%s\"" % String(_notebook_fragment.get("text", ""))
+			_notebook_panel.show()
+		else:
+			_notebook_panel.hide()
 	_shop_bought.clear()
 	_populate_shop()
 	_shop_overlay.modulate.a = 0.0
@@ -2982,6 +3012,10 @@ func _on_run_end_pressed() -> void:
 func _roll_renegade_visit() -> void:
 	# Reset the Event Terminal allowance for the new run.
 	_event_terminal_fired_this_run = false
+	# Reset + re-roll the notebook for the new run. Done here so all
+	# three per-run atmospheric rolls (Renegade, Event Terminal, Notebook)
+	# happen at the same moment — easier to keep deterministic for daily.
+	_roll_notebook()
 	# Boss rounds are indices 4, 9, 14, 19. Hard mode reaches all four;
 	# normal only the first three. We pick from the runs that the player
 	# COULD reach given the chosen difficulty.
@@ -2993,6 +3027,27 @@ func _roll_renegade_visit() -> void:
 		_renegade_visit_round = -2
 		return
 	_renegade_visit_round = candidates[randi() % candidates.size()]
+
+## Roll whether a previous-Operator notebook fragment will appear this
+## run, and if so at which shop visit. 65% of runs get a notebook; the
+## display round is any non-boss round from 0 to second-to-last (so the
+## note has time to matter). Pure RNG — deterministic for daily mode
+## because GameState.start_daily_run reseeds before _roll is called.
+func _roll_notebook() -> void:
+	_notebook_shop_round = -1
+	_notebook_fragment   = {}
+	if randf() >= 0.65:
+		return
+	# Pick a non-boss round in the player's likely path. Cap at round 12
+	# so the note lands before the late-Cycle pressure peaks.
+	var pool: Array[int] = []
+	for i in range(GameState.total_rounds()):
+		if not Constants.is_boss_round(i) and i <= 12:
+			pool.append(i)
+	if pool.is_empty():
+		return
+	_notebook_shop_round = pool[randi() % pool.size()]
+	_notebook_fragment   = NotebookDB.pick_random()
 
 ## True when the current shop visit is an Artisan's Workshop AND the
 ## Renegade is replacing the Master at this specific visit.
@@ -3050,6 +3105,26 @@ func _attribution_line(kind: String, rarity: int) -> String:
 		"tool":   return "The Master sets the tool aside for you."
 		"tile":   return "The Master appraises the work, and approves."
 		_:        return ""
+
+## Grant faction reputation for the current purchase. Obsidian items
+## always feed the Renegade (he's the only one minting them per codex
+## lore); other rarities follow whoever's running the shop.
+##
+## Called from every buy callback after the transaction commits. Rep
+## deltas are silent — the player doesn't see a meter — so the only
+## visible effect is the eventual faction-recognition codex unlock and
+## the gameplay reward it grants.
+func _grant_purchase_rep(rarity: int) -> void:
+	if rarity == Constants.Rarity.OBSIDIAN:
+		SaveManager.add_faction_rep("renegade", 2)
+		return
+	if GameState.is_boss_round():
+		if _renegade_visiting_now():
+			SaveManager.add_faction_rep("renegade", 1)
+		else:
+			SaveManager.add_faction_rep("society", 1)
+	else:
+		SaveManager.add_faction_rep("guild", 1)
 
 ## Pop the acquisition flash label with the given text. Fades in over
 ## 0.18s, holds 1.4s, fades out over 0.4s. Safe to call repeatedly —
@@ -3159,6 +3234,12 @@ func _on_event_choice_pressed(choice_idx: int) -> void:
 	# Apply the effect. `_apply_event_effect` may rewrite the outcome
 	# text if a fallback fired (e.g., no module slot → coin substitute).
 	var applied: Dictionary = _apply_event_effect(effect_str, param)
+	# Faction rep — each event choice optionally carries a `rep` dict
+	# mapping faction name → delta. Apply all entries; SaveManager
+	# handles threshold-crossing emit internally.
+	var rep_map: Dictionary = choice.get("rep", {})
+	for faction in rep_map:
+		SaveManager.add_faction_rep(String(faction), int(rep_map[faction]))
 	var outcome_text: String = String(choice.get("outcome", ""))
 	if not applied.get("fallback_text", "").is_empty():
 		outcome_text = String(applied["fallback_text"])
@@ -3413,6 +3494,11 @@ func _on_buy_pressed(entry: Dictionary) -> void:
 	# Codex: discovery entry unlocks on first equip. Idempotent —
 	# subsequent purchases of the same module are no-ops.
 	SaveManager.unlock_codex("module_" + m.id)
+	# Faction rep — every purchase nudges the silent meters. Obsidian
+	# always credits the Renegade (he's the only one minting them per
+	# codex lore); other rarities credit the Society at the Artisan,
+	# the Guild at the Emporium.
+	_grant_purchase_rep(m.rarity)
 	# Auto-save after every purchase so a mid-shop crash doesn't lose the
 	# upgrade. Save is cheap (single JSON write) and idempotent.
 	SaveManager.save_run()
@@ -3442,6 +3528,7 @@ func _on_buy_tool_pressed(index: int) -> void:
 	GameState.add_reinforcement(r)
 	AudioManager.play_sfx("ui_click")
 	_tool_offers_bought_idx.append(index)
+	_grant_purchase_rep(r.rarity)
 	SaveManager.save_run()
 	_flash_acquisition(_attribution_line("tool", r.rarity))
 	_populate_shop()
@@ -3461,6 +3548,10 @@ func _on_buy_tile_pressed(index: int) -> void:
 	var slug: String = _codex_slug_for_tile(t)
 	if not slug.is_empty():
 		SaveManager.unlock_codex(slug)
+	# Tile purchases at the Artisan also feed faction rep. The Architect's
+	# Mark is itself a Society reward, so buying it strengthens the same
+	# alignment that unlocked it — feels right.
+	_grant_purchase_rep(t.rarity)
 	SaveManager.save_run()
 	_flash_acquisition(_attribution_line("tile", t.rarity))
 	_populate_shop()
@@ -5236,6 +5327,15 @@ func _on_codex_unlocked_toast(id: String) -> void:
 			break
 	_show_toast("CODEX UNLOCKED", name, C_TITLE_GLOW, "⬡")
 
+## Signal handler: a faction's silent rep crossed its unlock threshold
+## for the first time. Maps the faction id to its matching codex entry
+## and surfaces the unlock — the codex page describes what shifted in
+## game terms, so the player gets explicit feedback even though the
+## reputation system itself stays invisible.
+func _on_faction_unlocked(faction: String) -> void:
+	var entry_id: String = "faction_" + faction
+	SaveManager.unlock_codex(entry_id)
+
 ## Signal handler: an achievement crossed its earned threshold. Look up
 ## name + icon from Constants and show the toast in amber.
 func _on_achievement_unlocked_toast(idx: int) -> void:
@@ -6985,6 +7085,35 @@ func _build_shop_overlay() -> Control:
 	right_col.add_child(_lbl_slots)
 
 	vbox.add_child(_make_hsep())
+
+	# Notebook fragment — sits above the items row so the player reads
+	# it before they look at the catalogue. Hidden by default; shown
+	# only when `_notebook_shop_round` matches the current round_index.
+	_notebook_panel = PanelContainer.new()
+	var nbs := StyleBoxFlat.new()
+	nbs.bg_color     = Color(0.13, 0.10, 0.05, 0.92)   # warm parchment
+	nbs.border_color = Color(0.55, 0.45, 0.20, 0.7)
+	nbs.set_border_width_all(1)
+	nbs.set_corner_radius_all(4)
+	nbs.set_content_margin_all(10)
+	_notebook_panel.add_theme_stylebox_override("panel", nbs)
+	_notebook_panel.hide()
+	vbox.add_child(_notebook_panel)
+
+	var nb_vbox := VBoxContainer.new()
+	nb_vbox.add_theme_constant_override("separation", 4)
+	_notebook_panel.add_child(nb_vbox)
+
+	_lbl_notebook_attrib = _make_label("", C_TITLE_GLOW.darkened(0.25), 11)
+	_lbl_notebook_attrib.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	FontManager.apply_mono(_lbl_notebook_attrib)
+	nb_vbox.add_child(_lbl_notebook_attrib)
+
+	_lbl_notebook_body = _make_label("", C_TEXT.darkened(0.05), 13)
+	_lbl_notebook_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_lbl_notebook_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_lbl_notebook_body.custom_minimum_size = Vector2(600, 0)
+	nb_vbox.add_child(_lbl_notebook_body)
 
 	_shop_items_row = HBoxContainer.new()
 	_shop_items_row.add_theme_constant_override("separation", 16)

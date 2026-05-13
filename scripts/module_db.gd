@@ -282,6 +282,18 @@ static func all() -> Array[Module]:
 			Module.EffectType.LOW_PIP_TO_MULT, 1, 1, 0,
 			"Tiles with ≤1 total pips: 0 Chips, +1 Mult each.",
 			"The smallest signals are not worth scoring. They are worth burning."),
+
+		# ------------------------------------------------------------------
+		# FACTION-GATED — visible only after the matching reputation
+		# threshold has been crossed. CO-13 is the Renegade's signature
+		# work; it appears exclusively at Renegade-swap Artisan visits.
+		# Filtered into the shop pool by `ShopManager.generate_artisan`,
+		# not by ModuleDB itself — keeping the DB pure data.
+		# ------------------------------------------------------------------
+		_make_extra("module_co_13", "Module CO-13", Constants.Rarity.OBSIDIAN,
+			Module.EffectType.FLAT_MULT, 6, 0, 1,
+			"+6 Mult every hand. +1 Module slot.",
+			"\"CO-13. Renegade's number. Don't ask the order they went in.\""),
 	]
 
 static func get_by_rarity(rarity: int) -> Array[Module]:

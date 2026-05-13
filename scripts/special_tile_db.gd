@@ -3,9 +3,11 @@
 class_name SpecialTileDB
 extends RefCounted
 
-## Returns the full pool of acquirable special tiles.
+## Returns the full pool of acquirable special tiles. The Architect's
+## Mark is faction-gated and only joins the pool when the Society
+## reputation has been crossed (see SaveManager.is_faction_unlocked).
 static func all() -> Array[Domino]:
-	return [
+	var pool: Array[Domino] = [
 		_anchor(),
 		_echo(),
 		_gilded_shard(),
@@ -17,6 +19,9 @@ static func all() -> Array[Domino]:
 		_pinnacle(),
 		_crown(),
 	]
+	if SaveManager != null and SaveManager.is_faction_unlocked("society"):
+		pool.append(_architects_mark())
+	return pool
 
 ## The Anchor — a 0|0 that refuses to be worthless.
 ## Scores 15 bonus chips when played.
@@ -115,4 +120,16 @@ static func _crown() -> Domino:
 	d.bonus_chips    = 8
 	d.double_weight  = 3
 	d.lore_text      = "\"It does not need to match. The chain matches it.\""
+	return d
+
+## The Architect's Mark — society-faction reward. A 7|7 with +12 bonus
+## chips, Ivory rarity. Only enters the Artisan tile pool after the
+## Operator has earned the Society's recognition (10+ society rep).
+## Heavy double on a Society-issue tile — the Architects don't waste
+## their seal on small gear.
+static func _architects_mark() -> Domino:
+	var d := Domino.new(7, 7, Constants.Rarity.IVORY)
+	d.custom_name    = "The Architect's Mark"
+	d.bonus_chips    = 12
+	d.lore_text      = "\"Awarded only to Operators who have demonstrated alignment with the Society's calibration philosophy.\""
 	return d
