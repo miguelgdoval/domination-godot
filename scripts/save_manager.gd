@@ -231,6 +231,9 @@ func get_best_run(difficulty: int) -> Dictionary:
 ## Update cumulative-across-all-runs stats. Called from the run-end recap
 ## with the metrics from the run that just finished. Each new run only
 ## ever increases the stored maxima.
+##
+## Also stores a `last_run` snapshot used by `get_last_run()` — feeds the
+## "prior cycle" hint shown at the start of the next run.
 func accumulate_run_stats(stats: Dictionary) -> void:
 	var s: Dictionary = _data.get("lifetime_stats", {})
 	s["runs"]            = s.get("runs",            0) + 1
@@ -253,9 +256,27 @@ func accumulate_run_stats(stats: Dictionary) -> void:
 		if mid not in seen:
 			seen.append(mid)
 	s["modules_seen"] = seen
+	# Snapshot of the run that just ended. Read by `get_last_run()` to
+	# render the "prior cycle" hint at the start of the next run.
+	s["last_run"] = {
+		"won":           bool(stats.get("won", false)),
+		"round_reached": int(stats.get("round_reached", 0)),
+		"total_chronos": int(stats.get("total_chronos", 0)),
+		"etapa":         int(stats.get("etapa", 0)),
+		"boss_round":    bool(stats.get("boss_round", false)),
+		"core":          int(stats.get("core", 0)),
+		"difficulty":    int(stats.get("difficulty", 0)),
+		"is_daily":      bool(stats.get("is_daily", false)),
+	}
 	_data["lifetime_stats"] = s
 	_save_to_disk()
 	check_and_emit_achievements()
+
+## Returns the snapshot of the most recent completed run (win or loss),
+## or {} if no run has ended yet. Powers the prior-cycle hint shown at
+## the start of every non-first run.
+func get_last_run() -> Dictionary:
+	return _data.get("lifetime_stats", {}).get("last_run", {})
 
 # ---------------------------------------------------------------------------
 # Daily Trial
@@ -293,6 +314,66 @@ func daily_operator_number(date_key: String = "") -> int:
 ## Returns "Operator-N" string for the given date (defaults to today).
 func daily_operator_name(date_key: String = "") -> String:
 	return "Operator-%d" % daily_operator_number(date_key)
+
+## Curated epitaph pool — one-sentence fragments describing how a fallen
+## Operator's final Cycle ended. Picked deterministically from the date
+## hash so every player sees the same epitaph for the same calendar day.
+## Kept under ~12 words each so they fit on the daily-memorial caption
+## line without wrapping.
+const _DAILY_EPITAPHS: Array[String] = [
+	"Held the Window for 9 Cycles. Lost to the Mirror.",
+	"Refused the Renegade's bargain. Reached Etapa III.",
+	"First to chain a Singularity. Never returned from it.",
+	"Lost in the Cold Singularity. The cold did not lift.",
+	"Cleared the Archiver's Core twice. Could not clear it a third time.",
+	"Trusted the high pips. The Mirror disagreed.",
+	"Built only Obsidian modules. The Archive logged the choice.",
+	"Refused to Stand. Extended into the Ghost Chain. Did not return.",
+	"Cleared the Frequency Drain eleven times. Failed on the twelfth.",
+	"The Voice of the Emporium refused her last transaction.",
+	"Lost mid-Pulse in Etapa II. The Resonance held without him.",
+	"Cleared Etapa IV on Hard. The Archiver did not congratulate her.",
+	"Last seen building blanks. The cascade arrived too late.",
+	"The Copper Guild closed his account before the run ended.",
+	"Stood at the Window for forty-three Cycles. The forty-fourth was different.",
+	"Lost to the Mute. Doubles were her whole strategy.",
+	"Crossed the Singularity threshold. The crossing was one-way.",
+	"Caught between the Architects' caution and the Renegade's haste.",
+	"Cleared three Failures in one Cycle. The fourth did not arrive.",
+	"The Archive notes only: 'attempted Singularity. did not arrive.'",
+	"Final Pulse: 14 tiles. Final Chronos: insufficient.",
+	"Did not adapt. Doubles, then doubles, then nothing.",
+	"Held one of the original Obsidian modules. Returned it.",
+	"Lost the Pinnacle in his final hand. The Pinnacle does not return.",
+	"Master of the Forge spoke at her closing. He has not spoken since.",
+	"Five Pulses, five rounds, five Cycles. The sixth was a Failure.",
+	"The Ghost Chain remembered him. He did not remember it back.",
+	"Reached the Archiver's Core. Was not heard from again.",
+	"Routed every flow herself. The Machine accepted them all but one.",
+	"Cleared the Industrial Load eight times consecutively. Then nothing.",
+	"The Renegade Mechanic salvaged his final module. He kept it.",
+	"Asked the Voice a question. The Voice did not answer.",
+	"Last logged Cycle: a Cohesion of 19. One tile short of Harmonic.",
+	"Operator-prime. The Archive's records start with her.",
+	"Built a Wild-only chain. The Archive marked it 'experimental.'",
+	"Lost on round 1. The Architects did not bother to record why.",
+	"Cleared 200 Cycles. The 201st was the last.",
+	"Spoke to the Archiver directly. The Archiver responded.",
+	"Discarded every double he ever drew. He cleared three Etapas anyway.",
+	"The Copper Guild still holds her unspent Coins.",
+]
+
+## Returns a one-sentence epitaph for the Operator named for the given
+## date. Deterministic — every player sees the same epitaph for the same
+## date. Used in the Daily Memorial caption and history rows.
+func daily_operator_epitaph(date_key: String = "") -> String:
+	var key: String = date_key if not date_key.is_empty() else today_date_key()
+	# Independent hash from `daily_operator_number` so the operator-N and
+	# the epitaph don't track each other (would feel formulaic if they did).
+	var h: int = 0
+	for i in range(key.length()):
+		h = (h * 41 + key.unicode_at(i)) % 9973
+	return _DAILY_EPITAPHS[h % _DAILY_EPITAPHS.size()]
 
 ## Has the player already used their one attempt at today's daily?
 func daily_attempted_today() -> bool:

@@ -51,6 +51,11 @@ const C_MULT         := Color(0.72, 0.30, 0.90)
 # ---------------------------------------------------------------------------
 # Artisan / Emporium greeting lines (indexed by etapa 0–3)
 # ---------------------------------------------------------------------------
+## Greetings shown when a shop opens. Indexed by etapa (0-3). Three
+## NPC voices: the Voice of the Emporium (automated), the Master of the
+## Forge (Artisan default), and the Renegade Mechanic (Artisan on swap
+## visits — `_renegade_visit_round`). Codex entries 'emporium_voice',
+## 'master_of_forge', 'renegade_mechanic' carry their lore.
 const EMPORIUM_GREETINGS: Array = [
 	"Welcome to the Brass Emporium. Finest calibration work in the cycle.",
 	"Back again. The signal grows erratic — choose well, Operator.",
@@ -63,6 +68,21 @@ const ARTISAN_GREETINGS: Array = [
 	"The Chronometer strains audibly now. I've set aside my best work.",
 	"Operator. Listen carefully. This may be our last transaction.",
 ]
+## Renegade-swap greetings — used when the Master has stepped out and
+## the Renegade Mechanic is running the Workshop instead. Tone shift:
+## fewer formalities, no Society-issue platitudes.
+const RENEGADE_GREETINGS: Array = [
+	"The Master's gone for a walk. Don't tell the Architects.",
+	"Catalogue is mine today. Don't pretend you read it.",
+	"Two hands, one Cycle. Pick what the Society wouldn't approve of.",
+	"You're here. I'm here. The Master is not. Spend.",
+]
+## Attribution prefixes shown on a small label above the greeting so the
+## player knows who's speaking. Helps the cast feel like people rather
+## than disembodied UI text.
+const SPEAKER_VOICE:    String = "THE VOICE"
+const SPEAKER_MASTER:   String = "THE MASTER OF THE FORGE"
+const SPEAKER_RENEGADE: String = "THE RENEGADE MECHANIC"
 
 # Etapa transition cinematic (indexed 0–3)
 const ETAPA_ROMAN:       Array[String] = ["I", "II", "III", "IV"]
@@ -133,6 +153,12 @@ var _shop_inventory: Array = []          # module entries [{item, cost}]
 var _shop_bought: Array = []             # module ids bought this visit
 var _tool_offers:    Array = []          # tool entries [{item, cost}]
 var _tool_offers_bought_idx: Array = []  # indices of consumed tool offers
+# Renegade-swap state — at most ONCE per run, the Renegade Mechanic
+# replaces the Master of the Forge at an Artisan's Workshop visit.
+# -1  → not yet rolled (run hasn't started)
+# -2  → rolled, no swap this run
+# n   → swap fires when `GameState.round_index == n` (n is a boss round)
+var _renegade_visit_round: int = -1
 # Artisan's Workshop tile state
 var _tile_offers: Array = []             # [{tile, cost}] — tiles for sale
 var _tile_offers_bought: Array = []      # indices already bought
@@ -264,6 +290,7 @@ var _btn_result_action: Button
 # UI references — shop overlay
 var _shop_overlay:         Control
 var _lbl_shop_title:       Label
+var _lbl_shop_speaker:     Label    # NPC attribution above the greeting
 var _lbl_shop_greeting:    Label
 var _lbl_shop_monedas:     Label
 var _shop_items_row:       HBoxContainer
@@ -271,6 +298,11 @@ var _shop_modules_row:     HBoxContainer
 var _shop_tools_row:       HBoxContainer
 var _shop_tools_header:    Label    # hidden when no tool offers (kept for layout)
 var _lbl_slots:            Label
+# Acquisition flash — floating "The Master records the choice." line
+# that pops up briefly on every purchase. Diegetic feedback that the
+# items are being handed over by people, not pulled from a vending UI.
+var _lbl_acquisition_flash: Label
+var _acquisition_flash_tween: Tween = null
 # Artisan-only UI
 var _artisan_section:      Control
 var _tile_offers_row:      HBoxContainer
@@ -527,6 +559,9 @@ func _on_continue_run_pressed() -> void:
 		return
 	_title_overlay.hide()
 	SaveManager.load_run()
+	# Re-roll the Renegade swap — the swap is transient atmospheric state
+	# (not persisted in save_run), so a continued run picks a fresh one.
+	_roll_renegade_visit()
 	_start_round()
 
 ## Open the daily-history overlay. Built lazily on first open so the UI
@@ -633,6 +668,9 @@ func _on_daily_trial_pressed() -> void:
 		return
 	_title_overlay.hide()
 	GameState.start_daily_run()
+	# Renegade swap is rolled AFTER the daily seed has been set so every
+	# player on a given day gets the same swap (or no-swap) outcome.
+	_roll_renegade_visit()
 	# Skip the start-of-run tile-removal step too — daily is fixed-state.
 	_start_round()
 
@@ -779,11 +817,15 @@ func _build_daily_history_row(entry: Dictionary) -> Control:
 
 	# Operator number — the fallen Operator whose memorial this Cycle
 	# honoured. Same date always shows the same Operator across all
-	# players (deterministic hash of the date key).
+	# players (deterministic hash of the date key). The epitaph hangs
+	# off the label as a tooltip — surfacing on hover instead of taking
+	# row real estate every line.
 	var op_lbl := _make_label(
 		SaveManager.daily_operator_name(date_str),
 		C_TITLE_GLOW.darkened(0.2), 12)
 	op_lbl.custom_minimum_size = Vector2(110, 0)
+	op_lbl.tooltip_text = SaveManager.daily_operator_epitaph(date_str)
+	op_lbl.mouse_filter = Control.MOUSE_FILTER_STOP  # required for tooltip
 	FontManager.apply_mono(op_lbl)
 	row.add_child(op_lbl)
 
@@ -1595,6 +1637,9 @@ func _refresh_daily_trial_button() -> void:
 	if _btn_daily_trial == null:
 		return
 	var op: String = SaveManager.daily_operator_name()
+	# Epitaph for today's Operator — deterministic per date, so every
+	# player sees the same one-line sketch of who they're honouring.
+	var epitaph: String = SaveManager.daily_operator_epitaph()
 	if SaveManager.daily_attempted_today():
 		var d: Dictionary = SaveManager.get_daily_today()
 		var icon: String = "✓" if d.get("won", false) else "✗"
@@ -1602,12 +1647,14 @@ func _refresh_daily_trial_button() -> void:
 		_btn_daily_trial.disabled = true
 		if _lbl_daily_memorial != null:
 			var verb: String = "honoured" if d.get("won", false) else "fell again"
-			_lbl_daily_memorial.text = "Today: %s — %s." % [op, verb]
+			_lbl_daily_memorial.text = "Today: %s — %s.\n%s" % \
+				[op, verb, epitaph]
 	else:
 		_btn_daily_trial.text     = "↺  DAILY TRIAL"
 		_btn_daily_trial.disabled = false
 		if _lbl_daily_memorial != null:
-			_lbl_daily_memorial.text = "Today's Memorial: %s." % op
+			_lbl_daily_memorial.text = "Today's Memorial: %s.\n%s" % \
+				[op, epitaph]
 
 func _on_settings_btn_pressed() -> void:
 	_refresh_settings_overlay()
@@ -1777,6 +1824,7 @@ func _on_protocol_card_pressed(index: int) -> void:
 func _on_protocol_confirm_pressed() -> void:
 	_proto_select_overlay.hide()
 	GameState.start_run(_pending_core, _pending_protocol)
+	_roll_renegade_visit()
 	_show_start_removal()
 
 func _refresh_core_cards() -> void:
@@ -1995,11 +2043,23 @@ func _begin_round_play() -> void:
 		var lifetime: Dictionary = SaveManager.get_lifetime_stats()
 		var line: String = Archiver.line_for_round(
 			GameState.round_index, lifetime)
+		# 0.65s default delay; longer when stacked behind a vignette
+		# (vignette ~3s total, so wait it out).
+		var base_delay: float = 3.6 if entering_new_etapa else 0.65
+		# Prior-cycle hint — only on round 0 of a non-first run. Shown
+		# BEFORE the Archiver line so the player gets continuity context
+		# before the Cycle's procedural opening.
+		var prior_line: String = ""
+		if GameState.round_index == 0:
+			prior_line = _build_prior_cycle_line()
+		if not prior_line.is_empty():
+			get_tree().create_timer(base_delay).timeout.connect(
+				_show_transmission.bind(prior_line), CONNECT_ONE_SHOT)
+			# Push the Archiver line back 4s — long enough for the
+			# prior-cycle hint to fully fade out before the next text appears.
+			base_delay += 4.0
 		if not line.is_empty():
-			# 0.65s default delay; longer when stacked behind a vignette
-			# (vignette ~3s total, so wait it out).
-			var delay: float = 3.6 if entering_new_etapa else 0.65
-			get_tree().create_timer(delay).timeout.connect(
+			get_tree().create_timer(base_delay).timeout.connect(
 				_show_transmission.bind(line), CONNECT_ONE_SHOT)
 
 func _end_round(won: bool) -> void:
@@ -2117,8 +2177,15 @@ func _show_shop() -> void:
 	# player's archetype investment and bias shop offers toward synergies.
 	var owned_modules: Array = GameState.modules
 	if GameState.is_boss_round():
-		_lbl_shop_title.text = "THE ARTISAN'S WORKSHOP"
-		_lbl_shop_greeting.text = ARTISAN_GREETINGS[clampi(etapa, 0, 3)]
+		var renegade_here: bool = _renegade_visiting_now()
+		if renegade_here:
+			_lbl_shop_title.text = "THE ARTISAN'S WORKSHOP — OFF THE CATALOGUE"
+			_lbl_shop_speaker.text = SPEAKER_RENEGADE
+			_lbl_shop_greeting.text = RENEGADE_GREETINGS[clampi(etapa, 0, 3)]
+		else:
+			_lbl_shop_title.text = "THE ARTISAN'S WORKSHOP"
+			_lbl_shop_speaker.text = SPEAKER_MASTER
+			_lbl_shop_greeting.text = ARTISAN_GREETINGS[clampi(etapa, 0, 3)]
 		_shop_inventory = ShopManager.generate_artisan(owned_ids, owned_modules)
 		_tile_offers = TileShopManager.generate_offers(3)
 		_tile_offers_bought.clear()
@@ -2136,6 +2203,7 @@ func _show_shop() -> void:
 		SaveManager.unlock_codex("renegade_mechanic")
 	else:
 		_lbl_shop_title.text = "THE BRASS EMPORIUM"
+		_lbl_shop_speaker.text = SPEAKER_VOICE
 		_lbl_shop_greeting.text = EMPORIUM_GREETINGS[clampi(etapa, 0, 3)]
 		_shop_inventory = ShopManager.generate_emporium(3, owned_ids, owned_modules)
 		# Standard Emporium: 2 tools per visit. Mix gives the player
@@ -2879,6 +2947,108 @@ func _on_run_end_pressed() -> void:
 	_show_title()
 
 # ===========================================================================
+# Shop diegesis — speaker attribution + acquisition flashes
+# ===========================================================================
+
+## Roll which boss-round Artisan visit the Renegade Mechanic crashes (if
+## any). Called once per run after start_run / start_daily_run / load_run.
+##
+## Result is stored in `_renegade_visit_round`:
+##   -2  → no swap this run
+##    n  → swap fires when `GameState.round_index == n` (a boss round)
+##
+## Lore: the codex says the Master leaves the Workshop "and walks the
+## corridors" when the Renegade visits. We honour that by swapping the
+## speaker + greeting + acquisition attribution for one boss-round shop
+## per run. ~60% of runs see a swap; the rest stay all-Master.
+func _roll_renegade_visit() -> void:
+	# Boss rounds are indices 4, 9, 14, 19. Hard mode reaches all four;
+	# normal only the first three. We pick from the runs that the player
+	# COULD reach given the chosen difficulty.
+	var candidates: Array[int] = [4, 9, 14]
+	if GameState.difficulty == Constants.Difficulty.HARD:
+		candidates.append(19)
+	# 40% of runs: no swap at all. Keeps every visit from feeling routine.
+	if randf() < 0.40:
+		_renegade_visit_round = -2
+		return
+	_renegade_visit_round = candidates[randi() % candidates.size()]
+
+## True when the current shop visit is an Artisan's Workshop AND the
+## Renegade is replacing the Master at this specific visit.
+func _renegade_visiting_now() -> bool:
+	if not GameState.is_boss_round():
+		return false
+	return _renegade_visit_round == GameState.round_index
+
+## Format a Cycle-summary line for the prior run, if any exists. Returns
+## "" when this is the player's very first run (no prior data). Used by
+## `_show_prior_cycle_hint()` to surface continuity at run start.
+func _build_prior_cycle_line() -> String:
+	var lr: Dictionary = SaveManager.get_last_run()
+	if lr.is_empty():
+		return ""
+	if bool(lr.get("won", false)):
+		return "PRIOR CYCLE: Recalibrated. The Chronometer holds."
+	var rr: int    = int(lr.get("round_reached", 0))
+	var etapa: int = int(lr.get("etapa", 0))
+	var was_boss:  bool = bool(lr.get("boss_round", false))
+	# Boss losses get named — "Lost to the Mirror Decay" reads cleaner
+	# than "Lost at round 9". Non-boss losses fall back to the etapa name.
+	if was_boss and etapa >= 0 and etapa < Constants.BOSS_NAMES.size():
+		return "PRIOR CYCLE: Lost to the %s." % Constants.BOSS_NAMES[etapa].capitalize()
+	if etapa >= 0 and etapa < Constants.ETAPA_NAMES.size():
+		return "PRIOR CYCLE: Failed in %s — round %d." % \
+			[Constants.ETAPA_NAMES[etapa], rr + 1]
+	return "PRIOR CYCLE: Failed at round %d." % (rr + 1)
+
+## Pick an attribution line for a purchase. `kind` ∈ {"module","tool","tile"};
+## `rarity` is one of Constants.Rarity. Obsidian items at the Artisan's
+## Workshop are always attributed to the Renegade (lore: he's the only
+## one making them); everything else follows whoever's running the shop
+## right now.
+func _attribution_line(kind: String, rarity: int) -> String:
+	var is_artisan:  bool = GameState.is_boss_round()
+	var is_obsidian: bool = rarity == Constants.Rarity.OBSIDIAN
+	var renegade_here: bool = is_artisan and \
+		(_renegade_visiting_now() or is_obsidian)
+	if not is_artisan:
+		match kind:
+			"module": return "The Voice processes the transaction."
+			"tool":   return "The Voice releases the tool."
+			"tile":   return "The Voice files the acquisition."
+			_:        return ""
+	if renegade_here:
+		match kind:
+			"module": return "The Renegade nods. The Master is elsewhere."
+			"tool":   return "The Renegade hands you the tool without comment."
+			"tile":   return "The Renegade smiles. Quietly."
+			_:        return ""
+	# Master of the Forge — normal Artisan visit
+	match kind:
+		"module": return "The Master records the choice."
+		"tool":   return "The Master sets the tool aside for you."
+		"tile":   return "The Master appraises the work, and approves."
+		_:        return ""
+
+## Pop the acquisition flash label with the given text. Fades in over
+## 0.18s, holds 1.4s, fades out over 0.4s. Safe to call repeatedly —
+## any previous tween is killed before the new flash starts.
+func _flash_acquisition(text: String) -> void:
+	if _lbl_acquisition_flash == null or text.is_empty():
+		return
+	if _acquisition_flash_tween != null and _acquisition_flash_tween.is_valid():
+		_acquisition_flash_tween.kill()
+	_lbl_acquisition_flash.text = text
+	_lbl_acquisition_flash.modulate.a = 0.0
+	_acquisition_flash_tween = create_tween()
+	_acquisition_flash_tween.tween_property(_lbl_acquisition_flash,
+		"modulate:a", 1.0, 0.18)
+	_acquisition_flash_tween.tween_interval(1.4)
+	_acquisition_flash_tween.tween_property(_lbl_acquisition_flash,
+		"modulate:a", 0.0, 0.40)
+
+# ===========================================================================
 # Signal handlers — shop
 # ===========================================================================
 func _on_buy_pressed(entry: Dictionary) -> void:
@@ -2901,6 +3071,7 @@ func _on_buy_pressed(entry: Dictionary) -> void:
 	# Auto-save after every purchase so a mid-shop crash doesn't lose the
 	# upgrade. Save is cheap (single JSON write) and idempotent.
 	SaveManager.save_run()
+	_flash_acquisition(_attribution_line("module", m.rarity))
 	_populate_shop()
 
 func _on_sell_pressed(m: Module) -> void:
@@ -2927,6 +3098,7 @@ func _on_buy_tool_pressed(index: int) -> void:
 	AudioManager.play_sfx("ui_click")
 	_tool_offers_bought_idx.append(index)
 	SaveManager.save_run()
+	_flash_acquisition(_attribution_line("tool", r.rarity))
 	_populate_shop()
 
 func _on_buy_tile_pressed(index: int) -> void:
@@ -2945,6 +3117,7 @@ func _on_buy_tile_pressed(index: int) -> void:
 	if not slug.is_empty():
 		SaveManager.unlock_codex(slug)
 	SaveManager.save_run()
+	_flash_acquisition(_attribution_line("tile", t.rarity))
 	_populate_shop()
 
 ## Derive the Codex entry id for a special tile from its custom_name.
@@ -3031,6 +3204,13 @@ func _show_run_end(victory: bool) -> void:
 		"best_tier":      GameState.best_tier,
 		"round_reached":  GameState.round_index,
 		"module_ids":     GameState.modules.map(func(m): return m.id),
+		# Context for the prior-cycle hint shown at the next run's start:
+		# etapa + boss_round let us reconstruct *which Failure* caught
+		# them ("Lost to the Mirror Decay") versus just "Lost at round 8".
+		"etapa":          GameState.current_etapa(),
+		"boss_round":     GameState.is_boss_round(),
+		"core":           GameState.chosen_core,
+		"is_daily":       GameState.is_daily_run,
 	})
 	var lt_after: Dictionary = SaveManager.get_lifetime_stats()
 	var new_unlocks: Array = _detect_new_unlocks(lt_before, lt_after)
@@ -6438,6 +6618,11 @@ func _build_shop_overlay() -> Control:
 	header.add_child(title_col)
 	_lbl_shop_title = _make_label("THE BRASS EMPORIUM", C_TEXT, 22)
 	title_col.add_child(_lbl_shop_title)
+	# Speaker attribution — names who's running the shop. Updated each
+	# `_show_shop` call. Empty string hides the prefix gracefully on
+	# Emporium opens before the Voice line is wired (defensive).
+	_lbl_shop_speaker = _make_label("", C_TITLE_GLOW.darkened(0.25), 10)
+	title_col.add_child(_lbl_shop_speaker)
 	_lbl_shop_greeting = _make_label("", C_DIM, 13)
 	_lbl_shop_greeting.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	title_col.add_child(_lbl_shop_greeting)
@@ -6486,6 +6671,16 @@ func _build_shop_overlay() -> Control:
 	_artisan_section.hide()
 
 	vbox.add_child(_make_hsep())
+
+	# Acquisition flash — sits centered above the continue button. Empty
+	# string initially so the slot reserves no visible height; tween
+	# fades it in on each purchase and back out 1.4s later.
+	_lbl_acquisition_flash = _make_label("", C_TITLE_GLOW.darkened(0.1), 12)
+	_lbl_acquisition_flash.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_lbl_acquisition_flash.modulate.a = 0.0
+	_lbl_acquisition_flash.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	FontManager.apply_mono(_lbl_acquisition_flash)
+	vbox.add_child(_lbl_acquisition_flash)
 
 	var btn_row := HBoxContainer.new()
 	btn_row.alignment = BoxContainer.ALIGNMENT_END
@@ -8901,32 +9096,32 @@ func _on_text_scale_cycle_pressed() -> void:
 func _tutorial_steps() -> Array[Dictionary]:
 	var steps: Array[Dictionary] = []
 	steps.append({
-		"title": "Your Isolation Chamber",
-		"body":  "These are your tiles for this hand.\nClick any tile to select it.",
+		"title": "The Isolation Chamber",
+		"body":  "The Society stages the temporal flows\nhere before insertion. Click a tile to\nselect it for routing into the Core.",
 		"target": func() -> Control: return _hand_container,
 		"side":  "above",
 	})
 	steps.append({
-		"title": "Building the Chain",
-		"body":  "Selected tiles form a Cohesion Pulse.\nTiles connect when a pip value matches\nan open end of the chain.\nYour chain PERSISTS across all hands\nin this round — keep extending it.",
+		"title": "The Cohesion Pulse",
+		"body":  "Selected tiles form a Cohesion Pulse.\nTiles connect when a pip value matches\nan open end of the chain.\nYour Pulse PERSISTS across every hand\nthis round — keep extending it.",
 		"target": func() -> Control: return _chain_container,
 		"side":  "below",
 	})
 	steps.append({
-		"title": "Score Preview",
-		"body":  "Chips × Mult = score, applied to the\nFULL chain after each placement.\nLonger chains unlock tier bonuses\n(Pulse, Cohesion, Resonance, …).",
+		"title": "Chronos Preview",
+		"body":  "Chips × Mult = Chronos, applied to\nthe FULL Pulse after each routing.\nLonger Pulses cross tier thresholds:\nPulse, Cohesion, Resonance, and beyond.",
 		"target": func() -> Control: return _lbl_preview_total,
 		"side":  "above",
 	})
 	steps.append({
-		"title": "Play Your Tiles",
-		"body":  "Press PLAY to add the selected tiles\nto your chain. The chain stays on the\ntable for the rest of the round —\nstop only when you Stand or run out.",
+		"title": "Route the Flow",
+		"body":  "Press PLAY to route the selection into\nthe Processing Core. The Pulse stays\non the table until you Stand or fail.\nThe Machine watches every placement.",
 		"target": func() -> Control: return _btn_play,
 		"side":  "above",
 	})
 	steps.append({
-		"title": "The Chronos Target",
-		"body":  "Reach the target Chronos to clear\nthe round. Once the bar is full, a\nSTAND button appears — lock in or\nkeep extending for tier bonuses.",
+		"title": "Recalibration Threshold",
+		"body":  "Reach the Chronos target to clear the\nround. Once the bar fills, STAND becomes\navailable — lock in, or extend for the\nnext tier. The Architects respect both.",
 		"target": func() -> Control: return _chronos_bar,
 		"side":  "below",
 	})
