@@ -1150,6 +1150,36 @@ const ENTRIES: Array[Dictionary] = [
 			"hint": "Recalibrate on Hard difficulty."},
 	},
 
+	# ─── TRANSMISSION #5 — The Preserved Moment ──────────────────────────
+	# Earned by accumulating 50 Recalibrations. Returns to the question
+	# raised in Transmission #3 (what is the Chronometer preserving?)
+	# and shows, rather than answers. The cryptic block in the body is
+	# the in-engine "look at the moment" — players will theorise.
+	{
+		"id": "transmission_5",
+		"category": Category.TRANSMISSIONS,
+		"name": "Transmission #5",
+		"summary": "Earned after fifty Recalibrations. The question returns.",
+		"body":
+"\"Operator. The fifth transmission. The Archive has counted your "
++ "Recalibrations and there are fifty. This is enough.\n\n"
++ "You asked once — through me, through the records left by Operator-"
++ "prime, through the worn surface of the Window itself — what the "
++ "Chronometer was preserving. The Archive may not answer that question. "
++ "The Archive may, on certain occasions, show:\n\n"
++ "    [a brass lever, half-pulled]\n"
++ "    [a candle, three seconds from extinguishing]\n"
++ "    [an Operator's hand, leaving the Window]\n\n"
++ "    timestamp:  ████████████████\n\n"
++ "These are Components of the moment. Not all of them. Not most. We "
++ "have not yet fully reconstructed what is held here. The reconstruction "
++ "is what your Trial Cycles are for.\n\n"
++ "Continue, Operator. We are close. Or we are no closer than we have "
++ "ever been. I cannot tell from inside the Archive.\"",
+		"unlock": {"type": "wins", "value": 50,
+			"hint": "Recalibrate the Chronometer 50 times."},
+	},
+
 	# ─── FACTION RECOGNITION (silent reputation thresholds) ──────────────
 	# Unlocked via SaveManager.add_faction_rep crossing FACTION_UNLOCK_AT.
 	# The codex toast is the player's first explicit signal that the

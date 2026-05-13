@@ -581,6 +581,29 @@ func get_faction_rep(faction: String) -> int:
 	return int(data.get(faction, 0))
 
 # ---------------------------------------------------------------------------
+# Archiver familiarity — how close the player has come to the Archiver
+# ---------------------------------------------------------------------------
+# Increments every time an Archiver-attributed transmission is surfaced,
+# every time an Archiver event fires, and every time the player engages
+# with an Archiver event (accept or refuse).
+#
+# Drives tone-shift variants in `Archiver.line_for_round`. Past certain
+# thresholds the Archiver addresses the player less formally — calls
+# them "Operator" by name, references their record directly, drops the
+# clinical cadence for something almost personal.
+
+## Increment the familiarity counter. Cheap; called from main.gd
+## whenever a player-facing Archiver moment lands.
+func bump_archiver_familiarity(amount: int = 1) -> void:
+	var n: int = int(_data.get("archiver_familiarity", 0)) + amount
+	_data["archiver_familiarity"] = n
+	_save_to_disk()
+
+## Read the current familiarity value (used by Archiver.line_for_round).
+func get_archiver_familiarity() -> int:
+	return int(_data.get("archiver_familiarity", 0))
+
+# ---------------------------------------------------------------------------
 # Tutorial flag
 # ---------------------------------------------------------------------------
 func set_tutorial_seen(b: bool) -> void:

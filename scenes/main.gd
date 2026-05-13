@@ -1008,11 +1008,23 @@ func _build_achievement_card(a: Dictionary, earned: bool) -> Control:
 ## transitions). Etapa 0 has no transition vignette — the player is
 ## arriving for the first time, the title screen + tutorial + Archiver
 ## already greet them.
+##
+## Each subsequent Etapa is voiced by a different speaker — the chamber
+## takes on a personality. The codex's faction pages are the formal
+## reference; this is the diegetic delivery.
 const ETAPA_VIGNETTE_LINES: Array[String] = [
 	"",   # Etapa 0 — no transition (you start here)
-	"The mahogany gives way to steam. The brass is dripping.",
-	"The temperature drops. The Machine breathes slower here.",
-	"You are inside the Archive now. It is inside you.",
+	"\"Pressure rising. Industrial frequencies engaged. The shelves are restocked.\nIf you have not bought a Module yet, Operator, this is the place.\"",
+	"\"Listen. The Singularity will turn your doubles against you.\nDon't argue with it. Adapt, or be lost. The Master would say the same.\"",
+	"\"You are inside the Archive now. It is inside you.\nThe Operators before you had nowhere to go. Neither do you.\"",
+]
+## Speaker tag rendered above each vignette line. Empty string = no
+## attribution (etapa 0 doesn't have a vignette to attribute).
+const ETAPA_VIGNETTE_SPEAKERS: Array[String] = [
+	"",
+	"THE VOICE OF THE EMPORIUM",
+	"THE RENEGADE MECHANIC",
+	"THE ARCHIVER",
 ]
 
 func _show_etapa_vignette(etapa: int) -> void:
@@ -1035,23 +1047,51 @@ func _show_etapa_vignette(etapa: int) -> void:
 	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	overlay.add_child(center)
 
+	# Speaker tag + body in a column. The speaker tag sits above in a
+	# smaller mono font so the vignette reads like a transmission with
+	# attribution, not a disembodied lore caption.
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 16)
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	center.add_child(col)
+
 	var accent: Color = Constants.ETAPA_ACCENT[clampi(etapa, 0, 3)]
+
+	var speaker: String = ETAPA_VIGNETTE_SPEAKERS[clampi(etapa, 0, 3)]
+	var speaker_lbl: Label = null
+	if not speaker.is_empty():
+		speaker_lbl = _make_label("— " + speaker + " —", accent.darkened(0.15), 13)
+		speaker_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		speaker_lbl.modulate.a = 0.0
+		FontManager.apply_mono(speaker_lbl)
+		col.add_child(speaker_lbl)
+
 	var lbl := _make_label(line, accent, 22)
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lbl.modulate.a = 0.0
 	FontManager.apply_mono(lbl)
-	center.add_child(lbl)
+	col.add_child(lbl)
 
 	# Fade dark backdrop in, then text, hold, then fade everything out.
+	# Speaker tag fades in slightly ahead of the body so the attribution
+	# lands before the line reads.
 	var seq := create_tween()
-	seq.tween_property(overlay, "color:a", 0.78, 0.45) \
+	seq.tween_property(overlay, "color:a", 0.82, 0.45) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	if speaker_lbl != null:
+		seq.parallel().tween_property(speaker_lbl, "modulate:a", 1.0, 0.45) \
+			.set_delay(0.10) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	seq.parallel().tween_property(lbl, "modulate:a", 1.0, 0.55) \
-		.set_delay(0.12) \
+		.set_delay(0.30) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	seq.tween_interval(2.0)
+	# Hold a touch longer since there's now two lines + an attribution.
+	seq.tween_interval(2.6)
 	seq.tween_property(lbl, "modulate:a", 0.0, 0.55) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	if speaker_lbl != null:
+		seq.parallel().tween_property(speaker_lbl, "modulate:a", 0.0, 0.55) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
 	seq.parallel().tween_property(overlay, "color:a", 0.0, 0.55) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
 	seq.tween_callback(overlay.queue_free)
@@ -2064,8 +2104,17 @@ func _begin_round_play() -> void:
 	# a new etapa, delay enough that the vignette plays out first.
 	elif not GameState.is_boss_round():
 		var lifetime: Dictionary = SaveManager.get_lifetime_stats()
+		var familiarity: int = SaveManager.get_archiver_familiarity()
 		var line: String = Archiver.line_for_round(
-			GameState.round_index, lifetime)
+			GameState.round_index, lifetime, familiarity)
+		# Hard-mode framing: on round 0 of a Hard run, the Archiver's
+		# opening is replaced with a heavier line — choosing Hard is
+		# treated as a transgression, not a difficulty toggle. The
+		# Architects did not approve. The Archiver did.
+		if GameState.round_index == 0 \
+				and GameState.difficulty == Constants.Difficulty.HARD:
+			line = "You have asked for the Archiver's Core.\n" \
+				+ "The Architects did not approve. The Archiver did."
 		# 0.65s default delay; longer when stacked behind a vignette
 		# (vignette ~3s total, so wait it out).
 		var base_delay: float = 3.6 if entering_new_etapa else 0.65
@@ -2084,6 +2133,9 @@ func _begin_round_play() -> void:
 		if not line.is_empty():
 			get_tree().create_timer(base_delay).timeout.connect(
 				_show_transmission.bind(line), CONNECT_ONE_SHOT)
+			# Familiarity bump — every Archiver line surfaced counts toward
+			# the relationship counter that gates later tone shifts.
+			SaveManager.bump_archiver_familiarity(1)
 
 func _end_round(won: bool) -> void:
 	if won:
@@ -2504,10 +2556,10 @@ func _on_discard_pressed() -> void:
 	if _phase == Phase.PLAYING and not _scoring_active \
 			and not _selected_tiles.is_empty() and _rm.can_discard():
 		# Snapshot the hand BEFORE the discard so we can identify which
-		# tiles are genuinely new (drawn replacements) vs. which were
-		# already in hand. Targeted re-draw promotes fitting tiles to the
-		# top of the draw pile, but the player can't tell unless we point
-		# at the new arrivals after the swap.
+		# tiles are genuinely new draws. Discard replacements are random
+		# (`round_manager.discard` no longer biases toward fitting tiles),
+		# so the flash just signals "this new tile happens to fit" —
+		# useful even without the bias.
 		var pre_hand: Array = _rm.hand.duplicate()
 		AudioManager.play_sfx("discard")
 		_rm.discard(_selected_tiles)
@@ -2517,8 +2569,9 @@ func _on_discard_pressed() -> void:
 		call_deferred("_flash_fitting_redraws", pre_hand)
 
 ## Pulse any hand tile that (a) is new since `pre_hand` and (b) currently
-## fits the persistent chain's open ends. Reveals the targeted-re-draw
-## mechanic that was previously invisible.
+## fits the persistent chain's open ends. Pure visual cue — the discard
+## itself doesn't bias toward fitting tiles, so a fitting redraw is just
+## fortunate, not engineered.
 func _flash_fitting_redraws(pre_hand: Array) -> void:
 	if _rm == null or _rm.current_chain == null or _rm.current_chain.is_empty():
 		return
@@ -3240,6 +3293,12 @@ func _on_event_choice_pressed(choice_idx: int) -> void:
 	var rep_map: Dictionary = choice.get("rep", {})
 	for faction in rep_map:
 		SaveManager.add_faction_rep(String(faction), int(rep_map[faction]))
+	# Archiver familiarity — every engagement with an Archiver-voiced
+	# event counts. Refusing still counts; the Archiver remembers being
+	# refused. +2 per engagement makes events weigh more than passive
+	# transmissions (which are +1 each).
+	if String(_event_pending.get("speaker", "")) == "THE ARCHIVER":
+		SaveManager.bump_archiver_familiarity(2)
 	var outcome_text: String = String(choice.get("outcome", ""))
 	if not applied.get("fallback_text", "").is_empty():
 		outcome_text = String(applied["fallback_text"])
