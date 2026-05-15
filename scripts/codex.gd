@@ -79,8 +79,10 @@ const ENTRIES: Array[Dictionary] = [
 + "The Operator who tries to draw the Voice into conversation receives the "
 + "same response every time: \"This is a commercial system. Please confirm "
 + "your purchase, or vacate the terminal.\"\n\n"
-+ "Some Operators have tried to reach what is behind it. None have reported "
-+ "what they found.",
++ "Some Operators have tried to reach what is behind it. They find a small "
++ "office. A chair, pushed back from a desk. The terminal on the desk is the "
++ "other side of the Voice, and it is silent. A few of those Operators did "
++ "not leave.",
 		"unlock": {"type": "event", "value": 0,
 			"hint": "Visit the Brass Emporium."},
 	},
@@ -90,13 +92,16 @@ const ENTRIES: Array[Dictionary] = [
 		"summary": "Sells illegal Calibration Modules. Knows more than he admits.",
 		"body":
 "He runs no shop with a sign. He appears at the Artisan's Workshop after "
-+ "every Entropy Failure, the Master of the Forge stepping aside with the "
-+ "deliberate silence of someone who has seen this before.\n\n"
++ "certain Entropy Failures, on schedules the Society has not deciphered, "
++ "the Master of the Forge stepping aside with the deliberate silence of "
++ "someone who has seen this before.\n\n"
 + "His modules — Obsidian-tier work — are not in the Architects' catalogue. "
 + "When asked who made them, he says: \"I made them. I will make others. "
 + "Do not bring them back.\"\n\n"
 + "The Archiver has filed a request for his arrest in every Trial Cycle "
-+ "for as long as the records go back. The request is never executed.",
++ "for as long as the records go back. The requests reach the Society's "
++ "administrative offices and are accepted, stamped, and filed. "
++ "The request is never executed.",
 		"unlock": {"type": "best_round", "value": 5,
 			"hint": "Clear the first Entropy Failure."},
 	},
@@ -107,7 +112,8 @@ const ENTRIES: Array[Dictionary] = [
 		"body":
 "The Master is precise, demanding, respectful of craft. When the Operator "
 + "selects a tile for removal, the Master simply nods. When the Operator "
-+ "selects a special tile to add, the Master examines them — not the tile.\n\n"
++ "selects a special tile to add, the Master examines them — not the tile. "
++ "He is checking how much wear the Operator has taken since the last visit.\n\n"
 + "He has trained every Operator who has reached him. He has not spoken at "
 + "length to any. His one consistent piece of guidance: \"Build only what "
 + "you would be willing to lose.\"\n\n"
@@ -128,7 +134,10 @@ const ENTRIES: Array[Dictionary] = [
 + "tolerates the Guild because the Guild's bookkeeping is the only thing "
 + "preventing the Chronometer's economy from collapsing alongside the Machine.\n\n"
 + "They are not allied with the Operator. They are not enemies. They are "
-+ "the wall the simulation runs against.",
++ "the wall the simulation runs against.\n\n"
++ "The Guild's books extend forward through margins of expected losses "
++ "that imply a horizon longer than the Society's. The Guild does not "
++ "advertise the horizon.",
 		"unlock": {"type": "event", "value": 0,
 			"hint": "Earn your first Coins."},
 	},
@@ -162,7 +171,9 @@ const ENTRIES: Array[Dictionary] = [
 + "a paradox of compressed Isolation Chambers, the Machine's first complaint "
 + "about its own decay.\n\n"
 + "The Architects refer to the Mahogany Trial as \"the cradle.\" The "
-+ "Archiver does not.",
++ "Archiver does not. The Archive has a complete record of how many "
++ "Operators have not survived their first Cycle. The Archive considers "
++ "\"cradle\" inaccurate.",
 		"unlock": {"type": "always", "value": 0, "hint": ""},
 	},
 	{
@@ -227,8 +238,9 @@ const ENTRIES: Array[Dictionary] = [
 + "The Society of Time Architects exists to slow the dying. The Operator "
 + "exists to extract Mastery from the Machine's failures, so that future "
 + "Operators may survive them.\n\n"
-+ "Nobody — not the Architects, not the Archiver, not the Renegade — knows "
-+ "what the Chronometer was for, before it began to fail.",
++ "Nobody — not the Architects, not the Archive in its current state — admits "
++ "to knowing what the Chronometer was for, before it began to fail. "
++ "The Renegade Mechanic does not answer questions of this kind.",
 		"unlock": {"type": "always", "value": 0, "hint": ""},
 	},
 	{
@@ -391,7 +403,10 @@ const ENTRIES: Array[Dictionary] = [
 + "imperfections in the Core's loading process, accepted by the Machine "
 + "as inputs because the Machine accepts everything. The Renegade Mechanic "
 + "disagrees. He says the Wilds are intentional.\n\n"
-+ "He has not said by whom.",
++ "He has not said by whom.\n\n"
++ "A sketch recovered from the Workshop floor — unsigned, in the Renegade's "
++ "hand — depicts a Wild as a door. The door, in the sketch, is open. The "
++ "page does not show what is on the other side.",
 		"unlock": {"type": "always", "value": 0, "hint": ""},
 	},
 	{
@@ -778,7 +793,8 @@ const ENTRIES: Array[Dictionary] = [
 		"body":
 "The Null was the Mechanism's second discovery. The rest of the Mechanism "
 + "followed. The Architects have not been able to identify the first "
-+ "discovery; the Chronometer's earliest records are damaged.",
++ "discovery; the Chronometer's earliest records are damaged. "
++ "The Renegade has not been asked.",
 		"unlock": {"type": "event", "value": 0, "hint": "Equip this Module."},
 	},
 	{
