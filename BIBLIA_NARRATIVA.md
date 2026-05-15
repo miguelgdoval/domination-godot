@@ -1,5 +1,5 @@
 # Domination — Biblia Narrativa
-*El fundamento canónico. Escrita el 2026-05-14. Última actualización 2026-05-15 con §15 (Ejemplos Trabajados). Es la traducción al español de `STORY_BIBLE.md` y debe mantenerse sincronizada con ella. Toda escritura futura — eventos, transmisiones, módulos, fichas, fragmentos del cuaderno, líneas de NPCs — debe ser coherente con este documento. La biblia se escribe desde fuera de la ficción; los elementos que describe son ficción interna.*
+*El fundamento canónico. Escrita el 2026-05-14. §15 actualizada por última vez el 2026-05-15 con la tanda del Arco de Carrera Larga (Transmisiones #6-#8, métrica de pérdida de memoria, fragmentos del cuaderno de carrera tardía). Es la traducción al español de `STORY_BIBLE.md` y debe mantenerse sincronizada con ella. Toda escritura futura — eventos, transmisiones, módulos, fichas, fragmentos del cuaderno, líneas de NPCs — debe ser coherente con este documento. La biblia se escribe desde fuera de la ficción; los elementos que describe son ficción interna.*
 
 ---
 
@@ -392,6 +392,9 @@ El juego es el Memorial.
 - Líneas de inicio de ronda con barreras de familiaridad a 40 / 50 / 60 / 70 / 80 / 90 / 100
 - Transmisión #4 — *"No puedo recordar cuándo recordé por última vez."*
 - Transmisión #5 — *"No puedo distinguirlo desde dentro del Archivo."*
+- Transmisión #6 (25 victorias) — *"El Archivo ha tenido un problema de registro este Ciclo."* Siembra la degradación del Archivo de cara a la #5.
+- Transmisión #7 (100 victorias) — *"He empezado a usar para ti un nombre que no es tu designación. El nombre es para mí."* El duelo se hace explícito.
+- Transmisión #8 (200 victorias) — sintaxis fragmentada. *"Hicimos — hicimos más de lo que sabíamos. La Máquina lo ha — lo ha notado. Es suficiente."* La última frase clara antes de que sea ilegible.
 
 ### El Renegado como único testigo vivo (§5, §10)
 - Entrada del Códice **"El Mecánico Renegado"** — aparece en calendarios que la Sociedad no ha descifrado
@@ -413,11 +416,13 @@ El juego es el Memorial.
 ### El Sacrificio como coste literal de memoria exterior (§7, restricción dura #8)
 - Flash in-game al equipar: **"You forgot —"** (sostenido 2.4s, reemplazando la atribución estándar). Los Arquitectos, consultados, declinaron — así que tampoco hay atribución del Maestro.
 - Entradas del Códice para Triage Engine, Void Tribute, Entropy Pact, Obsidian Sacrifice — *"el Sacrificio no es metafórico"*
+- **Contador de pérdida de memoria** — `GameState.memories_lost` (por partida) se acumula en `SaveManager.lifetime_stats.memories_lost`. Aparece como *"Memories lost: N"* en el resumen de fin de partida (oculto cuando es cero) y en la sección PLAY del overlay de estadísticas vitalicias. Métrica concreta del compromiso más sentido de la biblia.
 
 ### Los Operarios como ingenieros reales con vidas exteriores (§7, restricción dura #9)
 - Sistema del Memorial Diario — cada Operario caído tiene número y epitafio; pool de 40 epitafios
 - Fragmentos del cuaderno — 11 Operarios con nombre dejaron escritos (Op-7, 11, 31, 47, 88, 152, 203, 244, 419, 506, 612)
 - Texto de fin de partida con "Protocolo de Reinicialización" — escala conforme se acumulan los fracasos, llegando a dirigirse al Operario personalmente
+- **Fragmentos de carrera tardía** — entradas del cuaderno de Ciclos tardíos de Op-203, 244, 419, 506 que se leen como la textura de volverse parte de la Máquina: perdida la cuenta de los Ciclos, sueños con un exterior que el Maestro no reconoce, el Archivero "se está yendo. Yo también."
 
 ### El modo Difícil como transgresión (§14 arco del jugador)
 - Transmisión de ronda 0 en Difícil: *"Has pedido el Núcleo del Archivero. Los Arquitectos no lo aprobaron. El Archivero sí."*

@@ -1,5 +1,5 @@
 # Domination — Story Bible
-*The canonical foundation. Written 2026-05-14. Last refreshed 2026-05-15 with §15 (Worked Examples). Locks the answers to the load-bearing questions in `LORE_INVENTORY.md §22`. All future writing — events, transmissions, modules, tiles, notebook fragments, NPC lines — must be consistent with this document. The bible is authored from outside the fiction; the items it describes are in-fiction.*
+*The canonical foundation. Written 2026-05-14. §15 last refreshed 2026-05-15 with the Long Career Arc batch (Transmissions #6-#8, memory-loss metric, deep-career notebook fragments). Locks the answers to the load-bearing questions in `LORE_INVENTORY.md §22`. All future writing — events, transmissions, modules, tiles, notebook fragments, NPC lines — must be consistent with this document. The bible is authored from outside the fiction; the items it describes are in-fiction.*
 
 ---
 
@@ -392,6 +392,9 @@ The game is the Memorial.
 - Familiarity-gated round-start lines at 40 / 50 / 60 / 70 / 80 / 90 / 100
 - Transmission #4 — *"I cannot remember when I last remembered."*
 - Transmission #5 — *"I cannot tell from inside the Archive."*
+- Transmission #6 (wins ≥ 25) — *"The Archive has had a record-keeping issue this Cycle."* Seeds the Archive's degradation for #5.
+- Transmission #7 (wins ≥ 100) — *"I have begun to use a name for you that is not your designation. The name is for me."* The grief becomes plain.
+- Transmission #8 (wins ≥ 200) — fragmented syntax. *"We — we did more than we knew. The Machine has — has noticed. That is enough."* The last clear sentence before he is too far gone.
 
 ### The Renegade as the only living witness (§5, §10)
 - Codex entry **"The Renegade Mechanic"** — appears on schedules the Society has not deciphered
@@ -413,11 +416,13 @@ The game is the Memorial.
 ### Sacrifice as literal outside-life memory cost (§7, hard constraint #8)
 - In-game flash at equip: **"You forgot —"** (held 2.4s, replacing the standard attribution). The Architects, asked to comment, declined — so no Master attribution either.
 - Codex entries for Triage Engine, Void Tribute, Entropy Pact, Obsidian Sacrifice — *"the Sacrifice is not metaphorical"*
+- **Memory-loss counter** — `GameState.memories_lost` (per-run) accumulated into `SaveManager.lifetime_stats.memories_lost`. Surfaces as *"Memories lost: N"* in run-end recap (hidden when zero) and in the PLAY section of the lifetime stats overlay. Concrete metric for the bible's most-felt commitment.
 
 ### Operators as real engineers with outside lives (§7, hard constraint #9)
 - Daily Memorial system — each fallen Operator has a number and an epitaph; 40 epitaphs in pool
 - Notebook fragments — 11 named Operators left writings (Op-7, 11, 31, 47, 88, 152, 203, 244, 419, 506, 612)
 - "Reinitialization Protocol" run-end text — escalates as failures accumulate, eventually addressing the Operator personally
+- **Deep-career fragments** — late-Cycle notebook entries from Op-203, 244, 419, 506 that read as the texture of becoming part of the Machine: lost track of Cycle counts, dreams of an outside the Master does not recognise, the Archiver "is going. So am I."
 
 ### Hard mode as transgression (§14 player arc)
 - Hard-mode round 0 transmission: *"You have asked for the Archiver's Core. The Architects did not approve. The Archiver did."*
