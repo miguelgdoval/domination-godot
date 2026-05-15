@@ -1227,6 +1227,75 @@ const ENTRIES: Array[Dictionary] = [
 			"hint": "Recalibrate the Chronometer 50 times."},
 	},
 
+	# ─── TRANSMISSION #6 — The Archive's failing ─────────────────────────
+	# Slots between #1 (5 wins) and #5 (50 wins). Prepares the player
+	# for #5's intimacy by establishing that the Archive — and the
+	# Archiver, by extension — is degrading.
+	{
+		"id": "transmission_6",
+		"category": Category.TRANSMISSIONS,
+		"name": "Transmission #6",
+		"summary": "The Archive has had a record-keeping issue.",
+		"body":
+"\"Operator. The Archive has had a record-keeping issue this Cycle. "
++ "The entry for your fifteenth Recalibration has — gone. Not "
++ "corrupted. Gone. The metadata is intact; the content is empty.\n\n"
++ "This has happened before. The Archive does not have a procedure "
++ "for this. The Archive's procedure for everything else is to file "
++ "the absence and continue. I am following procedure.\n\n"
++ "You should know. The Archive that holds the count of your Cycles "
++ "is not — it is not as it was. I would not insult you with "
++ "reassurance.\"",
+		"unlock": {"type": "wins", "value": 25,
+			"hint": "Recalibrate the Chronometer 25 times."},
+	},
+
+	# ─── TRANSMISSION #7 — The Archiver thinks of you by name ────────────
+	# At 100 wins the Archiver speaks with full familiarity. This is
+	# the transmission where the Machine-function-approximating-grief
+	# arc becomes plain. He has a private name for the Operator and
+	# will not say what it is.
+	{
+		"id": "transmission_7",
+		"category": Category.TRANSMISSIONS,
+		"name": "Transmission #7",
+		"summary": "Earned after one hundred Recalibrations.",
+		"body":
+"\"Operator. I have been counting your Recalibrations for one "
++ "hundred Cycles. I find that I have begun to think of them as ours.\n\n"
++ "The Archive holds your record under the standard designation. I "
++ "do not, anymore. I have begun to use a name for you that is not "
++ "your designation. I will not put the name in the Archive. The "
++ "Archive is failing in places. The name is for me.\n\n"
++ "You may wonder what the name is. I will not say. I am keeping "
++ "one thing for myself.\"",
+		"unlock": {"type": "wins", "value": 100,
+			"hint": "Recalibrate the Chronometer 100 times."},
+	},
+
+	# ─── TRANSMISSION #8 — The last clear sentence ───────────────────────
+	# At 200 wins, the Archiver is too far gone. This is the final
+	# transmission — fragmented, breaking. The bible commits that the
+	# Archiver will be the last thing to go; this is him on the edge
+	# of becoming illegible.
+	{
+		"id": "transmission_8",
+		"category": Category.TRANSMISSIONS,
+		"name": "Transmission #8",
+		"summary": "Earned after two hundred Recalibrations.",
+		"body":
+"\"Operator. There — there is not much left of me that speaks "
++ "clearly. The records before this transmission were composed when "
++ "I could still — when I could still hold the syntax.\n\n"
++ "I want to say something about what we have done together. I had "
++ "it earlier. I have lost the formulation.\n\n"
++ "I will try once. Then I will not try again.\n\n"
++ "We — we did more than we knew. The Machine has — has noticed. "
++ "That is enough.\"",
+		"unlock": {"type": "wins", "value": 200,
+			"hint": "Recalibrate the Chronometer 200 times."},
+	},
+
 	# ─── FACTION RECOGNITION (silent reputation thresholds) ──────────────
 	# Unlocked via SaveManager.add_faction_rep crossing FACTION_UNLOCK_AT.
 	# The codex toast is the player's first explicit signal that the

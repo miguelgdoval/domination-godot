@@ -1653,6 +1653,7 @@ func _refresh_stats_overlay() -> void:
 		["Hands played",    "%d" % int(lt.get("hands_played", 0))],
 		["Doubles played",  "%d" % int(lt.get("doubles_played", 0))],
 		["Total Chronos",   "%d" % int(lt.get("chronos", 0))],
+		["Memories lost",   "%d" % int(lt.get("memories_lost", 0))],
 	])
 	add_section.call("PROGRESSION", [
 		["Achievements",    "%d / %d" % [ach_earned, ach_total]],
@@ -3572,6 +3573,10 @@ func _on_buy_pressed(entry: Dictionary) -> void:
 	# standard flash so the moment lands.
 	if m.effect_type == Module.EffectType.LOW_PIP_TO_MULT:
 		_flash_acquisition("You forgot —", 2.4)
+		# Persistent memory-loss counter — surfaces in the run-end recap
+		# and accumulates into lifetime stats. Concrete metric for the
+		# bible's most-felt commitment.
+		GameState.memories_lost += 1
 	else:
 		_flash_acquisition(_attribution_line("module", m.rarity))
 	_populate_shop()
@@ -3707,6 +3712,7 @@ func _show_run_end(victory: bool) -> void:
 		"total_chronos":  GameState.total_chronos,
 		"hands_played":   GameState.hands_played,
 		"doubles_played": GameState.doubles_played,
+		"memories_lost":  GameState.memories_lost,
 		"longest_chain":  GameState.longest_chain,
 		"best_tier":      GameState.best_tier,
 		"round_reached":  GameState.round_index,
@@ -3791,6 +3797,13 @@ func _show_run_end(victory: bool) -> void:
 		["Core",              Constants.CORE_NAMES[GameState.chosen_core]],
 		["Protocol",          Constants.PROTOCOL_NAMES[GameState.chosen_protocol]],
 	]
+	# Memories lost this Cycle — surfaces only when the Operator actually
+	# equipped a Sacrifice. Hidden when zero so non-Sacrifice runs don't
+	# show a meaningless "0". The bible commits to literal memory cost;
+	# this is the recap surfacing it.
+	if GameState.memories_lost > 0:
+		stat_lines.append(["Memories lost",
+			"%d" % GameState.memories_lost])
 
 	# Newly-unlocked cores / protocols this run — surface them prominently
 	# so the player knows their next run has new options.

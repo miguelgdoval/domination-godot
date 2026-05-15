@@ -246,6 +246,7 @@ func accumulate_run_stats(stats: Dictionary) -> void:
 	s["chronos"]         = s.get("chronos",         0) + int(stats.get("total_chronos", 0))
 	s["hands_played"]    = s.get("hands_played",    0) + int(stats.get("hands_played", 0))
 	s["doubles_played"]  = s.get("doubles_played",  0) + int(stats.get("doubles_played", 0))
+	s["memories_lost"]   = s.get("memories_lost",   0) + int(stats.get("memories_lost", 0))
 	s["longest_chain"]   = maxi(s.get("longest_chain", 0), int(stats.get("longest_chain", 0)))
 	s["best_tier"]       = maxi(s.get("best_tier",     -1), int(stats.get("best_tier", -1)))
 	s["best_round"]      = maxi(s.get("best_round",    0), int(stats.get("round_reached", 0)))
@@ -519,6 +520,7 @@ func get_lifetime_stats() -> Dictionary:
 		"chronos":        s.get("chronos",         0),
 		"hands_played":   s.get("hands_played",    0),
 		"doubles_played": s.get("doubles_played",  0),
+		"memories_lost":  s.get("memories_lost",   0),
 		"longest_chain":  s.get("longest_chain",   0),
 		"best_tier":      s.get("best_tier",      -1),
 		"best_round":     s.get("best_round",      0),

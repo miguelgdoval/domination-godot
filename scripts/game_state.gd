@@ -32,6 +32,11 @@ var hands_played:    int = 0   # total hands played this run
 var doubles_played:  int = 0   # total doubles placed this run (for contracts)
 var longest_chain:   int = 0   # max chain length reached in any round this run
 var best_tier:       int = -1  # max tier index reached in any round this run (-1 = none)
+# Memories lost — incremented every time a Sacrifice Module is equipped.
+# Per STORY_BIBLE §7 and hard constraint #8: each Sacrifice consumes a
+# real outside-life memory. The counter surfaces in the run-end recap
+# and accumulates into lifetime stats so the player sees the toll.
+var memories_lost:   int = 0
 var is_daily_run:    bool = false   # set by start_daily_run; controls run-end recording
 
 # ---------------------------------------------------------------------------
@@ -56,6 +61,7 @@ func start_run(p_core: int = 0, p_protocol: int = 0,
 	doubles_played      = 0
 	longest_chain       = 0
 	best_tier           = -1
+	memories_lost       = 0
 	is_daily_run        = false
 	# Protocol starting bonus
 	monedas += Constants.PROTOCOL_BONUS_MONEDAS[p_protocol]

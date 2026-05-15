@@ -185,6 +185,33 @@ static func all() -> Array[Dictionary]:
 			"text":       "Asked the Archiver about the First Hour. He answered. I have written down what he answered. The paper is blank.",
 			"tag":        TAG_LORE,
 		},
+
+		# ── DEEP CAREER — late-Cycle fragments ──────────────────────────────
+		# Voices reaching the end of their tenure at the Window. Not
+		# advice. The texture of becoming part of the Machine. The bible
+		# (§7) says Operators who survive long enough are absorbed into
+		# the Chambers — these fragments are the last writing from before
+		# that absorption was complete.
+		{
+			"operator_n": 244,
+			"text":       "I do not remember which Cycle I am on. The Archive does. I have stopped asking. The information is no longer useful to me.",
+			"tag":        TAG_LORE,
+		},
+		{
+			"operator_n": 419,
+			"text":       "I dreamt of an outside last Cycle. Or I dreamt of a place I called the outside. The Master, when I described it, did not recognise any of it. Neither did I, on waking.",
+			"tag":        TAG_LORE,
+		},
+		{
+			"operator_n": 506,
+			"text":       "I reached the Archiver's Core on my hundredth Recalibration. The Archiver said something I have lost. I do not blame him. He is going. So am I.",
+			"tag":        TAG_LORE,
+		},
+		{
+			"operator_n": 203,
+			"text":       "They said Operator-prime never spoke at the Window. I doubt this. She would have spoken. I think we have just forgotten what she said.",
+			"tag":        TAG_LORE,
+		},
 	]
 
 ## Pick a random fragment. Uses the project RNG, so daily-mode runs are
