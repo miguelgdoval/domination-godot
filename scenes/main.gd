@@ -3180,9 +3180,12 @@ func _grant_purchase_rep(rarity: int) -> void:
 		SaveManager.add_faction_rep("guild", 1)
 
 ## Pop the acquisition flash label with the given text. Fades in over
-## 0.18s, holds 1.4s, fades out over 0.4s. Safe to call repeatedly —
-## any previous tween is killed before the new flash starts.
-func _flash_acquisition(text: String) -> void:
+## 0.18s, holds `hold_time` seconds (default 1.4s), fades out over 0.4s.
+## Safe to call repeatedly — any previous tween is killed before the new
+## flash starts. The hold parameter lets specific beats (Sacrifice
+## memory-cost) linger noticeably longer without affecting standard
+## attribution flashes.
+func _flash_acquisition(text: String, hold_time: float = 1.4) -> void:
 	if _lbl_acquisition_flash == null or text.is_empty():
 		return
 	if _acquisition_flash_tween != null and _acquisition_flash_tween.is_valid():
@@ -3192,7 +3195,7 @@ func _flash_acquisition(text: String) -> void:
 	_acquisition_flash_tween = create_tween()
 	_acquisition_flash_tween.tween_property(_lbl_acquisition_flash,
 		"modulate:a", 1.0, 0.18)
-	_acquisition_flash_tween.tween_interval(1.4)
+	_acquisition_flash_tween.tween_interval(hold_time)
 	_acquisition_flash_tween.tween_property(_lbl_acquisition_flash,
 		"modulate:a", 0.0, 0.40)
 
@@ -3561,7 +3564,16 @@ func _on_buy_pressed(entry: Dictionary) -> void:
 	# Auto-save after every purchase so a mid-shop crash doesn't lose the
 	# upgrade. Save is cheap (single JSON write) and idempotent.
 	SaveManager.save_run()
-	_flash_acquisition(_attribution_line("module", m.rarity))
+	# Sacrifice modules replace the normal attribution with a memory-cost
+	# beat. The bible commits to Sacrifice consuming a real outside-life
+	# memory at the moment of equipping (STORY_BIBLE §7, §11 #8). The
+	# Architects, asked to comment, declined — so no Master attribution
+	# either. Only the Operator notices. Held a touch longer than the
+	# standard flash so the moment lands.
+	if m.effect_type == Module.EffectType.LOW_PIP_TO_MULT:
+		_flash_acquisition("You forgot —", 2.4)
+	else:
+		_flash_acquisition(_attribution_line("module", m.rarity))
 	_populate_shop()
 
 func _on_sell_pressed(m: Module) -> void:
