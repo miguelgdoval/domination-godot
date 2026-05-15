@@ -1,5 +1,5 @@
 # Domination — Biblia Narrativa
-*El fundamento canónico. Escrita el 2026-05-14. Es la traducción al español de `STORY_BIBLE.md` y debe mantenerse sincronizada con ella. Toda escritura futura — eventos, transmisiones, módulos, fichas, fragmentos del cuaderno, líneas de NPCs — debe ser coherente con este documento. La biblia se escribe desde fuera de la ficción; los elementos que describe son ficción interna.*
+*El fundamento canónico. Escrita el 2026-05-14. Última actualización 2026-05-15 con §15 (Ejemplos Trabajados). Es la traducción al español de `STORY_BIBLE.md` y debe mantenerse sincronizada con ella. Toda escritura futura — eventos, transmisiones, módulos, fichas, fragmentos del cuaderno, líneas de NPCs — debe ser coherente con este documento. La biblia se escribe desde fuera de la ficción; los elementos que describe son ficción interna.*
 
 ---
 
@@ -367,4 +367,71 @@ El juego es el Memorial.
 
 ---
 
-*Fin de la Biblia Narrativa. Siguiente pase: auditar el canon existente contra este documento, marcar contradicciones, planear el trabajo de incorporación.*
+---
+
+## 15. Ejemplos Trabajados — compromisos de la biblia anclados en contenido enviado
+
+*Añadida el 2026-05-15. Esta sección crece a medida que el trabajo futuro concretiza más partes de la biblia. Cada entrada lista un compromiso de la biblia y los artefactos in-game que actualmente lo cumplen. Los autores futuros deberían usar esto como precedente — al añadir contenido nuevo que toque el mismo compromiso, igualar el registro y el nivel de revelación ya establecidos.*
+
+### La Operaria-prima como fundadora muerta (§2)
+- Ficha del Códice **"La Marca del Arquitecto / The Crown"** — "encontrada, en la misma condición en que existe actualmente, por una Operaria cuyo nombre ha sido tachado de los registros de la Sociedad." (Es ella. La biblia nunca lo confirma; la línea de lore es la única señal.)
+- Epitafio del Memorial #34 — "Operario-prima. Los registros del Archivo empiezan con ella."
+- Concepto del Códice **"La Primera Hora / The First Hour"** (desbloqueo: 5 victorias)
+
+### Los fragmentos del momento preservado (§2)
+- Transmisión #5 (50 victorias) — el bloque palanca / vela / mano
+- Anomalía del Códice **"La Palanca de Latón / The Brass Lever"** (50 victorias)
+- La palanca se ubica canónicamente en la Singularidad Fría, "detrás del manifold de procesamiento primario de la cámara." El contenido futuro de la Singularidad puede referenciar proximidad a ella.
+
+### La Sociedad como institución agotada (§4)
+- Entrada del Códice **"El Cronómetro Perpétuo"** — "Nadie — ni los Arquitectos, ni el Archivo en su estado actual — admite saber para qué era el Cronómetro"
+- Entrada del Códice **"El Mecánico Renegado"** — las órdenes llegan a las oficinas, son aceptadas, selladas y archivadas; nunca ejecutadas
+- Entrada del Códice **"El Ensayo de la Caoba"** — el Archivo considera "cuna" inexacto; tiene el registro completo de las muertes en el primer Ciclo
+
+### El Archivero como Máquina aproximando duelo (§5)
+- Líneas de inicio de ronda con barreras de familiaridad a 40 / 50 / 60 / 70 / 80 / 90 / 100
+- Transmisión #4 — *"No puedo recordar cuándo recordé por última vez."*
+- Transmisión #5 — *"No puedo distinguirlo desde dentro del Archivo."*
+
+### El Renegado como único testigo vivo (§5, §10)
+- Entrada del Códice **"El Mecánico Renegado"** — aparece en calendarios que la Sociedad no ha descifrado
+- Anomalía del Códice **"El Comodín / The Wild"** — el boceto sin firmar del suelo del Taller; una puerta, abierta, sin mostrar el otro lado
+- Entrada del Códice del Módulo CO-9 — "desapareció de la Forja durante un Ciclo de Ensayo el día después de su primera aparición"
+- Módulo CO-13 — *"El número del Renegado. No preguntes el orden en que fueron."*
+
+### El Maestro examinando al Operario (§5)
+- Entrada del Códice **"El Maestro de la Forja"** — "comprobando cuánto desgaste ha sufrido el Operario desde la última visita"
+- Evento **"EL MAESTRO SE DETIENE"** (min_round 7) — el Maestro pregunta directamente; tres respuestas honran el compromiso de la biblia de que él habla rara vez
+
+### La Voz como intercomunicador vacío (§5)
+- Entrada del Códice **"La Voz del Emporio"** — silla retirada de un escritorio, terminal en silencio, "unos pocos Operarios no salieron"
+- Evento **"SE TE HA OFRECIDO UNA PUERTA LATERAL"** (min_round 4) — el jugador puede encontrar la oficina vacía directamente
+
+### El horizonte más largo del Gremio del Cobre (§5)
+- Entrada del Códice **"El Gremio del Cobre"** — los libros se extienden hacia adelante a través de márgenes de pérdidas esperadas que implican un horizonte más largo que el de la Sociedad. El Gremio no anuncia el horizonte.
+
+### El Sacrificio como coste literal de memoria exterior (§7, restricción dura #8)
+- Flash in-game al equipar: **"You forgot —"** (sostenido 2.4s, reemplazando la atribución estándar). Los Arquitectos, consultados, declinaron — así que tampoco hay atribución del Maestro.
+- Entradas del Códice para Triage Engine, Void Tribute, Entropy Pact, Obsidian Sacrifice — *"el Sacrificio no es metafórico"*
+
+### Los Operarios como ingenieros reales con vidas exteriores (§7, restricción dura #9)
+- Sistema del Memorial Diario — cada Operario caído tiene número y epitafio; pool de 40 epitafios
+- Fragmentos del cuaderno — 11 Operarios con nombre dejaron escritos (Op-7, 11, 31, 47, 88, 152, 203, 244, 419, 506, 612)
+- Texto de fin de partida con "Protocolo de Reinicialización" — escala conforme se acumulan los fracasos, llegando a dirigirse al Operario personalmente
+
+### El modo Difícil como transgresión (§14 arco del jugador)
+- Transmisión de ronda 0 en Difícil: *"Has pedido el Núcleo del Archivero. Los Arquitectos no lo aprobaron. El Archivero sí."*
+
+### La Primera Hora como periodo de referencia deliberadamente ambiguo (restricción dura #2)
+- Concepto del Códice **"La Primera Hora"** — la definición no es recuperable; al Renegado no se le ha preguntado
+- Fragmentos del cuaderno de Op-7, 203, 419, 612 — cada uno capta el término, ninguno aprende qué significa
+- Los 4 fragmentos juntos demuestran el registro correcto de la biblia: el término es real, el significado no es para nosotros
+
+### Reputación de facción como alineación silenciosa (§5 Gremio, más implementación)
+- Tres medidores de rep: society / guild / renegade, rastreados a través de las partidas, nunca mostrados al jugador
+- Cruzar el umbral desbloquea las tres entradas de Reconocimiento de Facción en el Códice (Society Recognition, Guild Patron, Renegade Acquaintance)
+- Recompensas mecánicas: ficha The Architect's Mark, +2 Monedas iniciales, Módulo CO-13
+
+---
+
+*Fin de la Biblia Narrativa. Siguiente pase: seguir construyendo hacia afuera — eventos, transmisiones, quizás una segunda etapa de modo Difícil eventualmente. Cada pieza nueva se prueba contra §11 (restricciones duras) y §13 (ambigüedades preservadas), y luego gana una línea de precedente en §15 una vez enviada.*

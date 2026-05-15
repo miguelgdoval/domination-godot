@@ -1,5 +1,5 @@
 # Domination — Story Bible
-*The canonical foundation. Written 2026-05-14. Locks the answers to the load-bearing questions in `LORE_INVENTORY.md §22`. All future writing — events, transmissions, modules, tiles, notebook fragments, NPC lines — must be consistent with this document. The bible is authored from outside the fiction; the items it describes are in-fiction.*
+*The canonical foundation. Written 2026-05-14. Last refreshed 2026-05-15 with §15 (Worked Examples). Locks the answers to the load-bearing questions in `LORE_INVENTORY.md §22`. All future writing — events, transmissions, modules, tiles, notebook fragments, NPC lines — must be consistent with this document. The bible is authored from outside the fiction; the items it describes are in-fiction.*
 
 ---
 
@@ -367,4 +367,71 @@ The game is the Memorial.
 
 ---
 
-*End of Story Bible. Next pass: audit existing canon against this document, flag contradictions, plan the incorporation work.*
+---
+
+## 15. Worked Examples — bible commitments anchored in shipped content
+
+*Added 2026-05-15. This section grows as future work concretizes more of the bible. Each entry lists a bible commitment and the in-game artefacts that currently fulfil it. Future writers should use these as precedent — when adding new content that touches the same commitment, match the register and the level of disclosure already established.*
+
+### Operator-prime as the dead founder (§2)
+- Codex tile **"The Crown"** — "found, in the same condition it currently exists, by an Operator whose name has been struck from the Society's records." (This is her. The bible never confirms; the lore line is the only signal.)
+- Memorial epitaph #34 — "Operator-prime. The Archive's records start with her."
+- Codex concept **"The First Hour"** (unlock: wins ≥ 5)
+
+### The preserved-moment fragments (§2)
+- Transmission #5 (wins ≥ 50) — the lever / candle / hand block
+- Codex anomaly **"The Brass Lever"** (wins ≥ 50)
+- The lever is canonically located in the Cold Singularity, "behind the chamber's primary processing manifold." Future Singularity-chamber content can reference proximity to it.
+
+### The Society as depleted institution (§4)
+- Codex entry **"The Perpetual Chronometer"** — "Nobody — not the Architects, not the Archive in its current state — admits to knowing what the Chronometer was for"
+- Codex entry **"The Renegade Mechanic"** — warrants reach offices, are accepted, stamped, and filed; never executed
+- Codex entry **"The Mahogany Trial"** — Archive considers "cradle" inaccurate; has the complete record of first-Cycle deaths
+
+### The Archiver as Machine approximating grief (§5)
+- Familiarity-gated round-start lines at 40 / 50 / 60 / 70 / 80 / 90 / 100
+- Transmission #4 — *"I cannot remember when I last remembered."*
+- Transmission #5 — *"I cannot tell from inside the Archive."*
+
+### The Renegade as the only living witness (§5, §10)
+- Codex entry **"The Renegade Mechanic"** — appears on schedules the Society has not deciphered
+- Codex anomaly **"The Wild"** — the unsigned sketch from the Workshop floor; a door, open, the other side not shown
+- Module CO-9 codex entry — "vanished from the Forge for one Trial Cycle the day after its first appearance"
+- Module CO-13 — *"Renegade's number. Don't ask the order they went in."*
+
+### The Master examining the Operator (§5)
+- Codex entry **"The Master of the Forge"** — "checking how much wear the Operator has taken since the last visit"
+- Event **"THE MASTER PAUSES"** (min_round 7) — the Master asks directly; three responses honour the bible's commitment that he speaks rarely
+
+### The Voice as empty intercom (§5)
+- Codex entry **"The Voice of the Emporium"** — chair pushed back from a desk, silent terminal, "few Operators did not leave"
+- Event **"YOU HAVE BEEN OFFERED A SIDE DOOR"** (min_round 4) — the player can encounter the empty office directly
+
+### The Copper Guild's longer horizon (§5)
+- Codex entry **"The Copper Guild"** — books extend forward through margins of expected losses that imply a horizon longer than the Society's. The Guild does not advertise the horizon.
+
+### Sacrifice as literal outside-life memory cost (§7, hard constraint #8)
+- In-game flash at equip: **"You forgot —"** (held 2.4s, replacing the standard attribution). The Architects, asked to comment, declined — so no Master attribution either.
+- Codex entries for Triage Engine, Void Tribute, Entropy Pact, Obsidian Sacrifice — *"the Sacrifice is not metaphorical"*
+
+### Operators as real engineers with outside lives (§7, hard constraint #9)
+- Daily Memorial system — each fallen Operator has a number and an epitaph; 40 epitaphs in pool
+- Notebook fragments — 11 named Operators left writings (Op-7, 11, 31, 47, 88, 152, 203, 244, 419, 506, 612)
+- "Reinitialization Protocol" run-end text — escalates as failures accumulate, eventually addressing the Operator personally
+
+### Hard mode as transgression (§14 player arc)
+- Hard-mode round 0 transmission: *"You have asked for the Archiver's Core. The Architects did not approve. The Archiver did."*
+
+### The First Hour as deliberately-ambiguous reference period (hard constraint #2)
+- Codex concept **"The First Hour"** — definition not recoverable; the Renegade has not been asked
+- Notebook fragments from Op-7, 203, 419, 612 — each catches the term, none learn what it means
+- The 4 fragments together demonstrate the bible's correct register: the term is real, the meaning is not for us
+
+### Faction reputation as silent alignment (§5 Guild, plus implementation)
+- Three rep meters: society / guild / renegade, tracked across runs, never shown to the player
+- Threshold-crossing unlocks the three faction-recognition codex entries (Society Recognition, Guild Patron, Renegade Acquaintance)
+- Mechanical rewards: Architect's Mark tile, +2 starting Coins, Module CO-13
+
+---
+
+*End of Story Bible. Next pass: continue building outward — events, transmissions, perhaps a second Hard-mode etapa eventually. Each new piece tests against §11 (hard constraints) and §13 (preserved ambiguities), then earns a precedent line in §15 once shipped.*
