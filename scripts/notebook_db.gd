@@ -159,6 +159,32 @@ static func all() -> Array[Dictionary]:
 			"text":       "The Archiver speaks differently to those who have failed often. Failure has its uses.",
 			"tag":        TAG_LORE,
 		},
+
+		# ── FIRST HOUR — operators who heard the term and recorded it ───────
+		# The First Hour is the Society's name for the period before its
+		# founding. Past Operators caught the term in passing and wrote it
+		# down. None of them learned what it meant. They are not the only
+		# ones who didn't learn.
+		{
+			"operator_n": 203,
+			"text":       "The Renegade once told me a name. He said it was from the First Hour. I have forgotten it. Of course I have.",
+			"tag":        TAG_LORE,
+		},
+		{
+			"operator_n": 419,
+			"text":       "The Master, drunk once, said the First Hour was \"shorter than they will tell you.\" He did not elaborate. He does not drink anymore.",
+			"tag":        TAG_LORE,
+		},
+		{
+			"operator_n": 612,
+			"text":       "I think the First Hour ended on a Tuesday. I have nothing to base this on.",
+			"tag":        TAG_LORE,
+		},
+		{
+			"operator_n": 7,
+			"text":       "Asked the Archiver about the First Hour. He answered. I have written down what he answered. The paper is blank.",
+			"tag":        TAG_LORE,
+		},
 	]
 
 ## Pick a random fragment. Uses the project RNG, so daily-mode runs are

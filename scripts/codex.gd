@@ -227,6 +227,21 @@ const ENTRIES: Array[Dictionary] = [
 
 	# ─── CONCEPTS ────────────────────────────────────────────────────────
 	{
+		"id": "first_hour", "category": Category.CONCEPTS,
+		"name": "The First Hour",
+		"summary": "A reference period the Society uses without elaborating.",
+		"body":
+"The Chronometer's reference period. The Society's records use this "
++ "term without elaborating. The Architects have no consistent "
++ "definition; the Archive's earliest indices reference \"the First Hour\" "
++ "as a fixed unit, but the unit's length, calendar, and conditions are "
++ "not recoverable.\n\n"
++ "The Renegade has not been asked.\n\n"
++ "The First Hour ended. The Society is what came after.",
+		"unlock": {"type": "wins", "value": 5,
+			"hint": "Recalibrate the Chronometer 5 times."},
+	},
+	{
 		"id": "chronometer", "category": Category.CONCEPTS,
 		"name": "The Perpetual Chronometer",
 		"summary": "The universe, as the Architects understand it.",
@@ -425,6 +440,22 @@ const ENTRIES: Array[Dictionary] = [
 + "three occasions.",
 		"unlock": {"type": "best_round", "value": 4,
 			"hint": "Place a double in a chain."},
+	},
+	{
+		"id": "brass_lever", "category": Category.ANOMALIES,
+		"name": "The Brass Lever",
+		"summary": "Half-pulled, somewhere in the Cold Singularity.",
+		"body":
+"A brass lever, half-pulled, fixed in its half-position for the "
++ "duration of the Memorial. Located somewhere in the Cold Singularity, "
++ "behind the chamber's primary processing manifold.\n\n"
++ "The Architects' inventory marks the position with the note "
++ "\"do not adjust.\" The note has been re-stamped many times. The "
++ "lever has not been adjusted.\n\n"
++ "The Operators who have seen the lever directly do not describe it. "
++ "The Operators who have not seen it imagine it. Neither group is wrong.",
+		"unlock": {"type": "wins", "value": 50,
+			"hint": "Recalibrate the Chronometer 50 times."},
 	},
 
 	# ─── MODULES ─────────────────────────────────────────────────────────

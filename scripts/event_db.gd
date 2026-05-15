@@ -203,6 +203,77 @@ static func all() -> Array[Dictionary]:
 				},
 			],
 		},
+
+		# ── Event 6: The Master Pauses ──────────────────────────────────────
+		# A long-career beat. The Master notices the Operator's accumulated
+		# wear and asks, plainly, after them. Three responses, each a
+		# different way of being seen.
+		{
+			"id":       "master_pauses",
+			"speaker":  "THE MASTER OF THE FORGE",
+			"title":    "AN ASSESSMENT FROM THE WORKSHOP",
+			"body":
+"\"Operator. You may not remember this, but we have had this "
++ "conversation before. I am asking again because the Catalogue is "
++ "paid for; the answer is not. Are you well?\"",
+			"min_round": 7,
+			"choices": [
+				{
+					"label":   "Tell him you are well",
+					"effect":  "none",
+					"param":   0,
+					"outcome": "He nods once. \"I will write it down. For when you forget.\"",
+					"rep":     {"society": 1},
+				},
+				{
+					"label":   "Tell him you are not",
+					"effect":  "gain_module",
+					"param":   Constants.Rarity.BONE,
+					"outcome": "He gives you a Bone Module. No comment.",
+					"rep":     {},
+				},
+				{
+					"label":   "Ask him what he remembers",
+					"effect":  "none",
+					"param":   0,
+					"outcome": "He looks at you a long moment. He does not answer. The Workshop is quiet for the rest of your visit.",
+					"rep":     {"society": 2},
+				},
+			],
+		},
+
+		# ── Event 7: You Have Been Offered a Side Door ──────────────────────
+		# The Voice of the Emporium's empty office, encountered directly.
+		# Speaker is left as an uncatalogued prompt — no one is announcing
+		# this; the door is simply there. Players who have read the Codex
+		# entry on the Voice will know what they're walking into. Players
+		# who haven't will find out.
+		{
+			"id":       "side_door",
+			"speaker":  "AN UNCATALOGUED PROMPT",
+			"title":    "A DOOR HAS OPENED NEAR THE EMPORIUM",
+			"body":
+"\"A door near the Emporium has opened. It was not there last Cycle. "
++ "Whatever is past it is not catalogued. The Operator may, optionally, "
++ "look.\"",
+			"min_round": 4,
+			"choices": [
+				{
+					"label":   "Look",
+					"effect":  "gain_module",
+					"param":   Constants.Rarity.CARVED,
+					"outcome": "A small office. A chair pushed back from a desk. The terminal on the desk is the other side of the Voice. It is silent. On a shelf, a Module someone forgot to retrieve.",
+					"rep":     {},
+				},
+				{
+					"label":   "Walk past",
+					"effect":  "none",
+					"param":   0,
+					"outcome": "The door is gone the next time you check. It was not catalogued.",
+					"rep":     {"society": 1},
+				},
+			],
+		},
 	]
 
 ## Filter the event pool down to events whose `min_round` gate is met by
