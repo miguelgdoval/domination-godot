@@ -1047,6 +1047,25 @@ const ENTRIES: Array[Dictionary] = [
 + "resonance. The Machine does not protest. This is, in itself, alarming.",
 		"unlock": {"type": "event", "value": 0, "hint": "Acquire this tile."},
 	},
+	{
+		"id": "tile_unsigned", "category": Category.TILES,
+		"name": "The Unsigned",
+		"summary": "Attributed to an Operator before the Archive's records.",
+		"body":
+"A 3|3 tile that should be unremarkable. It is not. The Master of "
++ "the Forge stocks it in the rotation without comment, the way he "
++ "stocks the Crown.\n\n"
++ "The Architects' catalogue carries the tile under a temporary "
++ "designation. The designation has not been confirmed. The "
++ "Architects' position is that the attribution paperwork is "
++ "incomplete; the tile may be re-classified in a subsequent Cycle. "
++ "The tile has not been re-classified in any prior Cycle.\n\n"
++ "Operators who own both the Crown and the Unsigned have remarked "
++ "that the materials, on close inspection, are not quite alike. "
++ "The Master, asked to confirm this, examined them both and offered "
++ "no opinion.",
+		"unlock": {"type": "event", "value": 0, "hint": "Acquire this tile."},
+	},
 
 	# ─── FAILURES ────────────────────────────────────────────────────────
 	{
@@ -1142,6 +1161,26 @@ const ENTRIES: Array[Dictionary] = [
 + "fact. I have chosen to do so. There will be further transmissions.\"",
 		"unlock": {"type": "wins", "value": 5,
 			"hint": "Recalibrate the Chronometer 5 times."},
+	},
+	{
+		"id": "architects_memo", "category": Category.TRANSMISSIONS,
+		"name": "Memo from the Office of the Architects",
+		"summary": "A bureaucratic notification. The first Architect-attributed communication.",
+		"body":
+"\"Operator-designate.\n\n"
++ "This communication is issued by the Office of the Architects, "
++ "pursuant to Standard Operator Notification Protocol, paragraph 9c.\n\n"
++ "Your continued service is acknowledged. Your file is current.\n\n"
++ "The Office is required to confirm, on the tenth Recalibration of any "
++ "registered Operator, that the Operator remains in good standing with "
++ "respect to the Catalogue, the Protocol, and the Society's continuing "
++ "operational concerns.\n\n"
++ "You are in good standing. This communication may be filed by the "
++ "Operator at the Operator's discretion. The Office does not retain a "
++ "copy.\n\n"
++ "End of communication.\"",
+		"unlock": {"type": "wins", "value": 10,
+			"hint": "Recalibrate the Chronometer 10 times."},
 	},
 	{
 		"id": "transmission_2", "category": Category.TRANSMISSIONS,

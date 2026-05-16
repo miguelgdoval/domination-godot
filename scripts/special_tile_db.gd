@@ -18,6 +18,7 @@ static func all() -> Array[Domino]:
 		_bridge(),
 		_pinnacle(),
 		_crown(),
+		_unsigned(),
 	]
 	if SaveManager != null and SaveManager.is_faction_unlocked("society"):
 		pool.append(_architects_mark())
@@ -132,4 +133,16 @@ static func _architects_mark() -> Domino:
 	d.custom_name    = "The Architect's Mark"
 	d.bonus_chips    = 12
 	d.lore_text      = "\"Awarded only to Operators who have demonstrated alignment with the Society's calibration philosophy.\""
+	return d
+
+## The Unsigned — a 3|3 with +6 bonus chips, Ivory rarity. Quietly
+## attributed to Operator-prime per STORY_BIBLE §5 — never names her,
+## but readers who have unlocked the Crown's codex entry will notice
+## the same pattern: "before the Archive's records." A centerpiece
+## double (3|3) feels modest; the weight is in the attribution.
+static func _unsigned() -> Domino:
+	var d := Domino.new(3, 3, Constants.Rarity.IVORY)
+	d.custom_name    = "The Unsigned"
+	d.bonus_chips    = 6
+	d.lore_text      = "\"Attributed to an Operator before the Archive's records. The Archive does not recognise the attribution. The tile remains.\""
 	return d

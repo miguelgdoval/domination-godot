@@ -1,5 +1,5 @@
 # Domination — Biblia Narrativa
-*El fundamento canónico. Escrita el 2026-05-14. §15 actualizada por última vez el 2026-05-15 con la tanda del Arco de Carrera Larga (Transmisiones #6-#8, métrica de pérdida de memoria, fragmentos del cuaderno de carrera tardía). Es la traducción al español de `STORY_BIBLE.md` y debe mantenerse sincronizada con ella. Toda escritura futura — eventos, transmisiones, módulos, fichas, fragmentos del cuaderno, líneas de NPCs — debe ser coherente con este documento. La biblia se escribe desde fuera de la ficción; los elementos que describe son ficción interna.*
+*El fundamento canónico. Escrita el 2026-05-14. §15 actualizada por última vez el 2026-05-16 con la tanda del Reparto Subexpuesto (evento del Gremio del Cobre, ficha "The Unsigned", memo de la Oficina de los Arquitectos). Es la traducción al español de `STORY_BIBLE.md` y debe mantenerse sincronizada con ella. Toda escritura futura — eventos, transmisiones, módulos, fichas, fragmentos del cuaderno, líneas de NPCs — debe ser coherente con este documento. La biblia se escribe desde fuera de la ficción; los elementos que describe son ficción interna.*
 
 ---
 
@@ -375,6 +375,7 @@ El juego es el Memorial.
 
 ### La Operaria-prima como fundadora muerta (§2)
 - Ficha del Códice **"La Marca del Arquitecto / The Crown"** — "encontrada, en la misma condición en que existe actualmente, por una Operaria cuyo nombre ha sido tachado de los registros de la Sociedad." (Es ella. La biblia nunca lo confirma; la línea de lore es la única señal.)
+- Ficha del Códice **"The Unsigned"** — "Atribuida a una Operaria anterior a los registros del Archivo." Segunda referencia indirecta. Empareja con la Corona para los lectores atentos — mismo patrón, materiales distintos.
 - Epitafio del Memorial #34 — "Operario-prima. Los registros del Archivo empiezan con ella."
 - Concepto del Códice **"La Primera Hora / The First Hour"** (desbloqueo: 5 victorias)
 
@@ -412,6 +413,10 @@ El juego es el Memorial.
 
 ### El horizonte más largo del Gremio del Cobre (§5)
 - Entrada del Códice **"El Gremio del Cobre"** — los libros se extienden hacia adelante a través de márgenes de pérdidas esperadas que implican un horizonte más largo que el de la Sociedad. El Gremio no anuncia el horizonte.
+- Evento **"UNA CUENTA PÓSTUMA"** (min_round 5) — el Gremio ofrece transferir un saldo no reclamado de un Operario caído. Tres opciones, todas involucrando "el sello del titular" — saca a la luz a los Operarios del Memorial Diario como personas reales cuyas cuentas persisten en los libros del Gremio después de su Ciclo final.
+
+### Los Arquitectos como institución titular (§4)
+- Entrada del Códice **"Memo de la Oficina de los Arquitectos"** (desbloqueo: 10 victorias) — primera y posiblemente única comunicación atribuida a los Arquitectos. Burocrática, formulaica, agotada. La Oficina "no conserva copia." Se lee como un memo de una institución mayoritariamente vacía.
 
 ### El Sacrificio como coste literal de memoria exterior (§7, restricción dura #8)
 - Flash in-game al equipar: **"You forgot —"** (sostenido 2.4s, reemplazando la atribución estándar). Los Arquitectos, consultados, declinaron — así que tampoco hay atribución del Maestro.

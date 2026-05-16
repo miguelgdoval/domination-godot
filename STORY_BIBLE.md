@@ -1,5 +1,5 @@
 # Domination — Story Bible
-*The canonical foundation. Written 2026-05-14. §15 last refreshed 2026-05-15 with the Long Career Arc batch (Transmissions #6-#8, memory-loss metric, deep-career notebook fragments). Locks the answers to the load-bearing questions in `LORE_INVENTORY.md §22`. All future writing — events, transmissions, modules, tiles, notebook fragments, NPC lines — must be consistent with this document. The bible is authored from outside the fiction; the items it describes are in-fiction.*
+*The canonical foundation. Written 2026-05-14. §15 last refreshed 2026-05-16 with the Underexposed Cast batch (Copper Guild event, The Unsigned tile, Office of the Architects memo). Locks the answers to the load-bearing questions in `LORE_INVENTORY.md §22`. All future writing — events, transmissions, modules, tiles, notebook fragments, NPC lines — must be consistent with this document. The bible is authored from outside the fiction; the items it describes are in-fiction.*
 
 ---
 
@@ -375,6 +375,7 @@ The game is the Memorial.
 
 ### Operator-prime as the dead founder (§2)
 - Codex tile **"The Crown"** — "found, in the same condition it currently exists, by an Operator whose name has been struck from the Society's records." (This is her. The bible never confirms; the lore line is the only signal.)
+- Codex tile **"The Unsigned"** — "Attributed to an Operator before the Archive's records." Second indirect reference. Pairs with the Crown for attentive readers — same pattern, different materials.
 - Memorial epitaph #34 — "Operator-prime. The Archive's records start with her."
 - Codex concept **"The First Hour"** (unlock: wins ≥ 5)
 
@@ -412,6 +413,10 @@ The game is the Memorial.
 
 ### The Copper Guild's longer horizon (§5)
 - Codex entry **"The Copper Guild"** — books extend forward through margins of expected losses that imply a horizon longer than the Society's. The Guild does not advertise the horizon.
+- Event **"A POSTHUMOUS ACCOUNT"** (min_round 5) — the Guild offers to transfer an unclaimed balance from a fallen Operator. Three choices, all involving "the holder's seal" — surfaces the Daily Memorial Operators as real people whose accounts persist in the Guild's books after their final Cycle.
+
+### The Architects as titular institution (§4)
+- Codex entry **"Memo from the Office of the Architects"** (unlock: wins ≥ 10) — first and possibly only Architect-attributed communication. Bureaucratic, formulaic, depleted. The Office "does not retain a copy." Reads as a memo from an institution mostly empty.
 
 ### Sacrifice as literal outside-life memory cost (§7, hard constraint #8)
 - In-game flash at equip: **"You forgot —"** (held 2.4s, replacing the standard attribution). The Architects, asked to comment, declined — so no Master attribution either.

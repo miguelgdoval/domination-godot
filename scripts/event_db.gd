@@ -274,6 +274,50 @@ static func all() -> Array[Dictionary]:
 				},
 			],
 		},
+
+		# ── Event 8: A Posthumous Account ───────────────────────────────────
+		# The Copper Guild speaking for the first time outside of the
+		# audit event. They hold unclaimed Coins from a previous fallen
+		# Operator and offer to transfer the balance to a current Operator.
+		# The "holder's seal" detail surfaces a Daily Memorial Operator
+		# as a real person whose account persists in the Guild's books
+		# after their final Cycle. Per STORY_BIBLE §5: "a quantity of
+		# unspent Coins from dead Operators that the Guild has accumulated
+		# over millennia."
+		{
+			"id":       "posthumous_account",
+			"speaker":  "THE COPPER GUILD",
+			"title":    "A POSTHUMOUS ACCOUNT",
+			"body":
+"\"Operator. An account in our books has gone unclaimed. The holder "
++ "did not complete their final Cycle. The balance was moderate. The "
++ "contract permits transfer to a current Operator under specified "
++ "conditions. You are eligible.\"",
+			"min_round": 5,
+			"choices": [
+				{
+					"label":   "Accept the transfer",
+					"effect":  "gain_coins",
+					"param":   7,
+					"outcome": "The account is closed. The balance, plus the holder's seal, is now yours.",
+					"rep":     {"guild": 1},
+				},
+				{
+					"label":   "Accept only if the seal returns to the holder's record",
+					"effect":  "gain_coins",
+					"param":   4,
+					"outcome": "The Guild does not return seals. The transfer proceeds. The seal stays with you, despite your request.",
+					"rep":     {"society": 2},
+				},
+				{
+					"label":   "Refuse the transfer",
+					"effect":  "none",
+					"param":   0,
+					"outcome": "The account remains unclaimed. The Guild's books note the refusal as a deferred margin.",
+					"rep":     {"society": 1},
+				},
+			],
+		},
 	]
 
 ## Filter the event pool down to events whose `min_round` gate is met by
