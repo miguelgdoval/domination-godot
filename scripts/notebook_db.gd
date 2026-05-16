@@ -212,6 +212,18 @@ static func all() -> Array[Dictionary]:
 			"text":       "They said Operator-prime never spoke at the Window. I doubt this. She would have spoken. I think we have just forgotten what she said.",
 			"tag":        TAG_LORE,
 		},
+
+		# ── Hidden Workshop — written by an Operator who tried ──────────────
+		# Surfaces the Hidden Workshop's existence to players who haven't
+		# yet received the Workbench invitation. Pairs with the Codex
+		# entry "The Hidden Workshop." Op-47 (otherwise an accurate-hint
+		# voice) writes one lore fragment about following the Renegade
+		# — establishing that the corridors are real, the route forgettable.
+		{
+			"operator_n": 47,
+			"text":       "Followed the Renegade once. The corridors went somewhere I cannot describe. I returned to the Window with the Cycle clock unchanged. The Master, who saw me return, said nothing.",
+			"tag":        TAG_LORE,
+		},
 	]
 
 ## Pick a random fragment. Uses the project RNG, so daily-mode runs are

@@ -318,13 +318,67 @@ static func all() -> Array[Dictionary]:
 				},
 			],
 		},
+
+		# ── Event 9: From the Workbench ─────────────────────────────────────
+		# Faction-locked to renegade. Only fires after the Operator has
+		# earned the Renegade's trust (rep ≥ 10). Surfaces the Hidden
+		# Workshop the bible §10 commits to: the place the Renegade
+		# vanishes between visits, with unfinished projects on the bench.
+		# This event also unlocks the corresponding Codex entry on first
+		# fire — see main.gd `_maybe_trigger_event_terminal`.
+		{
+			"id":       "workbench",
+			"speaker":  "THE RENEGADE MECHANIC",
+			"title":    "FROM THE WORKBENCH",
+			"requires_faction": "renegade",
+			"body":
+"\"Operator. I am, today, at the workshop. The other workshop. I have "
++ "something here that I do not want to bring back to the Forge. I "
++ "thought of you. You may collect it now, briefly. The route will "
++ "not be remembered.\"",
+			"min_round": 8,
+			"choices": [
+				{
+					"label":   "Accept the invitation",
+					"effect":  "gain_module",
+					"param":   Constants.Rarity.OBSIDIAN,
+					"outcome": "He hands it over. The route from the Workshop to the Window takes you through three corridors you cannot describe afterwards. The Module is yours.",
+					"rep":     {"renegade": 2},
+				},
+				{
+					"label":   "Decline. \"Some other Cycle.\"",
+					"effect":  "none",
+					"param":   0,
+					"outcome": "He shrugs. \"It will be here. So will I.\"",
+					"rep":     {"society": 1},
+				},
+				{
+					"label":   "Ask about the workshop",
+					"effect":  "none",
+					"param":   0,
+					"outcome": "He gives you a look. \"You would not be able to find your way home from there. I would have to bring you back. I will not offer that twice.\" The conversation ends.",
+					"rep":     {"society": 1},
+				},
+			],
+		},
 	]
 
-## Filter the event pool down to events whose `min_round` gate is met by
-## the current round_index. Returns a fresh Array (safe to shuffle).
+## Filter the event pool down to events eligible at the current
+## round_index. Filters by:
+##   • `min_round` — event's round_index gate
+##   • `requires_faction` (optional) — event-db entry can declare a
+##     faction whose silent-rep threshold must be unlocked first.
+##     Used for events that depict relationships the player has
+##     earned (e.g. the Renegade's Hidden Workshop visit).
+##
+## Returns a fresh Array (safe to shuffle).
 static func eligible(round_index: int) -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
 	for e in all():
-		if int(e.get("min_round", 0)) <= round_index:
-			result.append(e)
+		if int(e.get("min_round", 0)) > round_index:
+			continue
+		var rf: String = String(e.get("requires_faction", ""))
+		if not rf.is_empty() and not SaveManager.is_faction_unlocked(rf):
+			continue
+		result.append(e)
 	return result

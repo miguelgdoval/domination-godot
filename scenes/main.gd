@@ -3231,6 +3231,12 @@ func _maybe_trigger_event_terminal() -> bool:
 	# their event fires, so the lore page becomes available on first
 	# encounter regardless of milestone gates.
 	SaveManager.unlock_codex("archiver")
+	# Event-specific codex unlocks — when a faction-locked event surfaces
+	# a previously-unrevealed location (the Renegade's Hidden Workshop),
+	# unlock the matching Codex entry on first fire. The player learns
+	# the place exists by being invited to it.
+	if String(_event_pending.get("id", "")) == "workbench":
+		SaveManager.unlock_codex("hidden_workshop")
 	_show_event_terminal(_event_pending)
 	return true
 

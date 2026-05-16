@@ -1,5 +1,5 @@
 # Domination — Biblia Narrativa
-*El fundamento canónico. Escrita el 2026-05-14. §15 actualizada por última vez el 2026-05-16 con la tanda del Reparto Subexpuesto (evento del Gremio del Cobre, ficha "The Unsigned", memo de la Oficina de los Arquitectos). Es la traducción al español de `STORY_BIBLE.md` y debe mantenerse sincronizada con ella. Toda escritura futura — eventos, transmisiones, módulos, fichas, fragmentos del cuaderno, líneas de NPCs — debe ser coherente con este documento. La biblia se escribe desde fuera de la ficción; los elementos que describe son ficción interna.*
+*El fundamento canónico. Escrita el 2026-05-14. §15 actualizada por última vez el 2026-05-16 con la tanda del Taller Oculto (evento con barrera de facción, nueva entrada de Lugar en el Códice, fragmento del cuaderno de Op-47). Es la traducción al español de `STORY_BIBLE.md` y debe mantenerse sincronizada con ella. Toda escritura futura — eventos, transmisiones, módulos, fichas, fragmentos del cuaderno, líneas de NPCs — debe ser coherente con este documento. La biblia se escribe desde fuera de la ficción; los elementos que describe son ficción interna.*
 
 ---
 
@@ -402,6 +402,9 @@ El juego es el Memorial.
 - Anomalía del Códice **"El Comodín / The Wild"** — el boceto sin firmar del suelo del Taller; una puerta, abierta, sin mostrar el otro lado
 - Entrada del Códice del Módulo CO-9 — "desapareció de la Forja durante un Ciclo de Ensayo el día después de su primera aparición"
 - Módulo CO-13 — *"El número del Renegado. No preguntes el orden en que fueron."*
+- Lugar del Códice **"El Taller Oculto"** — desbloqueado por el evento de invitación del Banco de Trabajo. Los pasillos más allá del Taller del Artesano se ramifican de formas que los mapas de la Sociedad no representan.
+- Evento **"DESDE EL BANCO DE TRABAJO"** (min_round 8, requires_faction renegade) — el Renegado invita brevemente al Operario, el camino no se recuerda después. Con barrera de facción: solo se activa para Operarios que han ganado la Confianza del Renegado.
+- Fragmento del cuaderno de **Op-47** — siguió al Renegado una vez. El Maestro, que vio el regreso, no dijo nada.
 
 ### El Maestro examinando al Operario (§5)
 - Entrada del Códice **"El Maestro de la Forja"** — "comprobando cuánto desgaste ha sufrido el Operario desde la última visita"

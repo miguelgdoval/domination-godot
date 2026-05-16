@@ -1,5 +1,5 @@
 # Domination — Story Bible
-*The canonical foundation. Written 2026-05-14. §15 last refreshed 2026-05-16 with the Underexposed Cast batch (Copper Guild event, The Unsigned tile, Office of the Architects memo). Locks the answers to the load-bearing questions in `LORE_INVENTORY.md §22`. All future writing — events, transmissions, modules, tiles, notebook fragments, NPC lines — must be consistent with this document. The bible is authored from outside the fiction; the items it describes are in-fiction.*
+*The canonical foundation. Written 2026-05-14. §15 last refreshed 2026-05-16 with the Hidden Workshop batch (faction-gated event, new Codex place, Op-47 notebook fragment). Locks the answers to the load-bearing questions in `LORE_INVENTORY.md §22`. All future writing — events, transmissions, modules, tiles, notebook fragments, NPC lines — must be consistent with this document. The bible is authored from outside the fiction; the items it describes are in-fiction.*
 
 ---
 
@@ -402,6 +402,9 @@ The game is the Memorial.
 - Codex anomaly **"The Wild"** — the unsigned sketch from the Workshop floor; a door, open, the other side not shown
 - Module CO-9 codex entry — "vanished from the Forge for one Trial Cycle the day after its first appearance"
 - Module CO-13 — *"Renegade's number. Don't ask the order they went in."*
+- Codex place **"The Hidden Workshop"** — unlocked by the Workbench invitation event. The corridors past the Artisan's Workshop branch in ways the Society's maps do not depict.
+- Event **"FROM THE WORKBENCH"** (min_round 8, requires_faction renegade) — the Renegade invites the Operator briefly, the route not remembered afterward. Faction-gated: only fires for Operators who have earned Renegade Acquaintance.
+- Notebook fragment from **Op-47** — followed the Renegade once. The Master, who saw the return, said nothing.
 
 ### The Master examining the Operator (§5)
 - Codex entry **"The Master of the Forge"** — "checking how much wear the Operator has taken since the last visit"

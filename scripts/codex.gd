@@ -224,6 +224,27 @@ const ENTRIES: Array[Dictionary] = [
 		"unlock": {"type": "hard_wins", "value": 1,
 			"hint": "Recalibrate on Hard difficulty."},
 	},
+	{
+		"id": "hidden_workshop", "category": Category.PLACES,
+		"name": "The Hidden Workshop",
+		"summary": "The place the Renegade Mechanic goes when he is not at the Forge.",
+		"body":
+"Operators who follow the Renegade after his visits do not find it. "
++ "The corridors past the Artisan's Workshop branch in ways the "
++ "Society's maps do not depict; the Operator who follows soon loses "
++ "their bearings and arrives back at the Window with no memory of "
++ "the intervening minutes.\n\n"
++ "Operators who do not follow sometimes find evidence — a chisel "
++ "mark on a corridor wall, a scrap of unsigned paper, a small pile "
++ "of brass shavings in an alcove not catalogued by the Architects' "
++ "inventory. The evidence does not lead anywhere.\n\n"
++ "The Workshop exists. The Renegade returns to it. He does not "
++ "invite Operators to it, except very rarely, and then only briefly, "
++ "and the Operator who is invited does not, afterward, remember "
++ "the route.",
+		"unlock": {"type": "event", "value": 0,
+			"hint": "Receive an invitation from the Renegade Mechanic."},
+	},
 
 	# ─── CONCEPTS ────────────────────────────────────────────────────────
 	{
