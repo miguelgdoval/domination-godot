@@ -8515,6 +8515,14 @@ func _build_selection_overlay(
 		thumb_grid.add_child(thumb)
 		out_cards.append(thumb)
 
+	# Right-edge breathing room for the thumbnail column. The outer
+	# panel's content_margin_right gives the panel-level border its
+	# own margin; this spacer adds an additional gap of parchment
+	# between the rightmost thumbnail and that border.
+	var thumb_right_pad := Control.new()
+	thumb_right_pad.custom_minimum_size = Vector2(40, 0)
+	gallery.add_child(thumb_right_pad)
+
 	# Populate the featured pane with the initial selection (always 0;
 	# `_pending_core` / `_pending_protocol` are reset to 0 on entry).
 	_refresh_selection_featured(featured_pane, 0)
