@@ -6159,6 +6159,14 @@ func _build_ui() -> void:
 
 	_title_overlay = _build_title_overlay()
 	ui.add_child(_title_overlay)
+	# Title overlay stays visible behind selection screens (core, protocol,
+	# tile removal) so the hero scene + dust + bloom carry through setup.
+	# But _tile_removal_overlay / _shop_overlay / _result_overlay / etc.
+	# were added BEFORE title in this _ready, which means title renders on
+	# top of them. Push title down to index 1 (just above the gameplay
+	# root VBox) so every modal added later in this function renders above
+	# it correctly.
+	ui.move_child(_title_overlay, 1)
 
 	_settings_overlay = _build_settings_overlay()
 	ui.add_child(_settings_overlay)
