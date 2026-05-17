@@ -419,6 +419,14 @@ var _tile_face_tex: Texture2D = null
 
 # UI references — title / selection overlays
 var _title_overlay:        Control
+## Per-session flag: fold-in animation plays once. Returns to the title
+## (e.g. quit-to-title from mid-run) skip the animation and show the
+## screen instantly.
+var _title_intro_played:   bool  = false
+## Ordered list of controls the fold-in animates, populated in
+## `_build_title_overlay`. Index meaning: 0=logo, 1=wordmark, 2=tagline,
+## 3=rule, 4=lore, 5=menu, 6=meta_row, 7=settings.
+var _title_intro_elements: Array = []
 var _core_select_overlay:  Control
 var _proto_select_overlay: Control
 var _btn_continue_run:     Button   # shown only when SaveManager has a saved run
@@ -569,11 +577,62 @@ func _show_title() -> void:
 	# Daily Trial: one attempt per calendar day. Locked once today's
 	# attempt has been recorded; the button re-labels to show the result.
 	_refresh_daily_trial_button()
+	# Fold-in animation — plays only the first time the title is shown
+	# this session. Returns to the title (quit-to-title) skip the
+	# animation and snap to full visibility instead.
+	_play_title_intro()
+
+## Staged fade-in for the title screen's content. Atmosphere layers and
+## the screen frame stay visible throughout — only the foreground
+## elements (logo, wordmark, menu, etc.) animate in. Registered as a
+## skippable cinematic so any key/click fast-forwards it.
+func _play_title_intro() -> void:
+	if _title_intro_played:
+		# Already played — guarantee everything is fully visible in case
+		# the player quit to title mid-animation last time.
+		for el in _title_intro_elements:
+			if el != null and is_instance_valid(el):
+				el.modulate.a = 1.0
+		return
+	_title_intro_played = true
+	# Each row: [intro_elements index, start delay, fade duration].
+	var stages: Array = [
+		[0, 0.00, 0.60],   # logomark
+		[1, 0.30, 0.50],   # wordmark
+		[2, 0.55, 0.40],   # tagline
+		[3, 0.80, 0.35],   # engraved rule
+		[4, 1.00, 0.40],   # lore
+		[5, 1.35, 0.50],   # menu
+		[6, 1.60, 0.40],   # meta row
+		[7, 1.85, 0.30],   # settings gear
+	]
+	for el in _title_intro_elements:
+		if el != null and is_instance_valid(el):
+			el.modulate.a = 0.0
+	var t := create_tween()
+	t.set_parallel(true)
+	for stage in stages:
+		var idx: int = stage[0]
+		if idx >= _title_intro_elements.size():
+			continue
+		var el = _title_intro_elements[idx]
+		if el == null or not is_instance_valid(el):
+			continue
+		var delay: float = stage[1]
+		var dur: float   = stage[2]
+		t.tween_property(el, "modulate:a", 1.0, dur) \
+			.set_delay(delay) \
+			.set_trans(Tween.TRANS_SINE) \
+			.set_ease(Tween.EASE_OUT)
+	_register_cinematic(t)
 
 func _on_title_start_pressed() -> void:
 	_pending_core     = 0
 	_pending_protocol = 0
-	_title_overlay.hide()
+	# Keep the title overlay visible behind the selection screens — the
+	# hero scene, dust, bloom heartbeat, and screen frame all continue
+	# running while the player picks a Core and a Protocol. Title is
+	# hidden once actual gameplay begins (see _begin_round_play).
 	_refresh_core_cards()
 	_core_select_overlay.show()
 
@@ -2018,6 +2077,11 @@ func _begin_round_play() -> void:
 	_phase = Phase.PLAYING
 	_scoring_active = false
 	_selected_tiles.clear()
+	# Title overlay stays visible through Core / Protocol / Tile-Removal
+	# (so the hero scene and dust carry through setup); hide it now that
+	# real gameplay starts and the HUD becomes the dominant surface.
+	if _title_overlay != null:
+		_title_overlay.hide()
 
 	# Run timer: start on the FIRST round of a fresh run. Subsequent
 	# rounds (post-shop, etc.) don't reset — the timer measures total
@@ -7306,60 +7370,488 @@ func _build_artisan_section() -> Control:
 	return vbox
 
 # ---- Title overlay ----
+
+const LOGOMARK_PATH := "res://assets/branding/logomark.png"
+const BRACKET_PATH  := "res://assets/branding/corner_bracket.png"
+const FLOURISH_PATH := "res://assets/branding/flourish.png"
+const WOOD_BG_PATH  := "res://assets/branding/wood_bg.png"
+const HERO_BG_PATH  := "res://assets/branding/hero_bg.png"
+const BRASS_PATH    := "res://assets/branding/brass_plate.png"
+const BRANDING_MASK_THRESHOLD: int = 20   # ≈ 0.08 normalised — covers anti-alias halos around the gold mark
+
+## Load a brass-on-black brand asset with the source's black background
+## masked to alpha. Used for the logomark, corner bracket, flourish, and
+## the meta-row icons — every asset the AI generates on a solid black
+## backdrop. Returns null when the asset is absent. Masking runs once
+## per load; cache the returned Texture2D if you'll use it more than once.
+func _load_branding_masked(path: String) -> Texture2D:
+	if not ResourceLoader.exists(path):
+		return null
+	var src: Texture2D = load(path)
+	var img: Image = src.get_image()
+	if img == null:
+		return src
+	if img.is_compressed():
+		img.decompress()
+	img.convert(Image.FORMAT_RGBA8)
+	# Byte-buffer walk: ~30× faster than per-pixel get/set on a 1024² source.
+	var data := img.get_data()
+	var n := data.size()
+	var i := 0
+	while i < n:
+		if data[i] < BRANDING_MASK_THRESHOLD \
+		   and data[i + 1] < BRANDING_MASK_THRESHOLD \
+		   and data[i + 2] < BRANDING_MASK_THRESHOLD:
+			data[i + 3] = 0
+		i += 4
+	var masked := Image.create_from_data(
+		img.get_width(), img.get_height(), false, Image.FORMAT_RGBA8, data)
+	return ImageTexture.create_from_image(masked)
+
+func _load_logomark_texture() -> Texture2D:
+	return _load_branding_masked(LOGOMARK_PATH)
+
+## Build a StyleBoxTexture pointing at the brass plate, with an optional
+## colour tint (modulates the texture) and content margins. Returns null
+## when the brass asset isn't present; callers should keep their
+## procedural fallback in that case.
+func _make_brass_stylebox(tint: Color = Color.WHITE, margin: int = 12) -> StyleBox:
+	if not ResourceLoader.exists(BRASS_PATH):
+		return null
+	var sbt := StyleBoxTexture.new()
+	sbt.texture = load(BRASS_PATH)
+	sbt.modulate_color = tint
+	sbt.set_content_margin_all(margin)
+	return sbt
+
+## Overlay a coloured rectangular border on top of a Button. Used to
+## restore per-section accent colours over brass-textured buttons since
+## StyleBoxTexture has no border properties of its own.
+func _add_button_border(btn: Button, color: Color, width: float = 2.0) -> void:
+	var b := Control.new()
+	b.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	b.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.draw.connect(func() -> void:
+		if is_instance_valid(b):
+			b.draw_rect(Rect2(Vector2.ZERO, b.size), color, false, width))
+	btn.add_child(b)
+
+## Swap a button's normal+hover styleboxes for brass-plate textures and
+## overlay a coloured border in the supplied accent. Idempotent: safe to
+## call after the button's existing StyleBoxFlat overrides — brass wins
+## when the asset is present, the original flat fill stays otherwise.
+## `tint` multiplies the brass texture (Color.WHITE = unaltered brass).
+func _apply_brass_style(btn: Button, border_color: Color,
+		tint: Color = Color.WHITE, border_width: int = 2, margin: int = 10) -> void:
+	var normal_sb := _make_brass_stylebox(tint, margin)
+	if normal_sb == null:
+		return
+	btn.add_theme_stylebox_override("normal", normal_sb)
+	var hover_tint := Color(
+		min(tint.r + 0.10, 1.0),
+		min(tint.g + 0.10, 1.0),
+		min(tint.b + 0.10, 1.0),
+		tint.a)
+	var hover_sb := _make_brass_stylebox(hover_tint, margin)
+	btn.add_theme_stylebox_override("hover", hover_sb)
+	_add_button_border(btn, border_color, border_width)
+
+## Procedural draw callback — fallback for when the canonical PNG is
+## missing. Reproduces the brand composition: octagon outline, central
+## spine, single upper-left pip, empty bottom half.
+func _draw_logomark(c: Control, size: int, color: Color) -> void:
+	var stroke: float = maxf(2.0, size * 0.045)
+	var pip_r: float  = size * 0.07
+	var inner: float  = size * 0.5 - stroke
+	var center := Vector2(size, size) * 0.5
+	var pts: PackedVector2Array = []
+	for k in range(8):
+		var a := PI / 8.0 + k * PI / 4.0
+		pts.append(center + Vector2(cos(a), sin(a)) * inner)
+	pts.append(pts[0])
+	c.draw_polyline(pts, color, stroke, true)
+	var div_l := Vector2(center.x - inner * 0.92, center.y)
+	var div_r := Vector2(center.x + inner * 0.92, center.y)
+	c.draw_line(div_l, div_r, color, stroke, true)
+	c.draw_circle(center + Vector2(-inner * 0.34, -inner * 0.45), pip_r, color)
+
+func _build_procedural_logomark(size: int, color: Color = C_TITLE_GLOW) -> Control:
+	var c := Control.new()
+	c.custom_minimum_size = Vector2(size, size)
+	c.draw.connect(_draw_logomark.bind(c, size, color))
+	return c
+
+## Draw a filled octagon that fills the Control's current size — used
+## as a dark backing plate behind the logomark so its transparent
+## interior doesn't show the busy mechanism BG bleeding through.
+func _draw_octagon_backing(c: Control, color: Color) -> void:
+	var sz: Vector2 = c.size
+	var radius: float = min(sz.x, sz.y) * 0.48
+	var center: Vector2 = sz * 0.5
+	var pts: PackedVector2Array = []
+	for k in range(8):
+		var a := PI / 8.0 + k * PI / 4.0
+		pts.append(center + Vector2(cos(a), sin(a)) * radius)
+	c.draw_colored_polygon(pts, color)
+
+## Build a full-rect TextureRect filled with a radial gradient between
+## two colors. Used by the title overlay's atmosphere layers (warm glow
+## centred on the logomark, dark corner vignette). Mouse passes through.
+func _make_radial_overlay(fill_from: Vector2, fill_to: Vector2,
+		inner: Color, outer: Color) -> TextureRect:
+	var grad := Gradient.new()
+	grad.set_color(0, inner)
+	grad.set_color(1, outer)
+	var tex := GradientTexture2D.new()
+	tex.gradient  = grad
+	tex.fill      = GradientTexture2D.FILL_RADIAL
+	tex.fill_from = fill_from
+	tex.fill_to   = fill_to
+	tex.width  = 640
+	tex.height = 360
+	var tr := TextureRect.new()
+	tr.texture      = tex
+	tr.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
+	tr.stretch_mode = TextureRect.STRETCH_SCALE
+	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tr.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	return tr
+
+## Same as `_make_radial_overlay` but with a linear gradient — useful
+## for darkening strips along an edge (e.g., pushing the lower section
+## of the hero illustration back so meta-row icons read clearly).
+func _make_linear_overlay(fill_from: Vector2, fill_to: Vector2,
+		inner: Color, outer: Color) -> TextureRect:
+	var grad := Gradient.new()
+	grad.set_color(0, inner)
+	grad.set_color(1, outer)
+	var tex := GradientTexture2D.new()
+	tex.gradient  = grad
+	tex.fill      = GradientTexture2D.FILL_LINEAR
+	tex.fill_from = fill_from
+	tex.fill_to   = fill_to
+	tex.width  = 640
+	tex.height = 360
+	var tr := TextureRect.new()
+	tr.texture      = tex
+	tr.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
+	tr.stretch_mode = TextureRect.STRETCH_SCALE
+	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tr.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	return tr
+
+## Draws the brass hairline frame inset 24px from screen edges. Corner
+## ornaments are NOT drawn here — they're added as child TextureRects
+## by `_build_title_frame` (one per corner of corner_bracket.png with
+## appropriate horizontal/vertical flips).
+func _draw_title_frame(c: Control) -> void:
+	var w := c.size.x
+	var h := c.size.y
+	var inset: float  = 24.0
+	var stroke: float = 1.0
+	var line_col  := Color(0.45, 0.36, 0.18, 0.55)
+	var top: float    = inset
+	var bottom: float = h - inset
+	var left: float   = inset
+	var right: float  = w - inset
+	c.draw_line(Vector2(left, top),    Vector2(right, top),    line_col, stroke, true)
+	c.draw_line(Vector2(left, bottom), Vector2(right, bottom), line_col, stroke, true)
+	c.draw_line(Vector2(left, top),    Vector2(left, bottom),  line_col, stroke, true)
+	c.draw_line(Vector2(right, top),   Vector2(right, bottom), line_col, stroke, true)
+
+## Build the screen-frame Control: hairline border (procedural) +
+## corner_bracket.png at each of the four corners (texture). The
+## bracket image is upper-left-only by design — flip_h / flip_v
+## populates the other three corners from the same asset.
+func _build_title_frame() -> Control:
+	var frame := Control.new()
+	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	frame.draw.connect(_draw_title_frame.bind(frame))
+	var bracket_tex := _load_branding_masked(BRACKET_PATH)
+	if bracket_tex != null:
+		const BRACKET_SIZE: int = 96
+		const BRACKET_INSET: int = 14
+		# [anchor_x, anchor_y, offset_x, offset_y, flip_h, flip_v]
+		var corners: Array = [
+			[0.0, 0.0,  BRACKET_INSET,                 BRACKET_INSET,                 false, false],
+			[1.0, 0.0, -BRACKET_INSET - BRACKET_SIZE,  BRACKET_INSET,                 true,  false],
+			[0.0, 1.0,  BRACKET_INSET,                -BRACKET_INSET - BRACKET_SIZE,  false, true],
+			[1.0, 1.0, -BRACKET_INSET - BRACKET_SIZE, -BRACKET_INSET - BRACKET_SIZE,  true,  true],
+		]
+		for c in corners:
+			var br := TextureRect.new()
+			br.texture       = bracket_tex
+			br.expand_mode   = TextureRect.EXPAND_IGNORE_SIZE
+			br.stretch_mode  = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			br.mouse_filter  = Control.MOUSE_FILTER_IGNORE
+			br.flip_h        = c[4]
+			br.flip_v        = c[5]
+			br.anchor_left   = c[0]
+			br.anchor_top    = c[1]
+			br.anchor_right  = c[0]
+			br.anchor_bottom = c[1]
+			br.offset_left   = c[2]
+			br.offset_top    = c[3]
+			br.offset_right  = c[2] + BRACKET_SIZE
+			br.offset_bottom = c[3] + BRACKET_SIZE
+			frame.add_child(br)
+	return frame
+
+## Build a Label with per-glyph spacing (FontVariation.spacing_glyph),
+## a subtle dark drop shadow, and an optional dark outline — used for
+## engraved-brass headers like the title wordmark and tagline. The
+## outline is the highest-impact legibility lever against busy
+## cinematic backgrounds; set `outline_size > 0` to enable it.
+func _make_engraved_label(text: String, color: Color, size: int,
+		tracking: int = 6, shadow_alpha: float = 0.55,
+		outline_size: int = 0, outline_alpha: float = 0.95) -> Label:
+	var lbl := _make_label(text, color, size)
+	var base_font: Font = lbl.get_theme_font("font")
+	if base_font != null:
+		var fv := FontVariation.new()
+		fv.base_font = base_font
+		fv.spacing_glyph = tracking
+		lbl.add_theme_font_override("font", fv)
+	lbl.add_theme_color_override("font_shadow_color", Color(0, 0, 0, shadow_alpha))
+	lbl.add_theme_constant_override("shadow_offset_x", 2)
+	lbl.add_theme_constant_override("shadow_offset_y", 2)
+	if outline_size > 0:
+		lbl.add_theme_color_override("font_outline_color",
+			Color(0.04, 0.03, 0.02, outline_alpha))
+		lbl.add_theme_constant_override("outline_size", outline_size)
+	return lbl
+
+## Draws an engraved-style horizontal rule: two parallel hairlines with
+## a small rivet circle at each end. Replaces the flat 1px ColorRect
+## rule and reads as embossed metal trim.
+func _draw_engraved_rule(c: Control, width: float, color: Color) -> void:
+	var y_top: float  = 0.0
+	var y_bot: float  = 4.0
+	var stroke: float = 1.0
+	var rivet_r: float = 2.0
+	c.draw_line(Vector2(0,     y_top), Vector2(width, y_top), color, stroke, true)
+	c.draw_line(Vector2(0,     y_bot), Vector2(width, y_bot), color, stroke, true)
+	c.draw_circle(Vector2(0,     (y_top + y_bot) * 0.5), rivet_r, color)
+	c.draw_circle(Vector2(width, (y_top + y_bot) * 0.5), rivet_r, color)
+
+func _build_engraved_rule(width: int, color: Color = C_GOLD_RIM) -> Control:
+	var c := Control.new()
+	c.custom_minimum_size = Vector2(width, 6)
+	c.draw.connect(_draw_engraved_rule.bind(c, float(width), color))
+	return c
+
+## Wrap a control in a semi-transparent dark "engraved plate" — gives
+## text blocks (lore, memorial, etc.) on the cinematic title screen a
+## clean surface to read against without fighting the hero illustration.
+## The plate uses dark mahogany fill + a thin dim-brass border.
+func _make_engraved_plate(content: Control, padding: int = 16,
+		alpha: float = 0.78) -> PanelContainer:
+	var panel := PanelContainer.new()
+	var bg := StyleBoxFlat.new()
+	bg.bg_color     = Color(0.04, 0.03, 0.02, alpha)
+	bg.border_color = Color(0.45, 0.34, 0.16, 0.85)
+	bg.set_border_width_all(1)
+	bg.set_content_margin_all(padding)
+	bg.set_corner_radius_all(2)
+	panel.add_theme_stylebox_override("panel", bg)
+	panel.add_child(content)
+	return panel
+
 func _build_title_overlay() -> Control:
 	var overlay := ColorRect.new()
 	overlay.color = Color(0.06, 0.05, 0.04)
 	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
-	var center := CenterContainer.new()
-	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	overlay.add_child(center)
+	# ── ATMOSPHERE LAYERS ─────────────────────────────────────────────
+	# Stacked behind every other element, bottom up:
+	#   1. hero_bg.png — cinematic illustration (the world). Falls back
+	#      to the plain wood texture if the hero asset is missing.
+	#   2. mild corner vignette — small extra push over the image's
+	#      baked-in falloff
+	#   3. hero-zone dark wash — anchors the gold wordmark/lore against
+	#      the busy upper-left mechanism detail
+	#   4. bottom-strip dark wash — pushes the dominoes-and-gears
+	#      detail at the foot of the image back so meta-row icons read
+	# The screen frame and corner brackets are added at the END of this
+	# function so they sit on top of all content.
+	var bg_path := HERO_BG_PATH if ResourceLoader.exists(HERO_BG_PATH) else WOOD_BG_PATH
+	if ResourceLoader.exists(bg_path):
+		var bg := TextureRect.new()
+		bg.texture       = load(bg_path)
+		bg.expand_mode   = TextureRect.EXPAND_IGNORE_SIZE
+		bg.stretch_mode  = TextureRect.STRETCH_SCALE
+		bg.mouse_filter  = Control.MOUSE_FILTER_IGNORE
+		bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		overlay.add_child(bg)
+	overlay.add_child(_make_radial_overlay(
+		Vector2(0.5, 0.5), Vector2(1.0, 1.0),
+		Color(0, 0, 0, 0.0),
+		Color(0, 0, 0, 0.18)))
+	# Hero-zone darkening — radial wash anchored higher so it covers the
+	# logo as well as the wordmark/lore area. Stronger centre alpha so
+	# the gold wordmark stays legible against the warm BG.
+	overlay.add_child(_make_radial_overlay(
+		Vector2(0.22, 0.28), Vector2(0.58, 0.72),
+		Color(0, 0, 0, 0.78),   # strong dark wash at hero zone centre
+		Color(0, 0, 0, 0.0)))   # fades to clear past the hero zone
+	# Bottom-strip darkening — linear, dark at the very bottom, clear
+	# ~25% up. Gives the icon row a calm surface.
+	overlay.add_child(_make_linear_overlay(
+		Vector2(0.5, 1.0), Vector2(0.5, 0.75),
+		Color(0, 0, 0, 0.55),
+		Color(0, 0, 0, 0.0)))
 
-	var vbox := VBoxContainer.new()
-	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
-	vbox.add_theme_constant_override("separation", 20)
-	vbox.custom_minimum_size = Vector2(600, 0)
-	center.add_child(vbox)
+	# ── AMBIENT MOTION ────────────────────────────────────────────────
+	# Two layers sit between the atmosphere stack and the UI:
+	#   1. Bloom heartbeat — a warm-amber radial overlay centred on the
+	#      hero illustration's filament lamp. Its alpha tweens in a
+	#      slow loop so the lamp appears to breathe.
+	#   2. Dust motes — CPUParticles2D drifting upward through the warm
+	#      light, fading in/out across their lifetime.
+	# Both ignore mouse and persist for the session.
+	var heartbeat := _make_radial_overlay(
+		Vector2(0.40, 0.20), Vector2(0.78, 0.58),
+		Color(1.00, 0.78, 0.38, 0.13),
+		Color(1.00, 0.78, 0.38, 0.0))
+	overlay.add_child(heartbeat)
+	heartbeat.modulate.a = 0.35
+	var hb := create_tween().set_loops()
+	hb.tween_property(heartbeat, "modulate:a", 1.0, 3.2) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	hb.tween_property(heartbeat, "modulate:a", 0.35, 3.2) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 
-	# Decorative glyph
-	var glyph := _make_label("⬡", C_TITLE_GLOW, 48)
-	glyph.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(glyph)
+	var dust := CPUParticles2D.new()
+	dust.amount = 140
+	dust.lifetime = 16.0
+	dust.position = Vector2(640, 360)
+	dust.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
+	dust.emission_rect_extents = Vector2(680, 380)
+	dust.direction = Vector2(0, -1)
+	dust.spread = 38.0
+	dust.initial_velocity_min = 5.0
+	dust.initial_velocity_max = 16.0
+	dust.gravity = Vector2.ZERO
+	dust.scale_amount_min = 1.0
+	dust.scale_amount_max = 3.0
+	dust.color = Color(0.96, 0.86, 0.58, 0.70)
+	# Per-lifetime alpha: fade in, hold, fade out.
+	var fade_grad := Gradient.new()
+	fade_grad.set_color(0, Color(1, 1, 1, 0.0))
+	fade_grad.set_color(1, Color(1, 1, 1, 0.0))
+	fade_grad.add_point(0.18, Color(1, 1, 1, 1.0))
+	fade_grad.add_point(0.82, Color(1, 1, 1, 1.0))
+	dust.color_ramp = fade_grad
+	overlay.add_child(dust)
+	dust.emitting = true
 
-	# Title
-	var title_lbl := _make_label("DOMINATION", C_TITLE_GLOW, 54)
-	title_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(title_lbl)
+	# ── HERO ZONE (left) ──────────────────────────────────────────────
+	# Logomark + wordmark + tagline + rule + lore. Anchored top-left with
+	# generous padding so the eye lands on the brand mark before the
+	# menu. Asymmetric on purpose — reads as a piece of equipment, not a
+	# centred menu screen.
+	var hero := VBoxContainer.new()
+	hero.position = Vector2(96, 96)
+	hero.add_theme_constant_override("separation", 14)
+	overlay.add_child(hero)
 
-	# Subtitle
-	var sub_lbl := _make_label("Trials of the Perpetual Chronometer", C_DIM, 16)
-	sub_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(sub_lbl)
+	# Logomark stack: a dark octagonal backing fills the silhouette
+	# behind the brass mark, so the gold octagon outline + pip doesn't
+	# blend into the gold mechanism BG. Texture or procedural variant
+	# sits on top.
+	const LOGO_SIZE: int = 112
+	var logo_ctrl := Control.new()
+	logo_ctrl.custom_minimum_size = Vector2(LOGO_SIZE, LOGO_SIZE)
+	var logo_backing := Control.new()
+	logo_backing.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	logo_backing.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	logo_backing.draw.connect(_draw_octagon_backing.bind(
+		logo_backing, Color(0.04, 0.03, 0.02, 0.82)))
+	logo_ctrl.add_child(logo_backing)
+	var logo_tex := _load_logomark_texture()
+	var logo_inner: Control
+	if logo_tex != null:
+		var logo_tr := TextureRect.new()
+		logo_tr.texture = logo_tex
+		logo_tr.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
+		logo_tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		logo_tr.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		logo_inner = logo_tr
+	else:
+		logo_inner = _build_procedural_logomark(LOGO_SIZE)
+		logo_inner.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	logo_ctrl.add_child(logo_inner)
+	hero.add_child(logo_ctrl)
 
-	vbox.add_child(_make_hsep())
+	# Wordmark — engraved-brass treatment with a thick dark outline so
+	# the gold lettering stays legible against the busy mechanism BG
+	# even where it overlaps the warm lamp area.
+	var title_lbl := _make_engraved_label(
+		"DOMINATION", C_TITLE_GLOW, 64, 8, 0.60, 3, 0.95)
+	hero.add_child(title_lbl)
 
-	# Lore blurb
+	# Tagline — uppercase with letter spacing reads as an engraved
+	# subtitle plate. Brighter warm-cream + thin dark outline so it
+	# carves cleanly out of the BG.
+	var tag_lbl := _make_engraved_label(
+		"TRIALS OF THE PERPETUAL CHRONOMETER",
+		Color(0.82, 0.74, 0.56), 16, 5, 0.70, 1, 0.92)
+	hero.add_child(tag_lbl)
+
+	# Divider — flourish PNG (central diamond + tapering wings) when the
+	# asset is present; falls back to the procedural engraved rule
+	# (two-line + end rivets) otherwise. Both render in amber gold.
+	var rule_pad_top := Control.new()
+	rule_pad_top.custom_minimum_size = Vector2(0, 10)
+	hero.add_child(rule_pad_top)
+	var rule_ctrl: Control
+	var flourish_tex := _load_branding_masked(FLOURISH_PATH)
+	if flourish_tex != null:
+		var fr := TextureRect.new()
+		fr.texture       = flourish_tex
+		fr.custom_minimum_size = Vector2(280, 32)
+		fr.expand_mode   = TextureRect.EXPAND_IGNORE_SIZE
+		fr.stretch_mode  = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		rule_ctrl = fr
+	else:
+		rule_ctrl = _build_engraved_rule(220, C_GOLD_RIM)
+	hero.add_child(rule_ctrl)
+	var rule_pad_bot := Control.new()
+	rule_pad_bot.custom_minimum_size = Vector2(0, 10)
+	hero.add_child(rule_pad_bot)
+
+	# Lore — three short epigrammatic lines wrapped in a dark engraved
+	# plate. The plate's dark fill + thin brass border give the text a
+	# clean readable surface against the cinematic BG.
 	var lore_lbl := _make_label(
 		"The Chronometer falters.\nYou are the Operator.\nCalibrate the signal before entropy claims the age.",
-		C_TEXT, 15)
-	lore_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		C_TEXT, 16)
 	lore_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	lore_lbl.custom_minimum_size = Vector2(480, 0)
-	vbox.add_child(lore_lbl)
+	lore_lbl.custom_minimum_size = Vector2(440, 0)
+	lore_lbl.add_theme_constant_override("line_separation", 8)
+	var lore_plate := _make_engraved_plate(lore_lbl, 18)
+	hero.add_child(lore_plate)
 
-	vbox.add_child(_make_hsep())
+	# ── MENU ZONE (right) ─────────────────────────────────────────────
+	# Action stack centred vertically, anchored to the right edge so the
+	# composition reads as hero-on-left / menu-on-right rather than one
+	# centred column. CONTINUE RUN toggles visible in _show_title()
+	# depending on save state.
+	var menu := VBoxContainer.new()
+	menu.anchor_left   = 1.0
+	menu.anchor_right  = 1.0
+	menu.anchor_top    = 0.5
+	menu.anchor_bottom = 0.5
+	menu.offset_left   = -420   # 320 button width + 100 right margin
+	menu.offset_right  = -100
+	menu.offset_top    = -150
+	menu.offset_bottom = 150
+	menu.add_theme_constant_override("separation", 10)
+	menu.alignment = BoxContainer.ALIGNMENT_CENTER
+	overlay.add_child(menu)
 
-	# Primary action stack — three vertically-stacked buttons (Start,
-	# Continue if save exists, Daily Trial). One canonical width keeps
-	# the stack visually uniform; CONTINUE RUN toggles visible in
-	# _show_title() depending on save state.
-	var primary_stack := VBoxContainer.new()
-	primary_stack.alignment = BoxContainer.ALIGNMENT_CENTER
-	primary_stack.add_theme_constant_override("separation", 10)
-	vbox.add_child(primary_stack)
-
-	# 1. START TRIAL CYCLE — primary action. Heavier height + gold-tinted
-	# accent so it reads as the canonical click.
+	# 1. START TRIAL CYCLE — primary action, gold accent
 	var start_btn := _make_button(
 		"▶  START TRIAL CYCLE", _on_title_start_pressed, Vector2(320, 60))
 	var start_style := StyleBoxFlat.new()
@@ -7373,13 +7865,12 @@ func _build_title_overlay() -> Control:
 	start_hov.bg_color     = Color(0.18, 0.15, 0.08)
 	start_hov.border_color = C_TITLE_GLOW.lightened(0.20)
 	start_btn.add_theme_stylebox_override("hover", start_hov)
-	primary_stack.add_child(start_btn)
+	menu.add_child(start_btn)
 
-	# 2. CONTINUE RUN — appears only when SaveManager has a saved run.
-	# Teal accent distinguishes "resume" from "start fresh".
+	# 2. CONTINUE RUN — teal accent, conditionally visible
 	_btn_continue_run = _make_button(
 		"↩  CONTINUE RUN", _on_continue_run_pressed, Vector2(320, 48))
-	_btn_continue_run.visible = false   # toggled in _show_title()
+	_btn_continue_run.visible = false
 	var cs := StyleBoxFlat.new()
 	cs.bg_color     = Color(0.08, 0.22, 0.22)
 	cs.border_color = Color(0.30, 0.80, 0.75)
@@ -7390,10 +7881,9 @@ func _build_title_overlay() -> Control:
 	var cs_hov := cs.duplicate() as StyleBoxFlat
 	cs_hov.bg_color = Color(0.10, 0.30, 0.30)
 	_btn_continue_run.add_theme_stylebox_override("hover", cs_hov)
-	primary_stack.add_child(_btn_continue_run)
+	menu.add_child(_btn_continue_run)
 
-	# 3. DAILY TRIAL — deterministic seed per calendar day, one attempt
-	# each. Violet accent for daily-mode visual identity.
+	# 3. DAILY TRIAL — violet accent
 	_btn_daily_trial = _make_button(
 		"↺  DAILY TRIAL", _on_daily_trial_pressed, Vector2(320, 48))
 	var ds := StyleBoxFlat.new()
@@ -7406,24 +7896,34 @@ func _build_title_overlay() -> Control:
 	var ds_hov := ds.duplicate() as StyleBoxFlat
 	ds_hov.bg_color = Color(0.24, 0.14, 0.32)
 	_btn_daily_trial.add_theme_stylebox_override("hover", ds_hov)
-	primary_stack.add_child(_btn_daily_trial)
+	menu.add_child(_btn_daily_trial)
 
-	# Memorial caption — names today's fallen Operator. Sits beneath
-	# the Daily Trial button so the daily-mode lore is anchored to that
-	# action. Updated each call to _refresh_daily_trial_button.
-	_lbl_daily_memorial = _make_label("", C_DIM, 11)
+	# Memorial caption — daily fallen Operator. Wrapped in a small
+	# engraved plate so the small text reads clearly under the Daily
+	# Trial button. Text is refreshed in _refresh_daily_trial_button.
+	_lbl_daily_memorial = _make_label("", Color(0.78, 0.70, 0.55), 11)
 	_lbl_daily_memorial.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_lbl_daily_memorial.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	FontManager.apply_mono(_lbl_daily_memorial)
-	vbox.add_child(_lbl_daily_memorial)
+	var memorial_plate := _make_engraved_plate(_lbl_daily_memorial, 8, 0.72)
+	menu.add_child(memorial_plate)
 
-	# Meta-menu icon row — secondary, browse-only screens that don't
-	# start a run. Smaller (44×44) so they read as a peer group below
-	# the primary action stack. Per-button colour accents preserve the
-	# section identity each overlay uses internally.
+	# ── META ROW (bottom-centre) ──────────────────────────────────────
+	# Browse-only screens that don't start a run. Each button keeps its
+	# per-section accent colour so the mapping carries into the overlays
+	# they open.
 	var icon_row := HBoxContainer.new()
+	icon_row.anchor_left   = 0.0
+	icon_row.anchor_right  = 1.0
+	icon_row.anchor_top    = 1.0
+	icon_row.anchor_bottom = 1.0
+	icon_row.offset_left   = 0
+	icon_row.offset_right  = 0
+	icon_row.offset_top    = -96
+	icon_row.offset_bottom = -36
 	icon_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	icon_row.add_theme_constant_override("separation", 8)
-	vbox.add_child(icon_row)
+	overlay.add_child(icon_row)
 
 	_btn_daily_history = _make_button("📅",
 		_on_daily_history_pressed, Vector2(52, 52))
@@ -7484,14 +7984,50 @@ func _build_title_overlay() -> Control:
 	_btn_codex.add_theme_stylebox_override("hover", hp_hov)
 	icon_row.add_child(_btn_codex)
 
-	# Settings gear button — always visible, bottom-right of the overlay
+	# Settings gear — anchored separately inside the bottom-right
+	# corner. The -36 inset keeps the gear clear of the 24px frame line
+	# and its corner rivet (drawn in _draw_title_frame below).
 	var settings_btn := _make_button("⚙", _on_settings_btn_pressed, Vector2(48, 48))
 	settings_btn.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
-	settings_btn.offset_right  = -16
-	settings_btn.offset_bottom = -16
+	settings_btn.offset_right  = -36
+	settings_btn.offset_bottom = -36
 	settings_btn.offset_left   = settings_btn.offset_right  - 48
 	settings_btn.offset_top    = settings_btn.offset_bottom - 48
 	overlay.add_child(settings_btn)
+
+	# ── BRASS PLATE PASS ──────────────────────────────────────────────
+	# Replace each button's flat-fill stylebox with brass_plate.png and
+	# overlay a per-section coloured border. Buttons keep their original
+	# StyleBoxFlat as a fallback if the brass asset is missing.
+	_apply_brass_style(start_btn,           C_TITLE_GLOW)
+	_apply_brass_style(_btn_continue_run,   Color(0.30, 0.80, 0.75))
+	_apply_brass_style(_btn_daily_trial,    Color(0.70, 0.55, 0.95))
+	_apply_brass_style(_btn_daily_history,  Color(0.70, 0.55, 0.95))
+	_apply_brass_style(_btn_achievements,   Color(0.85, 0.70, 0.30))
+	_apply_brass_style(_btn_stats,          C_CHRONOS.darkened(0.2))
+	_apply_brass_style(_btn_help,           C_TITLE_GLOW.darkened(0.2))
+	_apply_brass_style(_btn_codex,          C_TITLE_GLOW.darkened(0.2))
+	_apply_brass_style(settings_btn,        C_TITLE_GLOW.darkened(0.2))
+
+	# ── SCREEN FRAME (top layer) ──────────────────────────────────────
+	# Hairline brass border + corner_bracket.png at each corner, added
+	# last so it renders above every other element. Mouse passes through.
+	overlay.add_child(_build_title_frame())
+
+	# Capture the controls the fold-in intro will animate. Order matches
+	# the stage table in `_play_title_intro` — keep them in sync. The
+	# atmosphere layers and the frame stay visible throughout (the panel
+	# is already there; the *content* arrives).
+	_title_intro_elements = [
+		logo_ctrl,      # 0 — logomark
+		title_lbl,      # 1 — wordmark
+		tag_lbl,        # 2 — tagline
+		rule_ctrl,      # 3 — engraved rule
+		lore_plate,     # 4 — lore blurb (inside an engraved plate)
+		menu,           # 5 — action stack
+		icon_row,       # 6 — meta row
+		settings_btn,   # 7 — settings gear
+	]
 
 	return overlay
 
@@ -7509,8 +8045,11 @@ func _build_selection_overlay(
 		confirm_label: String,
 		out_cards: Array) -> Control:
 
+	# Modal dim — lowered alpha so the title overlay's hero scene
+	# remains faintly visible behind. The selection panel is opaque on
+	# top so the cards still read clearly.
 	var overlay := ColorRect.new()
-	overlay.color = Color(0, 0, 0, 0.90)
+	overlay.color = Color(0, 0, 0, 0.62)
 	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 	var scroll := ScrollContainer.new()
@@ -7522,26 +8061,57 @@ func _build_selection_overlay(
 	center.size_flags_vertical   = Control.SIZE_EXPAND_FILL
 	scroll.add_child(center)
 
+	# Outer panel — dimmed parchment texture (when available) gives the
+	# screen a material identity distinct from the title's wood BG. The
+	# dark flat-fill remains as a fallback for missing assets.
 	var panel := PanelContainer.new()
 	panel.custom_minimum_size = Vector2(PANEL_W_LARGE, 0)
-	var pstyle := StyleBoxFlat.new()
-	pstyle.bg_color     = Color(0.10, 0.09, 0.07)
-	pstyle.border_color = Color(0.50, 0.45, 0.35)
-	pstyle.set_border_width_all(2)
-	pstyle.set_corner_radius_all(8)
-	panel.add_theme_stylebox_override("panel", pstyle)
+	if ResourceLoader.exists("res://assets/branding/parchment.png"):
+		var pstyle := StyleBoxTexture.new()
+		pstyle.texture        = load("res://assets/branding/parchment.png")
+		pstyle.modulate_color = Color(0.42, 0.34, 0.24, 0.97)
+		pstyle.set_content_margin_all(24)
+		panel.add_theme_stylebox_override("panel", pstyle)
+	else:
+		var pstyle := StyleBoxFlat.new()
+		pstyle.bg_color     = Color(0.10, 0.09, 0.07)
+		pstyle.border_color = Color(0.50, 0.45, 0.35)
+		pstyle.set_border_width_all(2)
+		pstyle.set_corner_radius_all(8)
+		panel.add_theme_stylebox_override("panel", pstyle)
 	center.add_child(panel)
+
+	# Thin gold border drawn on top of the parchment surface — gives the
+	# panel its own defined edge regardless of which stylebox the
+	# texture branch produced (StyleBoxTexture has no border properties).
+	var border_overlay := Control.new()
+	border_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	border_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	border_overlay.draw.connect(func() -> void:
+		if is_instance_valid(border_overlay):
+			border_overlay.draw_rect(Rect2(Vector2.ZERO, border_overlay.size),
+				Color(0.55, 0.42, 0.18, 0.90), false, 1.5))
+	panel.add_child(border_overlay)
 
 	var vbox := VBoxContainer.new()
 	vbox.add_theme_constant_override("separation", 18)
 	panel.add_child(vbox)
 
-	# Header
-	var hdr := _make_label(title_text, C_TITLE_GLOW, 26)
+	# Header — engraved-brass title with a flourish underline + brighter
+	# engraved subtitle. Reads as a chapter header on a parchment plaque.
+	var hdr := _make_engraved_label(title_text, C_TITLE_GLOW, 32, 6, 0.55, 2, 0.92)
 	hdr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(hdr)
 
-	var sub := _make_label(sub_text, C_DIM, 14)
+	if ResourceLoader.exists("res://assets/branding/flourish.png"):
+		var flourish_div := TextureRect.new()
+		flourish_div.texture       = _load_branding_masked("res://assets/branding/flourish.png")
+		flourish_div.custom_minimum_size = Vector2(0, 44)
+		flourish_div.expand_mode   = TextureRect.EXPAND_IGNORE_SIZE
+		flourish_div.stretch_mode  = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		vbox.add_child(flourish_div)
+
+	var sub := _make_engraved_label(sub_text, Color(0.78, 0.70, 0.55), 14, 3, 0.55, 1, 0.85)
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(sub)
 
