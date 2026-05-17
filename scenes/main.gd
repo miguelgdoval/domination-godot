@@ -7396,6 +7396,20 @@ const HERO_BG_PATH  := "res://assets/branding/hero_bg.png"
 const BRASS_PATH    := "res://assets/branding/brass_plate.png"
 const BRANDING_MASK_THRESHOLD: int = 20   # ≈ 0.08 normalised — covers anti-alias halos around the gold mark
 
+## Per-entry icon keys for the selection gallery. Index matches the
+## Constants.CORE_NAMES / Constants.PROTOCOL_NAMES order. Used by
+## `_make_core_icon` to look up `assets/branding/core_<key>.png` or
+## `protocol_<key>.png`; entries without a matching asset fall back to
+## the procedural octagonal placeholder.
+const CORE_ICON_KEYS: Array[String] = [
+	"standard", "resonant", "dense", "void",
+	"slim", "specialist", "arsenal", "runner",
+	"obsidian", "blank",
+]
+const PROTOCOL_ICON_KEYS: Array[String] = [
+	"equilibrium", "compression", "overload", "cascade",
+]
+
 ## Load a brass-on-black brand asset with the source's black background
 ## masked to alpha. Used for the logomark, corner bracket, flourish, and
 ## the meta-row icons — every asset the AI generates on a solid black
@@ -8068,13 +8082,47 @@ func _draw_core_icon_placeholder(c: Control, rarity: int, unlocked: bool) -> voi
 	c.draw_polyline(pts, color, stroke, true)
 	c.draw_circle(center, radius * 0.18, color)
 
+## Build the icon Control for a Core / Protocol entry. Uses the per-
+## entry brass-etched PNG when it has been generated; falls back to the
+## procedural octagonal placeholder when no asset is on disk yet, so
+## entries trickle in without rebuilding the screen.
+func _make_core_icon(index: int, is_core: bool, rarity: int,
+		unlocked: bool, size: int) -> Control:
+	var key: String = ""
+	if is_core and index >= 0 and index < CORE_ICON_KEYS.size():
+		key = CORE_ICON_KEYS[index]
+	elif (not is_core) and index >= 0 and index < PROTOCOL_ICON_KEYS.size():
+		key = PROTOCOL_ICON_KEYS[index]
+	if key != "":
+		var path: String = "res://assets/branding/%s_%s.png" % \
+			["core" if is_core else "protocol", key]
+		if ResourceLoader.exists(path):
+			var tex := _load_branding_masked(path)
+			if tex != null:
+				var tr := TextureRect.new()
+				tr.texture = tex
+				tr.custom_minimum_size = Vector2(size, size)
+				tr.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
+				tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+				tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+				if not unlocked:
+					tr.modulate = Color(0.55, 0.48, 0.36)
+				return tr
+	# Fallback — procedural octagonal placeholder, rarity-tinted.
+	var ctrl := Control.new()
+	ctrl.custom_minimum_size = Vector2(size, size)
+	ctrl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ctrl.draw.connect(_draw_core_icon_placeholder.bind(ctrl, rarity, unlocked))
+	return ctrl
+
 ## Build a clickable thumbnail for the gallery's right-pane grid. Each
 ## thumbnail is a small Button styled as a brass-on-dark plate with a
-## rarity-coloured border, an icon placeholder, and the card's name.
-## Locked entries use a desaturated dark fill + dim border + dim text;
-## they remain clickable so the featured pane can preview them.
-func _build_selection_thumbnail(index: int, card_name: String, rarity: int,
-		unlocked: bool, callback: Callable) -> Button:
+## rarity-coloured border, the entry's icon (asset or procedural), and
+## the card's name. Locked entries use a desaturated dark fill + dim
+## border + dim text; they remain clickable so the featured pane can
+## preview them.
+func _build_selection_thumbnail(index: int, is_core: bool, card_name: String,
+		rarity: int, unlocked: bool, callback: Callable) -> Button:
 	var btn := Button.new()
 	btn.text = ""
 	btn.flat = false
@@ -8116,12 +8164,9 @@ func _build_selection_thumbnail(index: int, card_name: String, rarity: int,
 	content.mouse_filter  = Control.MOUSE_FILTER_IGNORE
 	content.add_theme_constant_override("separation", 2)
 	btn.add_child(content)
-	# Icon placeholder
-	var icon := Control.new()
-	icon.custom_minimum_size = Vector2(0, 44)
-	icon.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	icon.draw.connect(_draw_core_icon_placeholder.bind(icon, rarity, unlocked))
+	# Icon — per-entry asset when available, procedural fallback otherwise.
+	var icon := _make_core_icon(index, is_core, rarity, unlocked, 44)
+	icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	content.add_child(icon)
 	# Name
 	var name_color: Color = C_RARITY[rarity] if unlocked else C_DIM
@@ -8169,6 +8214,7 @@ func _refresh_selection_featured(pane: PanelContainer, index: int) -> void:
 	var unlock_labels: Array = pane.get_meta("unlock_labels")
 	var confirm_cb: Callable = pane.get_meta("confirm_callback")
 	var confirm_label: String = pane.get_meta("confirm_label")
+	var is_core: bool        = pane.get_meta("is_core")
 
 	var unlocked: bool = unlocked_arr[index]
 	var rarity: int    = rarities[index]
@@ -8194,9 +8240,7 @@ func _refresh_selection_featured(pane: PanelContainer, index: int) -> void:
 	top_row.add_theme_constant_override("separation", 20)
 	vbox.add_child(top_row)
 
-	var icon := Control.new()
-	icon.custom_minimum_size = Vector2(96, 96)
-	icon.draw.connect(_draw_core_icon_placeholder.bind(icon, rarity, unlocked))
+	var icon := _make_core_icon(index, is_core, rarity, unlocked, 96)
 	top_row.add_child(icon)
 
 	var name_color: Color = C_TITLE_GLOW if unlocked else Color(0.42, 0.36, 0.28)
@@ -8419,6 +8463,7 @@ func _build_selection_overlay(
 	featured_pane.set_meta("unlock_labels",    unlock_labels)
 	featured_pane.set_meta("confirm_callback", confirm_callback)
 	featured_pane.set_meta("confirm_label",    confirm_label)
+	featured_pane.set_meta("is_core",          is_core)
 
 	# Record the featured pane against the right member var so
 	# `_refresh_core_cards` / `_refresh_protocol_cards` can find it.
@@ -8433,7 +8478,7 @@ func _build_selection_overlay(
 	out_cards.clear()
 	for i in range(count):
 		var thumb := _build_selection_thumbnail(
-			i, names[i], rarities[i], unlocked_arr[i], card_callback)
+			i, is_core, names[i], rarities[i], unlocked_arr[i], card_callback)
 		thumb_grid.add_child(thumb)
 		out_cards.append(thumb)
 
