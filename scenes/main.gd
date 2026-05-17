@@ -8086,8 +8086,14 @@ func _draw_core_icon_placeholder(c: Control, rarity: int, unlocked: bool) -> voi
 ## entry brass-etched PNG when it has been generated; falls back to the
 ## procedural octagonal placeholder when no asset is on disk yet, so
 ## entries trickle in without rebuilding the screen.
+##
+## `with_backing` adds a dark octagonal plate behind the icon — needed
+## on the featured pane (where the BG is light parchment) so the gold
+## icon contents read with proper contrast. Thumbnails on the dark
+## thumbnail BG don't need it.
 func _make_core_icon(index: int, is_core: bool, rarity: int,
-		unlocked: bool, size: int) -> Control:
+		unlocked: bool, size: int, with_backing: bool = false) -> Control:
+	var inner: Control = null
 	var key: String = ""
 	if is_core and index >= 0 and index < CORE_ICON_KEYS.size():
 		key = CORE_ICON_KEYS[index]
@@ -8101,19 +8107,35 @@ func _make_core_icon(index: int, is_core: bool, rarity: int,
 			if tex != null:
 				var tr := TextureRect.new()
 				tr.texture = tex
-				tr.custom_minimum_size = Vector2(size, size)
 				tr.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
 				tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 				tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 				if not unlocked:
 					tr.modulate = Color(0.55, 0.48, 0.36)
-				return tr
-	# Fallback — procedural octagonal placeholder, rarity-tinted.
-	var ctrl := Control.new()
-	ctrl.custom_minimum_size = Vector2(size, size)
-	ctrl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	ctrl.draw.connect(_draw_core_icon_placeholder.bind(ctrl, rarity, unlocked))
-	return ctrl
+				inner = tr
+	if inner == null:
+		# Procedural fallback — octagonal placeholder, rarity-tinted.
+		inner = Control.new()
+		inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		inner.draw.connect(_draw_core_icon_placeholder.bind(inner, rarity, unlocked))
+	# Without backing: inner control is sized directly and returned.
+	if not with_backing:
+		inner.custom_minimum_size = Vector2(size, size)
+		return inner
+	# With backing: wrap in a Control that draws a dark octagonal plate
+	# behind the icon contents (matches the title-screen logomark trick).
+	var wrapper := Control.new()
+	wrapper.custom_minimum_size = Vector2(size, size)
+	wrapper.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var backing := Control.new()
+	backing.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	backing.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	backing.draw.connect(_draw_octagon_backing.bind(
+		backing, Color(0.06, 0.04, 0.02, 0.86)))
+	wrapper.add_child(backing)
+	inner.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	wrapper.add_child(inner)
+	return wrapper
 
 ## Build a clickable thumbnail for the gallery's right-pane grid. Each
 ## thumbnail is a small Button styled as a brass-on-dark plate with a
@@ -8240,7 +8262,9 @@ func _refresh_selection_featured(pane: PanelContainer, index: int) -> void:
 	top_row.add_theme_constant_override("separation", 20)
 	vbox.add_child(top_row)
 
-	var icon := _make_core_icon(index, is_core, rarity, unlocked, 96)
+	# Featured icon — with dark octagonal backing so the gold mark
+	# reads cleanly against the bright parchment BG.
+	var icon := _make_core_icon(index, is_core, rarity, unlocked, 96, true)
 	top_row.add_child(icon)
 
 	var name_color: Color = C_TITLE_GLOW if unlocked else Color(0.42, 0.36, 0.28)
@@ -8326,15 +8350,17 @@ func _build_selection_overlay(
 	scroll.add_child(center)
 
 	# Outer panel — dimmed parchment texture (when available) gives the
-	# screen a material identity distinct from the title's wood BG. The
-	# dark flat-fill remains as a fallback for missing assets.
+	# screen a material identity distinct from the title's wood BG.
+	# Wider than PANEL_W_LARGE and with 48px horizontal padding so the
+	# featured pane + thumbnail grid have breathing room clear of the
+	# gold border, instead of being flush against it.
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(PANEL_W_LARGE, 0)
+	panel.custom_minimum_size = Vector2(1200, 0)
 	if ResourceLoader.exists("res://assets/branding/parchment.png"):
 		var pstyle := StyleBoxTexture.new()
 		pstyle.texture        = load("res://assets/branding/parchment.png")
 		pstyle.modulate_color = Color(0.42, 0.34, 0.24, 0.97)
-		pstyle.set_content_margin_all(24)
+		pstyle.set_content_margin_individual(48, 32, 48, 32)
 		panel.add_theme_stylebox_override("panel", pstyle)
 	else:
 		var pstyle := StyleBoxFlat.new()
@@ -8342,6 +8368,7 @@ func _build_selection_overlay(
 		pstyle.border_color = Color(0.50, 0.45, 0.35)
 		pstyle.set_border_width_all(2)
 		pstyle.set_corner_radius_all(8)
+		pstyle.set_content_margin_individual(48, 32, 48, 32)
 		panel.add_theme_stylebox_override("panel", pstyle)
 	center.add_child(panel)
 
