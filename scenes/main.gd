@@ -429,6 +429,11 @@ var _title_intro_played:   bool  = false
 var _title_intro_elements: Array = []
 var _core_select_overlay:  Control
 var _proto_select_overlay: Control
+## Featured panes of the gallery-style selection overlays. Populated in
+## `_build_selection_overlay`; refreshed by the per-card click handlers
+## via `_refresh_selection_featured`.
+var _core_featured_pane:   PanelContainer = null
+var _proto_featured_pane:  PanelContainer = null
 var _btn_continue_run:     Button   # shown only when SaveManager has a saved run
 var _btn_daily_trial:      Button   # one attempt per day, deterministic seed
 var _btn_daily_history:    Button   # opens the daily-history overlay
@@ -1952,13 +1957,17 @@ func _on_protocol_confirm_pressed() -> void:
 
 func _refresh_core_cards() -> void:
 	for i in range(_core_cards.size()):
-		var panel: PanelContainer = _core_cards[i]
-		_set_selection_border(panel, i == _pending_core, Constants.CORE_RARITIES[i])
+		var thumb: Button = _core_cards[i]
+		_set_thumbnail_selected(thumb, i == _pending_core)
+	if _core_featured_pane != null and is_instance_valid(_core_featured_pane):
+		_refresh_selection_featured(_core_featured_pane, _pending_core)
 
 func _refresh_protocol_cards() -> void:
 	for i in range(_protocol_cards.size()):
-		var panel: PanelContainer = _protocol_cards[i]
-		_set_selection_border(panel, i == _pending_protocol, Constants.PROTOCOL_RARITIES[i])
+		var thumb: Button = _protocol_cards[i]
+		_set_thumbnail_selected(thumb, i == _pending_protocol)
+	if _proto_featured_pane != null and is_instance_valid(_proto_featured_pane):
+		_refresh_selection_featured(_proto_featured_pane, _pending_protocol)
 
 func _set_selection_border(panel: PanelContainer, selected: bool, rarity: int) -> void:
 	var style := StyleBoxFlat.new()
@@ -8032,6 +8041,209 @@ func _build_title_overlay() -> Control:
 	return overlay
 
 # ---- Generic selection overlay (used for both Core and Protocol) ----
+
+## Placeholder Core / Protocol icon — a small octagonal pip mark tinted
+## with the entry's rarity colour. Used until per-Core illustrations
+## land in assets/branding/cores/. Hooked via the host Control's `draw`
+## signal.
+func _draw_core_icon_placeholder(c: Control, rarity: int, unlocked: bool) -> void:
+	var color: Color = C_RARITY[rarity] if unlocked else Color(0.42, 0.36, 0.28)
+	var sz: Vector2  = c.size
+	var radius: float = min(sz.x, sz.y) * 0.42
+	var stroke: float = max(2.0, radius * 0.10)
+	var center: Vector2 = sz * 0.5
+	var pts: PackedVector2Array = []
+	for k in range(8):
+		var a := PI / 8.0 + k * PI / 4.0
+		pts.append(center + Vector2(cos(a), sin(a)) * radius)
+	pts.append(pts[0])
+	c.draw_polyline(pts, color, stroke, true)
+	c.draw_circle(center, radius * 0.18, color)
+
+## Build a clickable thumbnail for the gallery's right-pane grid. Each
+## thumbnail is a small Button styled as a brass-on-dark plate with a
+## rarity-coloured border, an icon placeholder, and the card's name.
+## Locked entries use a desaturated dark fill + dim border + dim text;
+## they remain clickable so the featured pane can preview them.
+func _build_selection_thumbnail(index: int, card_name: String, rarity: int,
+		unlocked: bool, callback: Callable) -> Button:
+	var btn := Button.new()
+	btn.text = ""
+	btn.flat = false
+	btn.custom_minimum_size = Vector2(135, 90)
+	btn.pressed.connect(callback.bind(index))
+	FontManager.apply_body(btn)
+	# Normal stylebox — rarity-coloured border + dark fill. Locked entries
+	# use a dimmer border to read as 'not yet earned'.
+	var base := StyleBoxFlat.new()
+	base.bg_color     = Color(0.06, 0.04, 0.02, 0.92) if unlocked else Color(0.04, 0.03, 0.02, 0.85)
+	base.border_color = C_RARITY[rarity] if unlocked else Color(0.32, 0.28, 0.20)
+	base.set_border_width_all(2)
+	base.set_corner_radius_all(6)
+	btn.add_theme_stylebox_override("normal", base)
+	var hover := base.duplicate() as StyleBoxFlat
+	hover.bg_color = (base.bg_color as Color).lightened(0.10)
+	btn.add_theme_stylebox_override("hover", hover)
+	# Focus outline for keyboard navigation.
+	var focus := StyleBoxFlat.new()
+	focus.bg_color = Color(0, 0, 0, 0)
+	focus.border_color = C_TITLE_GLOW
+	focus.set_border_width_all(2)
+	focus.set_corner_radius_all(6)
+	btn.add_theme_stylebox_override("focus", focus)
+	# Stash the unmodified styles + state for `_set_thumbnail_selected`
+	# (selection swaps to a gold-bordered variant and back).
+	btn.set_meta("base_style",  base)
+	btn.set_meta("hover_style", hover)
+	btn.set_meta("rarity",      rarity)
+	btn.set_meta("unlocked",    unlocked)
+	# Child VBox carries the visual content. Mouse passes through so the
+	# Button still owns the click area.
+	var content := VBoxContainer.new()
+	content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	content.offset_left   = 6
+	content.offset_right  = -6
+	content.offset_top    = 5
+	content.offset_bottom = -5
+	content.mouse_filter  = Control.MOUSE_FILTER_IGNORE
+	content.add_theme_constant_override("separation", 2)
+	btn.add_child(content)
+	# Icon placeholder
+	var icon := Control.new()
+	icon.custom_minimum_size = Vector2(0, 44)
+	icon.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icon.draw.connect(_draw_core_icon_placeholder.bind(icon, rarity, unlocked))
+	content.add_child(icon)
+	# Name
+	var name_color: Color = C_RARITY[rarity] if unlocked else C_DIM
+	var name_lbl := _make_label(card_name, name_color, 10)
+	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	content.add_child(name_lbl)
+	return btn
+
+## Update a thumbnail's stylebox to reflect selected state. The selected
+## thumbnail gets a bright-gold border in place of its rarity border.
+func _set_thumbnail_selected(btn: Button, selected: bool) -> void:
+	if not is_instance_valid(btn) or not btn.has_meta("base_style"):
+		return
+	var base: StyleBoxFlat  = btn.get_meta("base_style")
+	var hover: StyleBoxFlat = btn.get_meta("hover_style")
+	if selected:
+		var sel_n := base.duplicate() as StyleBoxFlat
+		sel_n.border_color = C_SELECTED_BORDER
+		sel_n.set_border_width_all(3)
+		btn.add_theme_stylebox_override("normal", sel_n)
+		var sel_h := hover.duplicate() as StyleBoxFlat
+		sel_h.border_color = C_SELECTED_BORDER
+		sel_h.set_border_width_all(3)
+		btn.add_theme_stylebox_override("hover", sel_h)
+	else:
+		btn.add_theme_stylebox_override("normal", base)
+		btn.add_theme_stylebox_override("hover", hover)
+
+## Rebuild the gallery's featured pane to show the data for `index`.
+## Reads the selection data + confirm callback from meta values that
+## `_build_selection_overlay` stashed on the pane at build time, so the
+## call site doesn't need to re-pass the whole data set on every click.
+func _refresh_selection_featured(pane: PanelContainer, index: int) -> void:
+	for child in pane.get_children():
+		pane.remove_child(child)
+		child.queue_free()
+
+	var names: Array         = pane.get_meta("names")
+	var rarities: Array      = pane.get_meta("rarities")
+	var descs: Array         = pane.get_meta("descs")
+	var lores: Array         = pane.get_meta("lores")
+	var unlocked_arr: Array  = pane.get_meta("unlocked")
+	var unlock_labels: Array = pane.get_meta("unlock_labels")
+	var confirm_cb: Callable = pane.get_meta("confirm_callback")
+	var confirm_label: String = pane.get_meta("confirm_label")
+
+	var unlocked: bool = unlocked_arr[index]
+	var rarity: int    = rarities[index]
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 14)
+	pane.add_child(vbox)
+
+	# Rarity / locked badge — top strip of small inscription text.
+	var badge_text: String
+	var badge_color: Color
+	if unlocked:
+		badge_text  = Constants.RARITY_NAMES[rarity].to_upper()
+		badge_color = C_RARITY[rarity]
+	else:
+		badge_text  = "▮  LOCKED"
+		badge_color = Color(0.45, 0.38, 0.28)
+	var badge_lbl := _make_engraved_label(badge_text, badge_color, 12, 4, 0.0, 0, 0.0)
+	vbox.add_child(badge_lbl)
+
+	# Icon + name row.
+	var top_row := HBoxContainer.new()
+	top_row.add_theme_constant_override("separation", 20)
+	vbox.add_child(top_row)
+
+	var icon := Control.new()
+	icon.custom_minimum_size = Vector2(96, 96)
+	icon.draw.connect(_draw_core_icon_placeholder.bind(icon, rarity, unlocked))
+	top_row.add_child(icon)
+
+	var name_color: Color = C_TITLE_GLOW if unlocked else Color(0.42, 0.36, 0.28)
+	var name_lbl := _make_engraved_label(names[index], name_color, 30, 5, 0.55, 1, 0.85)
+	name_lbl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	top_row.add_child(name_lbl)
+
+	# Engraved rule below header.
+	vbox.add_child(_build_engraved_rule(420, C_GOLD_RIM))
+
+	# Body — description + lore quote when unlocked, or unlock requirement
+	# when not. Dark text reads cleanly on the brighter parchment surface.
+	if unlocked:
+		var desc_lbl := _make_label(descs[index], Color(0.18, 0.12, 0.06), 16)
+		desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		desc_lbl.custom_minimum_size = Vector2(520, 0)
+		desc_lbl.add_theme_constant_override("line_separation", 4)
+		vbox.add_child(desc_lbl)
+
+		var lore_pad := Control.new()
+		lore_pad.custom_minimum_size = Vector2(0, 4)
+		vbox.add_child(lore_pad)
+		var lore_lbl := _make_label("— " + lores[index], Color(0.32, 0.24, 0.14), 13)
+		lore_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		lore_lbl.custom_minimum_size = Vector2(520, 0)
+		vbox.add_child(lore_lbl)
+	else:
+		var req_header := _make_engraved_label(
+			"UNLOCK REQUIREMENT", Color(0.45, 0.38, 0.26), 11, 3, 0.0, 0, 0.0)
+		vbox.add_child(req_header)
+		var req_lbl := _make_label(unlock_labels[index], Color(0.18, 0.12, 0.06), 16)
+		req_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		req_lbl.custom_minimum_size = Vector2(520, 0)
+		vbox.add_child(req_lbl)
+
+	# Spacer pushes the action button to the bottom of the pane.
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(spacer)
+
+	# Action button — confirms the selection. Disabled and re-labelled
+	# for locked entries; the player must click an unlocked thumbnail to
+	# enable proceeding.
+	var btn_row := HBoxContainer.new()
+	btn_row.alignment = BoxContainer.ALIGNMENT_END
+	vbox.add_child(btn_row)
+	var action_btn := _make_button(
+		confirm_label if unlocked else "🔒  LOCKED",
+		confirm_cb, Vector2(260, 56))
+	if not unlocked:
+		action_btn.disabled = true
+	_apply_brass_style(action_btn,
+		C_TITLE_GLOW if unlocked else Color(0.32, 0.28, 0.20))
+	btn_row.add_child(action_btn)
+
 func _build_selection_overlay(
 		title_text: String,
 		sub_text: String,
@@ -8117,48 +8329,109 @@ func _build_selection_overlay(
 
 	vbox.add_child(_make_hsep())
 
-	# Cards grid — wraps to multiple rows when there are many cores /
-	# protocols. Up to 4 columns wide so each card stays at full size;
-	# additional cards flow to the next row instead of forcing a horizontal
-	# scrollbar inside the selection panel.
-	var cards_wrap := CenterContainer.new()
-	vbox.add_child(cards_wrap)
-	var cards_grid := GridContainer.new()
-	cards_grid.columns = mini(4, count)
-	cards_grid.add_theme_constant_override("h_separation", 16)
-	cards_grid.add_theme_constant_override("v_separation", 16)
-	cards_wrap.add_child(cards_grid)
+	# ── GALLERY LAYOUT ────────────────────────────────────────────────
+	# Featured pane on the left holds the full plaque for the currently
+	# previewed entry; a 3-column thumbnail grid on the right shows all
+	# entries at a glance. Clicking a thumbnail rebuilds the featured
+	# pane. No scrolling, more info per entry than the old 4-column grid.
+	var gallery := HBoxContainer.new()
+	gallery.add_theme_constant_override("separation", 24)
+	gallery.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(gallery)
 
-	# Pull lifetime stats once and pass each card the right unlock gate so
-	# locked entries render dim with a requirement hint instead of being
-	# selectable.
+	# Featured pane — brighter parchment slab so it pops against the
+	# outer dimmed parchment. The thin gold border draws the eye here
+	# first. Confirm action lives inside this pane.
+	var featured_pane := PanelContainer.new()
+	featured_pane.custom_minimum_size = Vector2(580, 440)
+	featured_pane.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if ResourceLoader.exists("res://assets/branding/parchment.png"):
+		var f_bg := StyleBoxTexture.new()
+		f_bg.texture        = load("res://assets/branding/parchment.png")
+		f_bg.modulate_color = Color(0.92, 0.84, 0.66, 0.97)
+		f_bg.set_content_margin_all(22)
+		featured_pane.add_theme_stylebox_override("panel", f_bg)
+	else:
+		var f_bg := StyleBoxFlat.new()
+		f_bg.bg_color     = Color(0.18, 0.14, 0.09)
+		f_bg.border_color = C_GOLD_RIM
+		f_bg.set_border_width_all(1)
+		f_bg.set_corner_radius_all(4)
+		f_bg.set_content_margin_all(22)
+		featured_pane.add_theme_stylebox_override("panel", f_bg)
+	gallery.add_child(featured_pane)
+
+	# Featured-pane gold border overlay
+	var f_border := Control.new()
+	f_border.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	f_border.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	f_border.draw.connect(func() -> void:
+		if is_instance_valid(f_border):
+			f_border.draw_rect(Rect2(Vector2.ZERO, f_border.size),
+				Color(0.58, 0.44, 0.20, 0.95), false, 1.5))
+	featured_pane.add_child(f_border)
+
+	# Thumbnail grid (right) — 3 columns; 4 rows comfortably fit 12
+	# entries without scroll. Cores have 10, Protocols have 4.
+	var thumb_grid := GridContainer.new()
+	thumb_grid.columns = 3
+	thumb_grid.add_theme_constant_override("h_separation", 10)
+	thumb_grid.add_theme_constant_override("v_separation", 10)
+	gallery.add_child(thumb_grid)
+
+	# Compute unlock state for every entry once — passed both to the
+	# thumbnail builder and stashed on the featured pane so the refresh
+	# function can look up by index without re-running the gate logic.
 	var lifetime: Dictionary = SaveManager.get_lifetime_stats()
 	var is_core: bool = title_text.begins_with("CALIBRATION")
+	var unlocked_arr: Array  = []
+	var unlock_labels: Array = []
+	for i in range(count):
+		var unl: bool = true
+		var lbl: String = ""
+		if is_core:
+			unl = Constants.is_core_unlocked(i, lifetime)
+			if not unl:
+				lbl = Constants.CORE_UNLOCKS[i].get("label", "Locked.")
+		else:
+			unl = Constants.is_protocol_unlocked(i, lifetime)
+			if not unl:
+				lbl = Constants.PROTOCOL_UNLOCKS[i].get("label", "Locked.")
+		unlocked_arr.append(unl)
+		unlock_labels.append(lbl)
+
+	# Stash everything the featured-pane refresh needs as meta. Keeps
+	# the refresh signature small — just (pane, index) — and decouples
+	# it from the call site.
+	featured_pane.set_meta("names",            names)
+	featured_pane.set_meta("rarities",         rarities)
+	featured_pane.set_meta("descs",            descs)
+	featured_pane.set_meta("lores",            lores)
+	featured_pane.set_meta("unlocked",         unlocked_arr)
+	featured_pane.set_meta("unlock_labels",    unlock_labels)
+	featured_pane.set_meta("confirm_callback", confirm_callback)
+	featured_pane.set_meta("confirm_label",    confirm_label)
+
+	# Record the featured pane against the right member var so
+	# `_refresh_core_cards` / `_refresh_protocol_cards` can find it.
+	if is_core:
+		_core_featured_pane  = featured_pane
+	else:
+		_proto_featured_pane = featured_pane
+
+	# Build the thumbnails. Thumbnails reuse the existing card_callback
+	# (which updates _pending_core / _pending_protocol and triggers the
+	# refresh chain).
 	out_cards.clear()
 	for i in range(count):
-		var unlocked: bool = true
-		var unlock_label: String = ""
-		if is_core:
-			unlocked = Constants.is_core_unlocked(i, lifetime)
-			if not unlocked:
-				unlock_label = Constants.CORE_UNLOCKS[i].get("label", "Locked.")
-		else:
-			unlocked = Constants.is_protocol_unlocked(i, lifetime)
-			if not unlocked:
-				unlock_label = Constants.PROTOCOL_UNLOCKS[i].get("label", "Locked.")
-		var card := _build_selection_card(
-			i, names[i], rarities[i], descs[i], lores[i], card_callback,
-			unlocked, unlock_label)
-		cards_grid.add_child(card)
-		out_cards.append(card)
+		var thumb := _build_selection_thumbnail(
+			i, names[i], rarities[i], unlocked_arr[i], card_callback)
+		thumb_grid.add_child(thumb)
+		out_cards.append(thumb)
 
-	vbox.add_child(_make_hsep())
-
-	# Confirm button
-	var btn_row := HBoxContainer.new()
-	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	vbox.add_child(btn_row)
-	btn_row.add_child(_make_button(confirm_label, confirm_callback, Vector2(280, 52)))
+	# Populate the featured pane with the initial selection (always 0;
+	# `_pending_core` / `_pending_protocol` are reset to 0 on entry).
+	_refresh_selection_featured(featured_pane, 0)
 
 	return overlay
 
