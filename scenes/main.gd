@@ -8360,7 +8360,10 @@ func _build_selection_overlay(
 		var pstyle := StyleBoxTexture.new()
 		pstyle.texture        = load("res://assets/branding/parchment.png")
 		pstyle.modulate_color = Color(0.42, 0.34, 0.24, 0.97)
-		pstyle.set_content_margin_individual(48, 32, 48, 32)
+		pstyle.content_margin_left   = 48
+		pstyle.content_margin_top    = 32
+		pstyle.content_margin_right  = 48
+		pstyle.content_margin_bottom = 32
 		panel.add_theme_stylebox_override("panel", pstyle)
 	else:
 		var pstyle := StyleBoxFlat.new()
@@ -8368,7 +8371,10 @@ func _build_selection_overlay(
 		pstyle.border_color = Color(0.50, 0.45, 0.35)
 		pstyle.set_border_width_all(2)
 		pstyle.set_corner_radius_all(8)
-		pstyle.set_content_margin_individual(48, 32, 48, 32)
+		pstyle.content_margin_left   = 48
+		pstyle.content_margin_top    = 32
+		pstyle.content_margin_right  = 48
+		pstyle.content_margin_bottom = 32
 		panel.add_theme_stylebox_override("panel", pstyle)
 	center.add_child(panel)
 
