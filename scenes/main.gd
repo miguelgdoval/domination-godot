@@ -1955,6 +1955,20 @@ func _on_protocol_confirm_pressed() -> void:
 	_roll_renegade_visit()
 	_show_start_removal()
 
+## BACK from Core Select → hide the overlay. Title overlay is still
+## visible behind (per the layer-order setup in _ready), so the player
+## simply returns to the title menu.
+func _on_core_back_pressed() -> void:
+	_core_select_overlay.hide()
+
+## BACK from Protocol Select → return to Core Select. Re-show the core
+## overlay so the player can change their Core pick; thumbnails refresh
+## to reflect the current pending state.
+func _on_protocol_back_pressed() -> void:
+	_proto_select_overlay.hide()
+	_refresh_core_cards()
+	_core_select_overlay.show()
+
 func _refresh_core_cards() -> void:
 	for i in range(_core_cards.size()):
 		var thumb: Button = _core_cards[i]
@@ -6192,6 +6206,7 @@ func _build_ui() -> void:
 		_on_core_card_pressed,
 		_on_core_confirm_pressed,
 		"LOCK IN CORE  →",
+		_on_core_back_pressed,
 		_core_cards
 	)
 	ui.add_child(_core_select_overlay)
@@ -6208,6 +6223,7 @@ func _build_ui() -> void:
 		_on_protocol_card_pressed,
 		_on_protocol_confirm_pressed,
 		"BEGIN TRIAL CYCLE  →",
+		_on_protocol_back_pressed,
 		_protocol_cards
 	)
 	ui.add_child(_proto_select_overlay)
@@ -8331,6 +8347,7 @@ func _build_selection_overlay(
 		card_callback: Callable,
 		confirm_callback: Callable,
 		confirm_label: String,
+		back_callback: Callable,
 		out_cards: Array) -> Control:
 
 	# Modal dim — lowered alpha so the title overlay's hero scene
@@ -8394,11 +8411,35 @@ func _build_selection_overlay(
 	vbox.add_theme_constant_override("separation", 18)
 	panel.add_child(vbox)
 
-	# Header — engraved-brass title with a flourish underline + brighter
-	# engraved subtitle. Reads as a chapter header on a parchment plaque.
+	# Header row — BACK button left, engraved-brass title centered. A
+	# matching invisible placeholder on the right balances the layout so
+	# the title stays visually centered within the panel rather than
+	# being shifted off-axis by the asymmetric back button.
+	var header_row := HBoxContainer.new()
+	header_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(header_row)
+
+	var back_btn := _make_button("←  BACK", back_callback, Vector2(120, 40))
+	_apply_brass_style(back_btn, C_TITLE_GLOW.darkened(0.30))
+	header_row.add_child(back_btn)
+
+	var hdr_sp_l := Control.new()
+	hdr_sp_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header_row.add_child(hdr_sp_l)
+
 	var hdr := _make_engraved_label(title_text, C_TITLE_GLOW, 32, 6, 0.55, 2, 0.92)
 	hdr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(hdr)
+	header_row.add_child(hdr)
+
+	var hdr_sp_r := Control.new()
+	hdr_sp_r.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header_row.add_child(hdr_sp_r)
+
+	# Invisible placeholder matching the back button's width, so the
+	# header centres on the panel midline rather than being pushed right.
+	var hdr_balance := Control.new()
+	hdr_balance.custom_minimum_size = Vector2(120, 0)
+	header_row.add_child(hdr_balance)
 
 	if ResourceLoader.exists("res://assets/branding/flourish.png"):
 		var flourish_div := TextureRect.new()
