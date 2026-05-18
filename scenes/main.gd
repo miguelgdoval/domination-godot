@@ -634,12 +634,24 @@ func _play_title_intro() -> void:
 func _on_title_start_pressed() -> void:
 	_pending_core     = 0
 	_pending_protocol = 0
-	# Keep the title overlay visible behind the selection screens — the
-	# hero scene, dust, bloom heartbeat, and screen frame all continue
-	# running while the player picks a Core and a Protocol. Title is
-	# hidden once actual gameplay begins (see _begin_round_play).
+	# Title overlay stays visible (so the hero scene + dust + bloom +
+	# screen frame carry through selection) BUT its foreground UI is
+	# hidden so the logo / wordmark / lore / menu buttons don't bleed
+	# behind the selection cards. Restored on back-to-title.
+	_set_title_content_visible(false)
 	_refresh_core_cards()
 	_core_select_overlay.show()
+
+## Toggle visibility of the title overlay's foreground content (logo,
+## wordmark, tagline, rule, lore, menu stack, meta row, settings) while
+## the title's atmosphere layers (hero scene, dust, bloom, screen frame)
+## stay visible. Used so selection / setup screens read cleanly without
+## the title's UI elements competing behind them.
+func _set_title_content_visible(visible: bool) -> void:
+	var target_a: float = 1.0 if visible else 0.0
+	for el in _title_intro_elements:
+		if el != null and is_instance_valid(el):
+			el.modulate.a = target_a
 
 func _on_continue_run_pressed() -> void:
 	if not SaveManager.has_saved_run():
@@ -1955,11 +1967,12 @@ func _on_protocol_confirm_pressed() -> void:
 	_roll_renegade_visit()
 	_show_start_removal()
 
-## BACK from Core Select → hide the overlay. Title overlay is still
-## visible behind (per the layer-order setup in _ready), so the player
-## simply returns to the title menu.
+## BACK from Core Select → hide the overlay AND restore the title's
+## foreground content (which was hidden by `_on_title_start_pressed`),
+## so the player sees the full title menu again.
 func _on_core_back_pressed() -> void:
 	_core_select_overlay.hide()
+	_set_title_content_visible(true)
 
 ## BACK from Protocol Select → return to Core Select. Re-show the core
 ## overlay so the player can change their Core pick; thumbnails refresh
