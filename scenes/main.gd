@@ -8153,6 +8153,10 @@ func _make_core_icon(index: int, is_core: bool, rarity: int,
 		return inner
 	# With backing: wrap in a Control that draws a dark octagonal plate
 	# behind the icon contents (matches the title-screen logomark trick).
+	# The icon is inset ~12% inside the wrapper so corner-extending
+	# illustrations (Overload lightning bolt, Cascade lines, etc.) sit
+	# comfortably within the octagon's diagonal cuts instead of bleeding
+	# past them. The octagonal backing itself still fills the wrapper.
 	var wrapper := Control.new()
 	wrapper.custom_minimum_size = Vector2(size, size)
 	wrapper.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -8163,6 +8167,11 @@ func _make_core_icon(index: int, is_core: bool, rarity: int,
 		backing, Color(0.06, 0.04, 0.02, 0.86)))
 	wrapper.add_child(backing)
 	inner.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var inset: float = size * 0.12
+	inner.offset_left   =  inset
+	inner.offset_top    =  inset
+	inner.offset_right  = -inset
+	inner.offset_bottom = -inset
 	wrapper.add_child(inner)
 	return wrapper
 
