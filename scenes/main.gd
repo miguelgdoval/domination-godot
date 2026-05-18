@@ -8350,11 +8350,12 @@ func _build_selection_overlay(
 		back_callback: Callable,
 		out_cards: Array) -> Control:
 
-	# Modal dim — lowered alpha so the title overlay's hero scene
-	# remains faintly visible behind. The selection panel is opaque on
-	# top so the cards still read clearly.
+	# Modal dim — light alpha so the title overlay's hero scene
+	# (illustration + dust + bloom heartbeat) carries through the
+	# selection screen as the dominant atmosphere. The cards float on
+	# top of the cinematic instead of a parchment surface obscuring it.
 	var overlay := ColorRect.new()
-	overlay.color = Color(0, 0, 0, 0.62)
+	overlay.color = Color(0, 0, 0, 0.48)
 	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 	var scroll := ScrollContainer.new()
@@ -8366,46 +8367,56 @@ func _build_selection_overlay(
 	center.size_flags_vertical   = Control.SIZE_EXPAND_FILL
 	scroll.add_child(center)
 
-	# Outer panel — dimmed parchment texture (when available) gives the
-	# screen a material identity distinct from the title's wood BG.
-	# Wider than PANEL_W_LARGE and with 48px horizontal padding so the
-	# featured pane + thumbnail grid have breathing room clear of the
-	# gold border, instead of being flush against it.
+	# Outer panel — TRANSPARENT fill with just a thin gold border. The
+	# title overlay's hero illustration (and its dust + bloom) shows
+	# through the panel area so the cinematic atmosphere carries from
+	# title into selection. The featured pane (bright parchment) is
+	# the only opaque element, drawing the eye like a focal beacon.
 	var panel := PanelContainer.new()
 	panel.custom_minimum_size = Vector2(1200, 0)
-	if ResourceLoader.exists("res://assets/branding/parchment.png"):
-		var pstyle := StyleBoxTexture.new()
-		pstyle.texture        = load("res://assets/branding/parchment.png")
-		pstyle.modulate_color = Color(0.42, 0.34, 0.24, 0.97)
-		pstyle.content_margin_left   = 48
-		pstyle.content_margin_top    = 32
-		pstyle.content_margin_right  = 48
-		pstyle.content_margin_bottom = 32
-		panel.add_theme_stylebox_override("panel", pstyle)
-	else:
-		var pstyle := StyleBoxFlat.new()
-		pstyle.bg_color     = Color(0.10, 0.09, 0.07)
-		pstyle.border_color = Color(0.50, 0.45, 0.35)
-		pstyle.set_border_width_all(2)
-		pstyle.set_corner_radius_all(8)
-		pstyle.content_margin_left   = 48
-		pstyle.content_margin_top    = 32
-		pstyle.content_margin_right  = 48
-		pstyle.content_margin_bottom = 32
-		panel.add_theme_stylebox_override("panel", pstyle)
+	var pstyle := StyleBoxFlat.new()
+	pstyle.bg_color     = Color(0, 0, 0, 0)        # transparent
+	pstyle.border_color = Color(0.58, 0.44, 0.20, 0.85)
+	pstyle.set_border_width_all(1)
+	pstyle.set_corner_radius_all(2)
+	pstyle.content_margin_left   = 48
+	pstyle.content_margin_top    = 36
+	pstyle.content_margin_right  = 48
+	pstyle.content_margin_bottom = 36
+	panel.add_theme_stylebox_override("panel", pstyle)
 	center.add_child(panel)
 
-	# Thin gold border drawn on top of the parchment surface — gives the
-	# panel its own defined edge regardless of which stylebox the
-	# texture branch produced (StyleBoxTexture has no border properties).
-	var border_overlay := Control.new()
-	border_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	border_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	border_overlay.draw.connect(func() -> void:
-		if is_instance_valid(border_overlay):
-			border_overlay.draw_rect(Rect2(Vector2.ZERO, border_overlay.size),
-				Color(0.55, 0.42, 0.18, 0.90), false, 1.5))
-	panel.add_child(border_overlay)
+	# Corner brackets at the four corners of the panel — same brand
+	# language as the title's screen frame. Drawn as TextureRect
+	# children with flip_h / flip_v to populate all four quadrants
+	# from the single upper-left bracket asset.
+	var bracket_tex := _load_branding_masked(BRACKET_PATH)
+	if bracket_tex != null:
+		const PANEL_BRACKET_SIZE: int = 56
+		const PANEL_BRACKET_INSET: int = -8
+		var corners: Array = [
+			[0.0, 0.0,  PANEL_BRACKET_INSET,                       PANEL_BRACKET_INSET,                       false, false],
+			[1.0, 0.0, -PANEL_BRACKET_INSET - PANEL_BRACKET_SIZE,  PANEL_BRACKET_INSET,                       true,  false],
+			[0.0, 1.0,  PANEL_BRACKET_INSET,                      -PANEL_BRACKET_INSET - PANEL_BRACKET_SIZE,  false, true],
+			[1.0, 1.0, -PANEL_BRACKET_INSET - PANEL_BRACKET_SIZE, -PANEL_BRACKET_INSET - PANEL_BRACKET_SIZE,  true,  true],
+		]
+		for c in corners:
+			var br := TextureRect.new()
+			br.texture       = bracket_tex
+			br.expand_mode   = TextureRect.EXPAND_IGNORE_SIZE
+			br.stretch_mode  = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			br.mouse_filter  = Control.MOUSE_FILTER_IGNORE
+			br.flip_h        = c[4]
+			br.flip_v        = c[5]
+			br.anchor_left   = c[0]
+			br.anchor_top    = c[1]
+			br.anchor_right  = c[0]
+			br.anchor_bottom = c[1]
+			br.offset_left   = c[2]
+			br.offset_top    = c[3]
+			br.offset_right  = c[2] + PANEL_BRACKET_SIZE
+			br.offset_bottom = c[3] + PANEL_BRACKET_SIZE
+			panel.add_child(br)
 
 	var vbox := VBoxContainer.new()
 	vbox.add_theme_constant_override("separation", 18)
