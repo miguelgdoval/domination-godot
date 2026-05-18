@@ -8386,37 +8386,11 @@ func _build_selection_overlay(
 	panel.add_theme_stylebox_override("panel", pstyle)
 	center.add_child(panel)
 
-	# Corner brackets at the four corners of the panel — same brand
-	# language as the title's screen frame. Drawn as TextureRect
-	# children with flip_h / flip_v to populate all four quadrants
-	# from the single upper-left bracket asset.
-	var bracket_tex := _load_branding_masked(BRACKET_PATH)
-	if bracket_tex != null:
-		const PANEL_BRACKET_SIZE: int = 56
-		const PANEL_BRACKET_INSET: int = -8
-		var corners: Array = [
-			[0.0, 0.0,  PANEL_BRACKET_INSET,                       PANEL_BRACKET_INSET,                       false, false],
-			[1.0, 0.0, -PANEL_BRACKET_INSET - PANEL_BRACKET_SIZE,  PANEL_BRACKET_INSET,                       true,  false],
-			[0.0, 1.0,  PANEL_BRACKET_INSET,                      -PANEL_BRACKET_INSET - PANEL_BRACKET_SIZE,  false, true],
-			[1.0, 1.0, -PANEL_BRACKET_INSET - PANEL_BRACKET_SIZE, -PANEL_BRACKET_INSET - PANEL_BRACKET_SIZE,  true,  true],
-		]
-		for c in corners:
-			var br := TextureRect.new()
-			br.texture       = bracket_tex
-			br.expand_mode   = TextureRect.EXPAND_IGNORE_SIZE
-			br.stretch_mode  = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-			br.mouse_filter  = Control.MOUSE_FILTER_IGNORE
-			br.flip_h        = c[4]
-			br.flip_v        = c[5]
-			br.anchor_left   = c[0]
-			br.anchor_top    = c[1]
-			br.anchor_right  = c[0]
-			br.anchor_bottom = c[1]
-			br.offset_left   = c[2]
-			br.offset_top    = c[3]
-			br.offset_right  = c[2] + PANEL_BRACKET_SIZE
-			br.offset_bottom = c[3] + PANEL_BRACKET_SIZE
-			panel.add_child(br)
+	# (Corner brackets on the panel were removed — PanelContainer is a
+	# Container that overrides child anchoring, so the brackets got
+	# stretched across the inner area instead of sitting at corners.
+	# The title screen's frame brackets are still visible at the
+	# viewport edge through the now-transparent panel.)
 
 	var vbox := VBoxContainer.new()
 	vbox.add_theme_constant_override("separation", 18)
