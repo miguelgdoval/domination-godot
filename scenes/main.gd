@@ -8275,14 +8275,17 @@ func _refresh_selection_featured(pane: PanelContainer, index: int) -> void:
 	pane.add_child(vbox)
 
 	# Rarity / locked badge — top strip of small inscription text.
+	# Rarity colours are designed for dark BGs; on the bright parchment
+	# of the featured pane they wash out, so darken by 50% to keep the
+	# rarity hue but read clearly against cream.
 	var badge_text: String
 	var badge_color: Color
 	if unlocked:
 		badge_text  = Constants.RARITY_NAMES[rarity].to_upper()
-		badge_color = C_RARITY[rarity]
+		badge_color = C_RARITY[rarity].darkened(0.55)
 	else:
 		badge_text  = "▮  LOCKED"
-		badge_color = Color(0.45, 0.38, 0.28)
+		badge_color = Color(0.35, 0.28, 0.18)
 	var badge_lbl := _make_engraved_label(badge_text, badge_color, 12, 4, 0.0, 0, 0.0)
 	vbox.add_child(badge_lbl)
 
@@ -8296,13 +8299,17 @@ func _refresh_selection_featured(pane: PanelContainer, index: int) -> void:
 	var icon := _make_core_icon(index, is_core, rarity, unlocked, 96, true)
 	top_row.add_child(icon)
 
-	var name_color: Color = C_TITLE_GLOW if unlocked else Color(0.42, 0.36, 0.28)
-	var name_lbl := _make_engraved_label(names[index], name_color, 30, 5, 0.55, 1, 0.85)
+	# Name — deep aged-brass on parchment. The engraved-label drop
+	# shadow + outline are killed here because they were designed for
+	# gold text on dark BGs; on dark-on-cream they only add visual
+	# noise. Clean dark glyphs with extra tracking read best on parchment.
+	var name_color: Color = Color(0.30, 0.20, 0.06) if unlocked else Color(0.42, 0.36, 0.28)
+	var name_lbl := _make_engraved_label(names[index], name_color, 32, 6, 0.0, 0, 0.0)
 	name_lbl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	top_row.add_child(name_lbl)
 
-	# Engraved rule below header.
-	vbox.add_child(_build_engraved_rule(420, C_GOLD_RIM))
+	# Engraved rule below header — darker brass for parchment contrast.
+	vbox.add_child(_build_engraved_rule(420, Color(0.50, 0.35, 0.14)))
 
 	# Body — description + lore quote when unlocked, or unlock requirement
 	# when not. Dark text reads cleanly on the brighter parchment surface.
