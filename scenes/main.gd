@@ -419,6 +419,11 @@ var _tile_face_tex: Texture2D = null
 
 # UI references — title / selection overlays
 var _title_overlay:        Control
+## Hero BG TextureRect on the title overlay. Rendered slightly larger
+## than the viewport so the parallax shift never exposes its edges.
+## Populated in `_build_title_overlay`, polled in `_process` while the
+## title is visible.
+var _title_hero_bg:        TextureRect = null
 ## Per-session flag: fold-in animation plays once. Returns to the title
 ## (e.g. quit-to-title from mid-run) skip the animation and show the
 ## screen instantly.
@@ -529,6 +534,7 @@ func _ready() -> void:
 ## 60 fps for a wall-clock display). _run_start_msec == 0 means the
 ## timer is idle (player is on the title screen or just got there).
 func _process(delta: float) -> void:
+	_update_hero_parallax(delta)
 	if _run_start_msec == 0:
 		return
 	if _lbl_timer_pill == null:
@@ -539,6 +545,42 @@ func _process(delta: float) -> void:
 	_timer_accumulator -= 1.0
 	_lbl_timer_pill.text = _format_run_timer(
 		Time.get_ticks_msec() - _run_start_msec)
+
+## Smooth cursor-driven parallax on the title's hero illustration. The
+## BG TextureRect is sized 2*HERO_PARALLAX_MAX larger than the viewport
+## (each axis) and starts centred; this method shifts it inversely to
+## the cursor position so the world appears to track the player's gaze.
+## Skips when the title overlay is hidden so gameplay isn't affected.
+func _update_hero_parallax(delta: float) -> void:
+	if _title_hero_bg == null or not is_instance_valid(_title_hero_bg):
+		return
+	if _title_overlay == null or not _title_overlay.visible:
+		return
+	var vp: Viewport = get_viewport()
+	if vp == null:
+		return
+	var mouse: Vector2 = vp.get_mouse_position()
+	var vsize: Vector2 = vp.get_visible_rect().size
+	if vsize.x <= 0 or vsize.y <= 0:
+		return
+	# Normalise cursor to [-1, 1] across each axis, clamped (the cursor
+	# can briefly exit the viewport rect on some platforms).
+	var norm_x: float = clampf((mouse.x / vsize.x - 0.5) * 2.0, -1.0, 1.0)
+	var norm_y: float = clampf((mouse.y / vsize.y - 0.5) * 2.0, -1.0, 1.0)
+	# Move the BG OPPOSITE to the cursor for a "looking around the
+	# world" feel. 0.5× the max keeps the motion subtle.
+	var target_x: float = -norm_x * HERO_PARALLAX_MAX * 0.5
+	var target_y: float = -norm_y * HERO_PARALLAX_MAX * 0.5
+	# Smooth follow — exponential-ish lerp with delta-scaled factor.
+	var t: float = clampf(HERO_PARALLAX_LERP * delta, 0.0, 1.0)
+	var current_x: float = _title_hero_bg.offset_left + HERO_PARALLAX_MAX
+	var current_y: float = _title_hero_bg.offset_top  + HERO_PARALLAX_MAX
+	var new_x: float = lerp(current_x, target_x, t)
+	var new_y: float = lerp(current_y, target_y, t)
+	_title_hero_bg.offset_left   = -HERO_PARALLAX_MAX + new_x
+	_title_hero_bg.offset_right  =  HERO_PARALLAX_MAX + new_x
+	_title_hero_bg.offset_top    = -HERO_PARALLAX_MAX + new_y
+	_title_hero_bg.offset_bottom =  HERO_PARALLAX_MAX + new_y
 
 ## Format an msec elapsed value as MM:SS, or HH:MM:SS once the run
 ## hits an hour. Mono font on the pill keeps the digits stable so
@@ -640,7 +682,7 @@ func _on_title_start_pressed() -> void:
 	# behind the selection cards. Restored on back-to-title.
 	_set_title_content_visible(false)
 	_refresh_core_cards()
-	_core_select_overlay.show()
+	_fade_in_overlay(_core_select_overlay)
 
 ## Toggle visibility of the title overlay's foreground content (logo,
 ## wordmark, tagline, rule, lore, menu stack, meta row, settings) while
@@ -1955,7 +1997,7 @@ func _on_core_card_pressed(index: int) -> void:
 func _on_core_confirm_pressed() -> void:
 	_core_select_overlay.hide()
 	_refresh_protocol_cards()
-	_proto_select_overlay.show()
+	_fade_in_overlay(_proto_select_overlay)
 
 func _on_protocol_card_pressed(index: int) -> void:
 	_pending_protocol = index
@@ -1980,7 +2022,7 @@ func _on_core_back_pressed() -> void:
 func _on_protocol_back_pressed() -> void:
 	_proto_select_overlay.hide()
 	_refresh_core_cards()
-	_core_select_overlay.show()
+	_fade_in_overlay(_core_select_overlay)
 
 func _refresh_core_cards() -> void:
 	for i in range(_core_cards.size()):
@@ -7424,6 +7466,15 @@ const WOOD_BG_PATH  := "res://assets/branding/wood_bg.png"
 const HERO_BG_PATH  := "res://assets/branding/hero_bg.png"
 const BRASS_PATH    := "res://assets/branding/brass_plate.png"
 const BRANDING_MASK_THRESHOLD: int = 20   # ≈ 0.08 normalised — covers anti-alias halos around the gold mark
+## Maximum pixel shift applied to the title's hero illustration as the
+## mouse moves across the viewport. The BG is rendered ~2× this size
+## beyond the viewport on each axis so the parallax shift never exposes
+## an edge. Subtle on purpose — visible as depth, not motion.
+const HERO_PARALLAX_MAX: float = 14.0
+## Lerp factor per second for the parallax position smoothing. Larger
+## values track the cursor more tightly; 5.0 reads as natural follow-
+## with-easing rather than rigid 1:1 motion.
+const HERO_PARALLAX_LERP: float = 5.0
 
 ## Per-entry icon keys for the selection gallery. Index matches the
 ## Constants.CORE_NAMES / Constants.PROTOCOL_NAMES order. Used by
@@ -7743,7 +7794,15 @@ func _build_title_overlay() -> Control:
 		bg.stretch_mode  = TextureRect.STRETCH_SCALE
 		bg.mouse_filter  = Control.MOUSE_FILTER_IGNORE
 		bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		# Render the BG slightly larger than the viewport so the
+		# parallax shift never exposes its edges. _process nudges the
+		# position by up to ±HERO_PARALLAX_MAX based on cursor location.
+		bg.offset_left   = -HERO_PARALLAX_MAX
+		bg.offset_top    = -HERO_PARALLAX_MAX
+		bg.offset_right  =  HERO_PARALLAX_MAX
+		bg.offset_bottom =  HERO_PARALLAX_MAX
 		overlay.add_child(bg)
+		_title_hero_bg = bg
 	overlay.add_child(_make_radial_overlay(
 		Vector2(0.5, 0.5), Vector2(1.0, 1.0),
 		Color(0, 0, 0, 0.0),
@@ -8098,7 +8157,10 @@ func _build_title_overlay() -> Control:
 ## land in assets/branding/cores/. Hooked via the host Control's `draw`
 ## signal.
 func _draw_core_icon_placeholder(c: Control, rarity: int, unlocked: bool) -> void:
-	var color: Color = C_RARITY[rarity] if unlocked else Color(0.42, 0.36, 0.28)
+	# Locked entries use a faded blueprint-blue tint instead of dim
+	# brass so they read as "schematic / encoded" rather than just
+	# desaturated — more atmospheric, less frustrating.
+	var color: Color = C_RARITY[rarity] if unlocked else Color(0.42, 0.55, 0.72)
 	var sz: Vector2  = c.size
 	var radius: float = min(sz.x, sz.y) * 0.42
 	var stroke: float = max(2.0, radius * 0.10)
@@ -8140,7 +8202,10 @@ func _make_core_icon(index: int, is_core: bool, rarity: int,
 				tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 				tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 				if not unlocked:
-					tr.modulate = Color(0.55, 0.48, 0.36)
+					# Blueprint-blue tint signals "encoded / not yet earned"
+					# in a way that flat desaturation can't — the icon is
+					# still legible but visibly schematic.
+					tr.modulate = Color(0.55, 0.68, 0.86)
 				inner = tr
 	if inner == null:
 		# Procedural fallback — octagonal placeholder, rarity-tinted.
@@ -8279,9 +8344,28 @@ func _refresh_selection_featured(pane: PanelContainer, index: int) -> void:
 	var unlocked: bool = unlocked_arr[index]
 	var rarity: int    = rarities[index]
 
+	# Warm halo — radial amber glow behind the content. Sits on top of
+	# the parchment stylebox but below the VBox content (PanelContainer
+	# stacks children in add order; first added renders first / lowest).
+	# Gives the featured pane a lit-from-within feel that flat parchment
+	# alone can't carry.
+	var halo := _make_radial_overlay(
+		Vector2(0.5, 0.5), Vector2(1.0, 1.0),
+		Color(0.96, 0.78, 0.38, 0.16),
+		Color(0.96, 0.78, 0.38, 0.0))
+	pane.add_child(halo)
+
 	var vbox := VBoxContainer.new()
 	vbox.add_theme_constant_override("separation", 14)
 	pane.add_child(vbox)
+	# Selection cross-fade — the previous content was just queue_freed,
+	# so the new VBox starts at alpha 0 and tweens up over 0.15s. Feels
+	# tactile when the player clicks a thumbnail to preview a new entry,
+	# instead of an instant content swap.
+	vbox.modulate.a = 0.0
+	var fade_t := pane.create_tween()
+	fade_t.tween_property(vbox, "modulate:a", 1.0, 0.15) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 	# Rarity / locked badge — top strip of small inscription text.
 	# Rarity colours are designed for dark BGs; on the bright parchment
@@ -8357,13 +8441,26 @@ func _refresh_selection_featured(pane: PanelContainer, index: int) -> void:
 	btn_row.alignment = BoxContainer.ALIGNMENT_END
 	vbox.add_child(btn_row)
 	var action_btn := _make_button(
-		confirm_label if unlocked else "🔒  LOCKED",
+		confirm_label if unlocked else "▮  LOCKED",
 		confirm_cb, Vector2(260, 56))
 	if not unlocked:
 		action_btn.disabled = true
 	_apply_brass_style(action_btn,
 		C_TITLE_GLOW if unlocked else Color(0.32, 0.28, 0.20))
 	btn_row.add_child(action_btn)
+	# Idle pulse — slow warm-tint modulate loop on the action button so
+	# it draws the eye like the title screen's bloom heartbeat. Locked
+	# action button stays static (no encouragement to click a disabled
+	# button). The pulse range is gentle enough that the per-hover
+	# modulate written by `_make_button` doesn't visibly fight it.
+	if unlocked:
+		var pulse := action_btn.create_tween().set_loops()
+		pulse.tween_property(action_btn, "modulate",
+			Color(1.08, 1.04, 0.96, 1.0), 1.6) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		pulse.tween_property(action_btn, "modulate",
+			Color(1.0, 1.0, 1.0, 1.0), 1.6) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 
 func _build_selection_overlay(
 		title_text: String,
