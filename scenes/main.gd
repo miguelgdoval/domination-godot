@@ -7503,6 +7503,17 @@ const FLOURISH_PATH := "res://assets/branding/flourish.png"
 const WOOD_BG_PATH  := "res://assets/branding/wood_bg.png"
 const HERO_BG_PATH  := "res://assets/branding/hero_bg.png"
 const BRASS_PATH    := "res://assets/branding/brass_plate.png"
+const WORDMARK_PATH := "res://assets/branding/wordmark.png"
+## Meta-row icon assets — match the order in which the buttons are
+## constructed in `_build_title_overlay`.
+const META_ICON_PATHS: Dictionary = {
+	"daily_history": "res://assets/branding/icon_daily_history.png",
+	"achievements":  "res://assets/branding/icon_achievements.png",
+	"stats":         "res://assets/branding/icon_stats.png",
+	"help":          "res://assets/branding/icon_help.png",
+	"codex":         "res://assets/branding/icon_codex.png",
+	"settings":      "res://assets/branding/icon_settings.png",
+}
 const BRANDING_MASK_THRESHOLD: int = 20   # ≈ 0.08 normalised — covers anti-alias halos around the gold mark
 ## Maximum pixel shift applied to the title's hero illustration as the
 ## mouse moves across the viewport. The BG is rendered ~2× this size
@@ -7604,6 +7615,33 @@ func _apply_brass_style(btn: Button, border_color: Color,
 	var hover_sb := _make_brass_stylebox(hover_tint, margin)
 	btn.add_theme_stylebox_override("hover", hover_sb)
 	_add_button_border(btn, border_color, border_width)
+
+## Swap a meta-row button's emoji label for the corresponding brass
+## icon asset, if one is present. The icon is masked black→alpha by
+## `_load_branding_masked` and tinted dark via Button's icon_*_color
+## theme so it reads as engraved-INTO the brass plate, not gold-on-gold.
+## When the asset is missing this is a no-op — the existing emoji text
+## remains as a fallback.
+func _apply_meta_icon(btn: Button, asset_key: String, icon_max: int = 30) -> void:
+	if btn == null:
+		return
+	var path: String = META_ICON_PATHS.get(asset_key, "")
+	if path == "" or not ResourceLoader.exists(path):
+		return
+	var tex := _load_branding_masked(path)
+	if tex == null:
+		return
+	btn.text = ""
+	btn.icon = tex
+	btn.expand_icon = false
+	btn.add_theme_constant_override("icon_max_width", icon_max)
+	var dark   := Color(0.10, 0.07, 0.03, 1.0)
+	var darker := Color(0.04, 0.03, 0.01, 1.0)
+	btn.add_theme_color_override("icon_normal_color",   dark)
+	btn.add_theme_color_override("icon_hover_color",    darker)
+	btn.add_theme_color_override("icon_focus_color",    dark)
+	btn.add_theme_color_override("icon_pressed_color",  darker)
+	btn.add_theme_color_override("icon_disabled_color", Color(0.30, 0.25, 0.18, 0.6))
 
 ## Procedural draw callback — fallback for when the canonical PNG is
 ## missing. Reproduces the brand composition: octagon outline, central
@@ -7941,12 +7979,22 @@ func _build_title_overlay() -> Control:
 	logo_ctrl.add_child(logo_inner)
 	hero.add_child(logo_ctrl)
 
-	# Wordmark — engraved-brass treatment with a thick dark outline so
-	# the gold lettering stays legible against the busy mechanism BG
-	# even where it overlaps the warm lamp area.
-	var title_lbl := _make_engraved_label(
-		"DOMINATION", C_TITLE_GLOW, 64, 8, 0.60, 3, 0.95)
-	hero.add_child(title_lbl)
+	# Wordmark — illustrated brass plate (wordmark.png) when the asset
+	# is present; falls back to the engraved typeset Label otherwise.
+	# The illustrated version carries its own carved-brass texture so
+	# no outline/shadow is needed; the typeset fallback uses both.
+	var title_ctrl: Control
+	if ResourceLoader.exists(WORDMARK_PATH):
+		var title_tr := TextureRect.new()
+		title_tr.texture       = load(WORDMARK_PATH)
+		title_tr.expand_mode   = TextureRect.EXPAND_IGNORE_SIZE
+		title_tr.stretch_mode  = TextureRect.STRETCH_KEEP_ASPECT
+		title_tr.custom_minimum_size = Vector2(540, 170)
+		title_ctrl = title_tr
+	else:
+		title_ctrl = _make_engraved_label(
+			"DOMINATION", C_TITLE_GLOW, 64, 8, 0.60, 3, 0.95)
+	hero.add_child(title_ctrl)
 
 	# Tagline — uppercase with letter spacing reads as an engraved
 	# subtitle plate. Brighter warm-cream + thin dark outline so it
@@ -8166,6 +8214,17 @@ func _build_title_overlay() -> Control:
 	_apply_brass_style(_btn_codex,          C_TITLE_GLOW.darkened(0.2))
 	_apply_brass_style(settings_btn,        C_TITLE_GLOW.darkened(0.2))
 
+	# ── META ICON PASS ────────────────────────────────────────────────
+	# Replace the placeholder emoji on each meta-row button with the
+	# corresponding brass icon. _apply_meta_icon is a no-op when the
+	# asset isn't present, so each emoji stays as a fallback.
+	_apply_meta_icon(_btn_daily_history, "daily_history")
+	_apply_meta_icon(_btn_achievements,  "achievements")
+	_apply_meta_icon(_btn_stats,         "stats")
+	_apply_meta_icon(_btn_help,          "help")
+	_apply_meta_icon(_btn_codex,         "codex")
+	_apply_meta_icon(settings_btn,       "settings", 26)
+
 	# ── SCREEN FRAME (top layer) ──────────────────────────────────────
 	# Hairline brass border + corner_bracket.png at each corner, added
 	# last so it renders above every other element. Mouse passes through.
@@ -8177,7 +8236,7 @@ func _build_title_overlay() -> Control:
 	# is already there; the *content* arrives).
 	_title_intro_elements = [
 		logo_ctrl,      # 0 — logomark
-		title_lbl,      # 1 — wordmark
+		title_ctrl,     # 1 — wordmark
 		tag_lbl,        # 2 — tagline
 		rule_ctrl,      # 3 — engraved rule
 		lore_plate,     # 4 — lore blurb (inside an engraved plate)
