@@ -7519,11 +7519,12 @@ const BRANDING_MASK_THRESHOLD: int = 20   # ≈ 0.08 normalised — covers anti-
 ## mouse moves across the viewport. The BG is rendered ~2× this size
 ## beyond the viewport on each axis so the parallax shift never exposes
 ## an edge. Subtle on purpose — visible as depth, not motion.
-const HERO_PARALLAX_MAX: float = 14.0
+const HERO_PARALLAX_MAX: float = 18.0
 ## Lerp factor per second for the parallax position smoothing. Larger
-## values track the cursor more tightly; 5.0 reads as natural follow-
-## with-easing rather than rigid 1:1 motion.
-const HERO_PARALLAX_LERP: float = 5.0
+## values track the cursor more tightly while still easing — 13.0 is
+## responsive enough that the BG feels live with the cursor without
+## becoming jittery.
+const HERO_PARALLAX_LERP: float = 13.0
 
 ## Per-entry icon keys for the selection gallery. Index matches the
 ## Constants.CORE_NAMES / Constants.PROTOCOL_NAMES order. Used by
@@ -7618,11 +7619,11 @@ func _apply_brass_style(btn: Button, border_color: Color,
 
 ## Swap a meta-row button's emoji label for the corresponding brass
 ## icon asset, if one is present. The icon is masked black→alpha by
-## `_load_branding_masked` and tinted dark via Button's icon_*_color
-## theme so it reads as engraved-INTO the brass plate, not gold-on-gold.
+## `_load_branding_masked` and tinted dark-mahogany via Button's
+## icon_*_color theme so it reads as engraved-INTO the brass plate.
 ## When the asset is missing this is a no-op — the existing emoji text
 ## remains as a fallback.
-func _apply_meta_icon(btn: Button, asset_key: String, icon_max: int = 30) -> void:
+func _apply_meta_icon(btn: Button, asset_key: String, icon_max: int = 38) -> void:
 	if btn == null:
 		return
 	var path: String = META_ICON_PATHS.get(asset_key, "")
@@ -7635,13 +7636,15 @@ func _apply_meta_icon(btn: Button, asset_key: String, icon_max: int = 30) -> voi
 	btn.icon = tex
 	btn.expand_icon = false
 	btn.add_theme_constant_override("icon_max_width", icon_max)
-	var dark   := Color(0.10, 0.07, 0.03, 1.0)
-	var darker := Color(0.04, 0.03, 0.01, 1.0)
-	btn.add_theme_color_override("icon_normal_color",   dark)
-	btn.add_theme_color_override("icon_hover_color",    darker)
-	btn.add_theme_color_override("icon_focus_color",    dark)
-	btn.add_theme_color_override("icon_pressed_color",  darker)
-	btn.add_theme_color_override("icon_disabled_color", Color(0.30, 0.25, 0.18, 0.6))
+	# Slightly warm-dark mahogany — reads as etched bronze, not stark
+	# black silhouette. Hover darkens a touch.
+	var ink      := Color(0.18, 0.11, 0.04, 1.0)
+	var ink_deep := Color(0.10, 0.06, 0.02, 1.0)
+	btn.add_theme_color_override("icon_normal_color",   ink)
+	btn.add_theme_color_override("icon_hover_color",    ink_deep)
+	btn.add_theme_color_override("icon_focus_color",    ink)
+	btn.add_theme_color_override("icon_pressed_color",  ink_deep)
+	btn.add_theme_color_override("icon_disabled_color", Color(0.40, 0.32, 0.20, 0.55))
 
 ## Procedural draw callback — fallback for when the canonical PNG is
 ## missing. Reproduces the brand composition: octagon outline, central
@@ -7983,13 +7986,15 @@ func _build_title_overlay() -> Control:
 	# is present; falls back to the engraved typeset Label otherwise.
 	# The illustrated version carries its own carved-brass texture so
 	# no outline/shadow is needed; the typeset fallback uses both.
+	# Bumped to 760×240 so it reads as the focal anchor of the title
+	# rather than a label tucked beside the logomark.
 	var title_ctrl: Control
 	if ResourceLoader.exists(WORDMARK_PATH):
 		var title_tr := TextureRect.new()
 		title_tr.texture       = load(WORDMARK_PATH)
 		title_tr.expand_mode   = TextureRect.EXPAND_IGNORE_SIZE
 		title_tr.stretch_mode  = TextureRect.STRETCH_KEEP_ASPECT
-		title_tr.custom_minimum_size = Vector2(540, 170)
+		title_tr.custom_minimum_size = Vector2(760, 240)
 		title_ctrl = title_tr
 	else:
 		title_ctrl = _make_engraved_label(
@@ -8223,7 +8228,7 @@ func _build_title_overlay() -> Control:
 	_apply_meta_icon(_btn_stats,         "stats")
 	_apply_meta_icon(_btn_help,          "help")
 	_apply_meta_icon(_btn_codex,         "codex")
-	_apply_meta_icon(settings_btn,       "settings", 26)
+	_apply_meta_icon(settings_btn,       "settings", 32)
 
 	# ── SCREEN FRAME (top layer) ──────────────────────────────────────
 	# Hairline brass border + corner_bracket.png at each corner, added
