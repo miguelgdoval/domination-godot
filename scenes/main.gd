@@ -424,6 +424,10 @@ var _title_overlay:        Control
 ## Populated in `_build_title_overlay`, polled in `_process` while the
 ## title is visible.
 var _title_hero_bg:        TextureRect = null
+## Time accumulator for the slow ambient drift on the hero scene
+## (additive to cursor parallax). Wraps via sin/cos in
+## `_update_hero_parallax`, so we don't need to reset it.
+var _title_hero_drift_t:   float       = 0.0
 ## Per-session flag: fold-in animation plays once. Returns to the title
 ## (e.g. quit-to-title from mid-run) skip the animation and show the
 ## screen instantly.
@@ -571,6 +575,13 @@ func _update_hero_parallax(delta: float) -> void:
 	# world" feel. 0.5× the max keeps the motion subtle.
 	var target_x: float = -norm_x * HERO_PARALLAX_MAX * 0.5
 	var target_y: float = -norm_y * HERO_PARALLAX_MAX * 0.5
+	# Ambient drift — slow sine/cosine offset additive to the cursor
+	# parallax. Provides subtle motion even when the cursor is still
+	# (the world is alive, not waiting on the player). Frequencies are
+	# different on each axis so the motion isn't a tight circle.
+	_title_hero_drift_t += delta
+	target_x += sin(_title_hero_drift_t * 0.18) * 3.0
+	target_y += cos(_title_hero_drift_t * 0.12) * 2.0
 	# Smooth follow — exponential-ish lerp with delta-scaled factor.
 	var t: float = clampf(HERO_PARALLAX_LERP * delta, 0.0, 1.0)
 	var current_x: float = _title_hero_bg.offset_left + HERO_PARALLAX_MAX
@@ -682,7 +693,17 @@ func _on_title_start_pressed() -> void:
 	# behind the selection cards. Restored on back-to-title.
 	_set_title_content_visible(false)
 	_refresh_core_cards()
+	_set_selection_focus_target(_core_select_overlay, _core_cards, _pending_core)
 	_fade_in_overlay(_core_select_overlay)
+
+## Point the overlay's primary_btn meta at the currently-pending
+## thumbnail so keyboard-focus lands there when the overlay fades in
+## (handled by `_focus_overlay_primary` inside `_fade_in_overlay`).
+func _set_selection_focus_target(overlay: Control, cards: Array, pending: int) -> void:
+	if overlay == null or cards.is_empty():
+		return
+	var idx: int = clampi(pending, 0, cards.size() - 1)
+	overlay.set_meta("primary_btn", cards[idx])
 
 ## Toggle visibility of the title overlay's foreground content (logo,
 ## wordmark, tagline, rule, lore, menu stack, meta row, settings) while
@@ -1997,6 +2018,7 @@ func _on_core_card_pressed(index: int) -> void:
 func _on_core_confirm_pressed() -> void:
 	_core_select_overlay.hide()
 	_refresh_protocol_cards()
+	_set_selection_focus_target(_proto_select_overlay, _protocol_cards, _pending_protocol)
 	_fade_in_overlay(_proto_select_overlay)
 
 func _on_protocol_card_pressed(index: int) -> void:
@@ -2022,6 +2044,7 @@ func _on_core_back_pressed() -> void:
 func _on_protocol_back_pressed() -> void:
 	_proto_select_overlay.hide()
 	_refresh_core_cards()
+	_set_selection_focus_target(_core_select_overlay, _core_cards, _pending_core)
 	_fade_in_overlay(_core_select_overlay)
 
 func _refresh_core_cards() -> void:
@@ -5908,6 +5931,21 @@ func _unhandled_input(event: InputEvent) -> void:
 			_request_cinematic_skip()
 			get_viewport().set_input_as_handled()
 			return
+	# ESC on the selection overlays → BACK. Protocol back to Core,
+	# Core back to Title (which restores the title content). Checked
+	# before the per-phase confirm routing so ESC always means "go
+	# back" on these screens regardless of focus state.
+	if event is InputEventKey and (event as InputEventKey).pressed \
+			and not (event as InputEventKey).echo \
+			and (event as InputEventKey).keycode == KEY_ESCAPE:
+		if _proto_select_overlay != null and _proto_select_overlay.visible:
+			_on_protocol_back_pressed()
+			get_viewport().set_input_as_handled()
+			return
+		if _core_select_overlay != null and _core_select_overlay.visible:
+			_on_core_back_pressed()
+			get_viewport().set_input_as_handled()
+			return
 	# Cinematic finished — Space/Enter act as "confirm" on the post-
 	# cinematic screens (boss warning's BEGIN, run-end's NEW TRIAL CYCLE)
 	# so a player who skipped a cutscene isn't forced to also reach for
@@ -8404,19 +8442,40 @@ func _refresh_selection_featured(pane: PanelContainer, index: int) -> void:
 	# Engraved rule below header — darker brass for parchment contrast.
 	vbox.add_child(_build_engraved_rule(420, Color(0.50, 0.35, 0.14)))
 
-	# Body — description + lore quote when unlocked, or unlock requirement
-	# when not. Dark text reads cleanly on the brighter parchment surface.
+	# Body — split the description into [stats line, narrative]. The
+	# first line of every CORE_DESCS / PROTOCOL_DESCS entry is the
+	# mechanical loadout (e.g. "Full double-9 set — 110 tiles." or
+	# "Hand 5 | Plays 4 | Discards 2"); the rest is the descriptive
+	# sentence. Rendering them at different sizes gives the focal
+	# information a clear visual lead.
 	if unlocked:
-		var desc_lbl := _make_label(descs[index], Color(0.18, 0.12, 0.06), 16)
-		desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		desc_lbl.custom_minimum_size = Vector2(520, 0)
-		desc_lbl.add_theme_constant_override("line_separation", 4)
-		vbox.add_child(desc_lbl)
+		var desc_lines: PackedStringArray = descs[index].split("\n")
+		var stats_line: String = desc_lines[0] if desc_lines.size() > 0 else ""
+		var narrative:  String = ""
+		if desc_lines.size() > 1:
+			for line_idx in range(1, desc_lines.size()):
+				if line_idx > 1:
+					narrative += "\n"
+				narrative += desc_lines[line_idx]
+
+		if stats_line != "":
+			var stats_lbl := _make_label(stats_line, Color(0.20, 0.12, 0.04), 18)
+			stats_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			stats_lbl.custom_minimum_size = Vector2(520, 0)
+			FontManager.apply_semibold(stats_lbl)
+			vbox.add_child(stats_lbl)
+
+		if narrative != "":
+			var narr_lbl := _make_label(narrative, Color(0.32, 0.22, 0.10), 14)
+			narr_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			narr_lbl.custom_minimum_size = Vector2(520, 0)
+			narr_lbl.add_theme_constant_override("line_separation", 3)
+			vbox.add_child(narr_lbl)
 
 		var lore_pad := Control.new()
 		lore_pad.custom_minimum_size = Vector2(0, 4)
 		vbox.add_child(lore_pad)
-		var lore_lbl := _make_label("— " + lores[index], Color(0.32, 0.24, 0.14), 13)
+		var lore_lbl := _make_label("— " + lores[index], Color(0.40, 0.30, 0.16), 13)
 		lore_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		lore_lbl.custom_minimum_size = Vector2(520, 0)
 		vbox.add_child(lore_lbl)
@@ -8666,6 +8725,24 @@ func _build_selection_overlay(
 			i, is_core, names[i], rarities[i], unlocked_arr[i], card_callback)
 		thumb_grid.add_child(thumb)
 		out_cards.append(thumb)
+
+	# Wire arrow-key navigation between thumbnails. Each thumb's
+	# focus_neighbor_* points to its adjacent thumb in the 3-column
+	# grid, so the player can browse with the keyboard instead of
+	# needing the mouse. Enter activates the focused thumbnail because
+	# Buttons handle confirm natively.
+	const NAV_COLS: int = 3
+	for i in range(out_cards.size()):
+		var btn: Button = out_cards[i]
+		var col: int = i % NAV_COLS
+		if col > 0:
+			btn.focus_neighbor_left  = out_cards[i - 1].get_path()
+		if col < NAV_COLS - 1 and (i + 1) < out_cards.size():
+			btn.focus_neighbor_right = out_cards[i + 1].get_path()
+		if i >= NAV_COLS:
+			btn.focus_neighbor_top    = out_cards[i - NAV_COLS].get_path()
+		if (i + NAV_COLS) < out_cards.size():
+			btn.focus_neighbor_bottom = out_cards[i + NAV_COLS].get_path()
 
 	# Right-edge breathing room for the thumbnail column. The outer
 	# panel's content_margin_right gives the panel-level border its
